@@ -16,6 +16,7 @@ import { MapErrorBoundary } from "@/components/MapErrorBoundary";
 import { PWAUpdatePrompt } from "@/components/PWAUpdatePrompt";
 import { ReconnectingBanner } from "@/components/ReconnectingBanner";
 import { RouteTransitionCurtain } from "@/components/RouteTransitionCurtain";
+import { SpoofIndicator } from "@/components/SpoofIndicator";
 import { installGpsSpoof } from "@/lib/debugGpsSpoof";
 import { setupCompleted, welcomeSeen } from "@/lib/gameSetup";
 import { playerRole } from "@/lib/hiderRole";
@@ -261,6 +262,9 @@ export function App() {
                 is resyncing rather than silently frozen. Inert unless in a
                 game with a non-open socket. */}
             <ReconnectingBanner />
+            {/* v937: always-visible chip when a (now-persistent) debug GPS
+                spoof is active, so it can't be silently forgotten. */}
+            <SpoofIndicator />
             {/* Toast portal — single instance shared across both
                 routes. v304: progress bar visible (it's the
                 visual countdown), draggable enabled (swipe to

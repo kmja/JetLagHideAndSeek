@@ -2,9 +2,11 @@ import { describe, expect, it } from "vitest";
 
 import {
     canPayDiscardCost,
+    curseCostDeliverableIsImage,
     curseCostRequiresPhoto,
     curseCostRequiresRockCount,
     curseCostRequiresVideo,
+    curseRequiresImage,
     eligibleForDiscardCost,
     parseDiscardCost,
 } from "@/lib/castingCost";
@@ -143,5 +145,28 @@ describe("eligibility + payability", () => {
         expect(curseCostRequiresRockCount("Film a bird.")).toBe(false);
         expect(curseCostRequiresRockCount("A photo of an animal.")).toBe(false);
         expect(curseCostRequiresRockCount(null)).toBe(false);
+    });
+
+    it("detects image-DELIVERABLE curses (Unguided Tourist / Labyrinth)", () => {
+        const unguided =
+            "Send the seekers an unzoomed Google Street View image from a street within 150 meters of where they are now.";
+        const labyrinth =
+            "Spend up to 10 min creating a solvable maze and send a photo of it to the seekers.";
+        // The deliverable image is in the DESCRIPTION, not the casting cost.
+        expect(curseCostDeliverableIsImage(unguided)).toBe(true);
+        expect(curseCostDeliverableIsImage(labyrinth)).toBe(true);
+        expect(
+            curseCostDeliverableIsImage("The seekers must roll a die."),
+        ).toBe(false);
+        expect(curseCostDeliverableIsImage(null)).toBe(false);
+
+        // The unified gate fires on either the cost photo OR the deliverable.
+        expect(
+            curseRequiresImage("Seekers must be outside.", unguided),
+        ).toBe(true);
+        expect(curseRequiresImage("A photo of a car.", "whatever")).toBe(true);
+        expect(
+            curseRequiresImage("Discard two cards.", "The seekers must wait."),
+        ).toBe(false);
     });
 });

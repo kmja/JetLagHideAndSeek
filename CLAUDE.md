@@ -428,7 +428,31 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v937`. Use `git log` for the per-version detail;
+build stamp. Current: `v938`. Use `git log` for the per-version detail;
+
+**v938 — persistent GPS spoof (multi-device testing) + Unguided Tourist
+image payload.**
+- **The debug GPS spoof (`spoofedPosition`) is now PERSISTENT** (was
+  volatile). Multi-device testing reloads constantly (PWA updates, the
+  reconnect flow, the boot watchdog), and a volatile spoof got silently
+  wiped on each reload — so a spoofed seeker + a reloaded hider ended up on
+  different real/spoofed GPS, which read as a "gamebreaking" desync (radar
+  centred on the spoof but the hider graded against real GPS). Persisting it
+  keeps a test session consistent across reloads; the decode validates the
+  stored value so a corrupt entry can't poison location. Guarded by a new
+  always-visible **`SpoofIndicator`** chip (amber "GPS SPOOFED · tap to
+  clear", app-level) so an active spoof can't be forgotten — a real user
+  never reaches the debug panel that sets it. (Real 2-device games use real
+  GPS on both ends, which was always correct — this only affected spoofed
+  testing.)
+- **Curse of the Unguided Tourist (+ Labyrinth) now require + deliver an
+  IMAGE.** Their deliverable — the hider sends the seekers a Street View
+  image / a photo of the drawn maze — is in the DESCRIPTION, not the casting
+  cost, so `curseCostRequiresPhoto` (cost-only) missed it. New
+  `curseCostDeliverableIsImage(description)` + `curseRequiresImage(cost,
+  description)` union both signals; `CastCurseDialog` gates the cast on it
+  and delivers the image through the SAME photo pipeline as the photo-cost
+  curses (capture → R2 → `CursePayload.photoUrl` → CurseInbox). Unit-tested.
 
 **v937 — two multiplayer clock-skew / reconnect timer bugs.**
 - **Photo answer window desynced (seeker 10 min, hider 5 min) + reset on

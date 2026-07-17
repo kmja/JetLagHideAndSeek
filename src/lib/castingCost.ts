@@ -87,6 +87,42 @@ export function curseCostRequiresPhoto(castingCost: string | null): boolean {
 }
 
 /**
+ * Whether a curse's DELIVERABLE is an image the HIDER must send to the
+ * seekers — distinct from a photo CASTING COST (above). Curse of the
+ * Unguided Tourist ("Send the seekers an ... Street View image") and Curse
+ * of the Labyrinth ("send a photo of it") both require the hider to attach
+ * an image that's delivered to the seekers as the curse's payload. It rides
+ * the SAME photo pipeline as the photo-cost curses (capture → R2 →
+ * `CursePayload.photoUrl` → CurseInbox), just for the deliverable rather
+ * than the cost. Detected off the description since neither casting cost
+ * literally says "photo". `curseRequiresImage` unions both signals for the
+ * cast flow's "must attach a photo" gate.
+ */
+export function curseCostDeliverableIsImage(
+    description: string | null,
+): boolean {
+    if (!description) return false;
+    return (
+        /send the seekers an[^.]*\b(image|photo|picture)\b/i.test(description) ||
+        /send a photo of it/i.test(description)
+    );
+}
+
+/**
+ * Unified "this curse needs the hider to attach an image" gate — true when
+ * the casting cost is a proof photo OR the deliverable is a hider-sent image.
+ */
+export function curseRequiresImage(
+    castingCost: string | null,
+    description: string | null,
+): boolean {
+    return (
+        curseCostRequiresPhoto(castingCost) ||
+        curseCostDeliverableIsImage(description)
+    );
+}
+
+/**
  * Whether a curse's casting cost is "film for a duration" — Curse of the
  * Bird Guide ("Film a bird"), where the mechanic is entirely about the
  * elapsed TIME the hider managed (the seekers must then film for at least

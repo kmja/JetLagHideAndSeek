@@ -1,4 +1,5 @@
 import { atom } from "nanostores";
+import { persistentAtom } from "@nanostores/persistent";
 
 /**
  * Debug GPS spoofing (v353).
@@ -12,11 +13,39 @@ import { atom } from "nanostores";
  * thermometer, the seeker-location broadcast, …); intercepting at the
  * platform API covers every one of them without touching each.
  *
- * `spoofedPosition` is deliberately a VOLATILE atom (not persisted): a
- * reload returns real GPS, so a forgotten spoof can't silently break
- * location forever. Re-spoofing is one click.
+ * v937: `spoofedPosition` is now PERSISTENT (was volatile). Multi-device
+ * testing reloads constantly (PWA updates, the reconnect flow, the boot
+ * watchdog), and a volatile spoof got silently wiped on each reload — so a
+ * spoofed seeker + a reloaded hider ended up on real GPS on one side, which
+ * read as a "gamebreaking" desync (e.g. radar centred on the spoof but the
+ * hider graded against real GPS). Persisting it keeps a test session
+ * consistent across reloads. The trade-off — a forgotten spoof silently
+ * breaking real location — is guarded by the always-visible `SpoofIndicator`
+ * banner + `clearGpsSpoof()`; a real user never reaches the debug panel that
+ * sets it. The stored value is validated on decode so a corrupt entry can't
+ * poison location.
  */
-export const spoofedPosition = atom<{ lat: number; lng: number } | null>(null);
+export const spoofedPosition = persistentAtom<{
+    lat: number;
+    lng: number;
+} | null>("jlhs:spoofedPosition", null, {
+    encode: JSON.stringify,
+    decode: (v) => {
+        try {
+            const parsed = JSON.parse(v) as { lat?: unknown; lng?: unknown };
+            if (
+                parsed &&
+                Number.isFinite(parsed.lat) &&
+                Number.isFinite(parsed.lng)
+            ) {
+                return { lat: parsed.lat as number, lng: parsed.lng as number };
+            }
+        } catch {
+            /* fall through */
+        }
+        return null;
+    },
+});
 
 /**
  * When true, the next tap on the seeker/hider map sets the spoof to that

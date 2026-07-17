@@ -33,9 +33,9 @@ import { CATEGORIES, type CategoryId } from "@/lib/categories";
 import {
     canPayDiscardCost,
     curseCostRequiresDestination,
-    curseCostRequiresPhoto,
     curseCostRequiresRockCount,
     curseCostRequiresVideo,
+    curseRequiresImage,
     eligibleForDiscardCost,
     parseDiscardCost,
 } from "@/lib/castingCost";
@@ -328,11 +328,17 @@ export function CastCurseDialog({
         for (const id of ids) discardCard(id);
     };
 
-    // Photo casting cost. In multiplayer the app can DELIVER the photo to
-    // the seekers, so it's required before casting; solo/link games keep
-    // it a self-attested real-life action (no room to send it to) — the
-    // capture UI is offered but doesn't gate the cast.
-    const costRequiresPhoto = curseCostRequiresPhoto(card.castingCost);
+    // Photo casting cost OR image DELIVERABLE. In multiplayer the app can
+    // DELIVER the image to the seekers, so it's required before casting;
+    // solo/link games keep it a self-attested real-life action (no room to
+    // send it to) — the capture UI is offered but doesn't gate the cast.
+    // v937: `curseRequiresImage` also covers the Unguided Tourist (send a
+    // Street View image) + Labyrinth (send a photo of the maze), whose image
+    // is the DELIVERABLE (in the description), not the casting cost.
+    const costRequiresPhoto = curseRequiresImage(
+        card.castingCost,
+        card.description,
+    );
     const online = $multiplayer && !!currentGameCode.get();
     const photoRequired = costRequiresPhoto && online;
     const photoSatisfied = !photoRequired || preparedPhoto !== null;
@@ -1092,7 +1098,7 @@ export function CastCurseDialog({
                                             </Button>
                                             <p className="text-[11px] text-muted-foreground leading-snug mt-1.5">
                                                 {photoRequired
-                                                    ? "Attach the proof photo before casting — the seekers receive it with the curse."
+                                                    ? "Attach the image before casting — the seekers receive it with the curse."
                                                     : "Optional here — no room to send it to. Show it to the seekers in person."}
                                             </p>
                                         </>
