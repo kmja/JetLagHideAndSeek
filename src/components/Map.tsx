@@ -52,7 +52,7 @@ import {
     mapLibreContext,
     mapLibreViewport,
 } from "@/lib/featureFlags";
-import { hidingPeriodEndsAt, playArea } from "@/lib/gameSetup";
+import { hidingPeriodEndsAt, playArea, revealedStation } from "@/lib/gameSetup";
 import { satelliteView } from "@/lib/gameSetup";
 import { stationLabelMaxChars } from "@/lib/debugState";
 import { playerRole, roundFoundAt } from "@/lib/hiderRole";
@@ -448,6 +448,7 @@ export function Map({ className }: MapProps) {
     // come back to the bottom-left. A one-shot timeout flips at the
     // deadline — no 1 Hz tick needed.
     const $hidingEndsAt = useStore(hidingPeriodEndsAt);
+    const $revealedStation = useStore(revealedStation);
     const [inHidingPeriod, setInHidingPeriod] = useState(
         () => $hidingEndsAt != null && Date.now() < $hidingEndsAt,
     );
@@ -2522,6 +2523,42 @@ export function Map({ className }: MapProps) {
                         anchor="center"
                     >
                         <SelfPositionMarker />
+                    </Marker>
+                )}
+
+                {/* Move powerup: the hider revealed their transit station
+                    ("send the seekers the location of your transit station").
+                    A distinct brand-red pin + label so the seekers know where
+                    the hider WAS before relocating. */}
+                {$revealedStation && (
+                    <Marker
+                        longitude={$revealedStation.lng}
+                        latitude={$revealedStation.lat}
+                        anchor="bottom"
+                    >
+                        <div className="flex flex-col items-center pointer-events-none -translate-y-1">
+                            <div className="mb-1 px-2 py-0.5 rounded-full bg-primary text-primary-foreground text-[11px] font-semibold shadow-lg whitespace-nowrap max-w-[12rem] truncate">
+                                Hider was here
+                                {$revealedStation.name
+                                    ? ` · ${$revealedStation.name}`
+                                    : ""}
+                            </div>
+                            <svg
+                                width="26"
+                                height="34"
+                                viewBox="0 0 26 34"
+                                aria-hidden="true"
+                                className="drop-shadow"
+                            >
+                                <path
+                                    d="M13 33C13 33 24 20.5 24 12.5C24 6.15 19.075 1 13 1C6.925 1 2 6.15 2 12.5C2 20.5 13 33 13 33Z"
+                                    fill="hsl(var(--primary))"
+                                    stroke="#ffffff"
+                                    strokeWidth="2"
+                                />
+                                <circle cx="13" cy="12.5" r="4.5" fill="#ffffff" />
+                            </svg>
+                        </div>
                     </Marker>
                 )}
 

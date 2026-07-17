@@ -46,6 +46,7 @@ import {
     manualPausedAt,
     manualPauseWasHiding,
     resetMapOverlays,
+    revealedStation,
     roundEndBaseMs,
     roundEndBonusPieces,
     roundEndHiderName,
@@ -122,6 +123,7 @@ export function resetSharedRoundState(): void {
 
     // Move-powerup freeze + scoring credit/debit + location-pause state.
     seekersFrozenUntil.set(null);
+    revealedStation.set(null);
     hiddenCreditMs.set(0);
     hiddenDebitMs.set(0);
     locationGraceStartedAt.set(null);

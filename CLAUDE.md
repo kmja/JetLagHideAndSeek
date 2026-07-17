@@ -428,7 +428,38 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v928`. Use `git log` for the per-version detail;
+build stamp. Current: `v929`. Use `git log` for the per-version detail;
+
+**v929 — Move powerup is now fully automatic + card copy fixes.** From a
+per-card audit of every powerup/curse (all the changelog's claimed payloads —
+photo/film/rock/destination/Drained-Brain/Spotty/Urban/Chalice/discard-costs —
+verified genuinely wired end-to-end). The two gaps were both on **Move**, which
+the app now handles automatically instead of instructing the hider to do it
+manually:
+- **Reveals the hider's station to the seekers** (Move's defining mechanic:
+  "send the seekers the location of your transit station"). New
+  `revealedStation` atom (`gameSetup.ts`) + `SetupState.revealedStation`
+  (`protocol/state.ts`); `playMovePowerup` (`roundActions.ts`) captures the
+  committed `hidingZone` BEFORE clearing it and sets `revealedStation`, synced to
+  seekers via `hostPushSetup` (the server relays the whole `SetupState`, so no
+  worker change — rides the welcome snapshot for late joiners too). The seeker
+  map (`Map.tsx`) drops a brand-red pin + "Hider was here · <station>" label, and
+  the seeker gets a "Hider is on the move" notification.
+- **Syncs the seeker freeze.** `seekersFrozenUntil` was a hider-LOCAL atom, so
+  the seeker device never showed `SeekerFrozenBanner`. It's now a
+  `SetupState.seekersFrozenUntil` field (applied in `applySnapshot` +
+  `setupChanged`), so seekers actually see "hold position" during Move's fresh
+  hiding period. Both cleared per round (`roundReset.ts`).
+- (Deferred, still manual: the Unguided-Tourist / Labyrinth "send an image"
+  deliverables — could reuse the photo-cost pipeline; and the self-attested
+  hider bonus-award conditions.)
+- **Card copy fixes (`CardTile.tsx` `renderBodyText` + `hiderDeck.ts`):** the
+  size-triplet tokenizer's trailing shared-unit capture was EATING the word after
+  a badge when the values already carried their own unit — so "…10 km FROM you"
+  (Bridge Troll), "…20 min <verb> a maze" (Labyrinth), "…20 min BONUS" (Endless
+  Tumble) all silently lost a word. Now that word is re-emitted. Labyrinth's verb
+  changed "drawing"→"creating". Curse titles render hyphens as NON-breaking
+  (`‑`) so "U-Turn" no longer wraps at the hyphen.
 
 **v928 — automatic curse-description length ramp (`CardTile.tsx`).** Replaced the
 Cairn-only 3.6cqw special-case with a continuous length→font-size ramp so ANY

@@ -178,7 +178,7 @@ export function HiderHandPanel() {
                     const moved = playMovePowerup();
                     toast.info(
                         moved
-                            ? "Move played. A fresh hiding period has started and the seekers are frozen — send them your current station and pick a new hiding zone."
+                            ? "Move played. Your station was sent to the seekers and they're frozen for the new hiding period — pick a new hiding zone."
                             : "Hand discarded, but Move had no clock to re-anchor (no hiding period running, or the endgame has begun).",
                         { autoClose: 6000 },
                     );

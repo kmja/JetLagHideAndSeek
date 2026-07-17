@@ -408,7 +408,7 @@ const CURSE_SLOTS: CurseSlot[] = [
             kind: "curse",
             name: "Curse of the Labyrinth",
             description:
-                "Spend up to 10 min (S) / 20 min (M) / 30 min (L) drawing a solvable maze and send a photo of it to the seekers. You cannot use the internet to research maze designs. The seekers must solve the maze before asking another question.",
+                "Spend up to 10 min (S) / 20 min (M) / 30 min (L) creating a solvable maze and send a photo of it to the seekers. You cannot use the internet to research maze designs. The seekers must solve the maze before asking another question.",
             castingCost: "Draw a maze.",
         },
         copies: 1,

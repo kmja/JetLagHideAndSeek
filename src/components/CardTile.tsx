@@ -328,7 +328,9 @@ function CurseBody({
                     WebkitTextStroke: `0.022em ${NAVY}`,
                 }}
             >
-                {card.name}
+                {/* Keep a hyphenated word (e.g. "U-Turn") from breaking at
+                    the hyphen — use a non-breaking hyphen so it stays whole. */}
+                {card.name.replace(/-/g, "‑")}
             </div>
             <div
                 className="flex-1 min-h-0 overflow-y-auto"
@@ -1042,10 +1044,18 @@ export function renderBodyText(text: string, gameSize: GameSize): ReactNode {
             <SizeBadge
                 key={`b-${counter++}`}
                 size={gameSize}
-                value={valueHasUnit ? value : value}
+                value={value}
                 unit={valueHasUnit ? undefined : sharedUnit}
             />,
         );
+        // When the values already carry their OWN unit (e.g. "10 km",
+        // "20 min"), the trailing word the regex captured is NOT a shared
+        // unit — it's the next word of the sentence ("…10 km FROM you",
+        // "…20 min CREATING a maze"). Re-emit it instead of dropping it,
+        // else the sentence loses a word after the badge.
+        if (valueHasUnit && sharedUnit) {
+            nodes.push(` ${sharedUnit}`);
+        }
         cursor = m.index + m[0].length;
     }
     if (cursor < normalised.length) {

@@ -47,9 +47,11 @@ import {
     hiddenCreditMs,
     hidingPeriodEndsAt,
     playArea,
+    revealedStation,
     roundEndBaseMs,
     roundEndBonusPieces,
     roundEndHiderName,
+    seekersFrozenUntil,
 } from "@/lib/gameSetup";
 import { timeBonusPieces } from "@/lib/hiderDeck";
 import {
@@ -446,6 +448,10 @@ export function hostPushSetup() {
         hidingPeriodEndsAt: hidingPeriodEndsAt.get(),
         endgameStartedAt: endgameStartedAt.get(),
         endgameConfirmedAt: endgameConfirmedAt.get(),
+        // Move powerup: sync the seeker freeze + the revealed station so the
+        // seeker device shows the frozen banner + a "hider was here" marker.
+        seekersFrozenUntil: seekersFrozenUntil.get(),
+        revealedStation: revealedStation.get(),
         // Ship the full Photon OSM feature so the hide team's
         // settings dialog can show the host's area instead of
         // its persisted Japan default. Half a KB on the wire,
@@ -810,6 +816,13 @@ function applySnapshot(state: GameState) {
     hidingPeriodEndsAt.set(state.setup.hidingPeriodEndsAt);
     endgameStartedAt.set(state.setup.endgameStartedAt);
     endgameConfirmedAt.set(state.setup.endgameConfirmedAt ?? null);
+    // Move powerup freeze + revealed station (present only on newer setups).
+    if ("seekersFrozenUntil" in state.setup) {
+        seekersFrozenUntil.set(state.setup.seekersFrozenUntil ?? null);
+    }
+    if ("revealedStation" in state.setup) {
+        revealedStation.set(state.setup.revealedStation ?? null);
+    }
     if (state.setup.mapGeoLocation) {
         mapGeoLocation.set(
             state.setup.mapGeoLocation as OpenStreetMap,
@@ -1116,6 +1129,29 @@ function handleServerMessage(msg: ServerMessage) {
             endgameStartedAt.set(msg.setup.endgameStartedAt);
             const prevEndgameConfirmedAt = endgameConfirmedAt.get();
             endgameConfirmedAt.set(msg.setup.endgameConfirmedAt ?? null);
+            // Move powerup: sync the seeker freeze + the revealed station.
+            if ("seekersFrozenUntil" in msg.setup) {
+                seekersFrozenUntil.set(msg.setup.seekersFrozenUntil ?? null);
+            }
+            if ("revealedStation" in msg.setup) {
+                const prevReveal = revealedStation.get();
+                const nextReveal = msg.setup.revealedStation ?? null;
+                revealedStation.set(nextReveal);
+                // The hider just played Move (no reveal → a reveal): tell the
+                // seekers where the hider WAS and that they're frozen.
+                if (prevReveal === null && nextReveal !== null) {
+                    const role = playerRole.get();
+                    if (role === "seeker") {
+                        notify({
+                            title: "Hider is on the move",
+                            body: nextReveal.name
+                                ? `They were at ${nextReveal.name}. Hold position — you're frozen while they relocate.`
+                                : "They revealed their last station and are relocating. Hold position — you're frozen.",
+                            tag: "move-powerup",
+                        });
+                    }
+                }
+            }
             if (msg.setup.mapGeoLocation) {
                 mapGeoLocation.set(
                     msg.setup.mapGeoLocation as OpenStreetMap,

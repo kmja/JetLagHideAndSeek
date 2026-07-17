@@ -17,6 +17,7 @@ import {
     preloadBucketTimestamps,
     roundEndBaseMs,
     roundEndBonusPieces,
+    revealedStation,
     roundEndHiderName,
     seekersFrozenUntil,
     seekingStartFiredFor,
@@ -139,9 +140,10 @@ export function startNewRound() {
  * endgame. Returns false (and no-ops) if there's no running clock or
  * the endgame has already begun.
  *
- * The caller is responsible for discarding the hand and telling the
- * seekers the current station — this handles only the timer/freeze/
- * re-anchor state so both hand UIs (fan + panel) stay in sync.
+ * The caller is responsible for discarding the hand; this handles the
+ * timer/freeze/re-anchor state AND reveals the current station to the
+ * seekers (`revealedStation`, synced via `hostPushSetup`) so both hand
+ * UIs (fan + panel) stay in sync and Move is fully automatic.
  */
 export function playMovePowerup(): boolean {
     const endsAt = hidingPeriodEndsAt.get();
@@ -154,6 +156,20 @@ export function playMovePowerup(): boolean {
     if (now > endsAt) {
         hiddenCreditMs.set(hiddenCreditMs.get() + (now - endsAt));
     }
+
+    // Reveal the CURRENT station to the seekers (Move's defining mechanic:
+    // "send the seekers the location of your transit station") — captured
+    // BEFORE we clear the zone. Synced to seekers via hostPushSetup below.
+    const oldZone = hidingZone.get();
+    revealedStation.set(
+        oldZone
+            ? {
+                  lat: oldZone.stationLat,
+                  lng: oldZone.stationLng,
+                  name: oldZone.stationName,
+              }
+            : null,
+    );
 
     // Re-anchor: the old zone/spot no longer apply — the hider picks a
     // new station during the fresh hiding period.

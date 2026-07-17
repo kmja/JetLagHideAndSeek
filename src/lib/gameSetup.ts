@@ -714,6 +714,33 @@ export const seekersFrozenUntil = persistentAtom<number | null>(
 );
 
 /**
+ * The hider's transit-station location revealed to the seekers by a Move
+ * powerup (Move: "send the seekers the location of your transit station").
+ * The seeker map drops a marker at this point; null when no Move reveal is
+ * active. Synced via `SetupState.revealedStation`; cleared each round.
+ */
+export interface RevealedStation {
+    lat: number;
+    lng: number;
+    name?: string;
+}
+export const revealedStation = persistentAtom<RevealedStation | null>(
+    "revealedStation",
+    null,
+    {
+        encode: (v) => (v === null ? "" : JSON.stringify(v)),
+        decode: (v) => {
+            if (!v) return null;
+            try {
+                return JSON.parse(v) as RevealedStation;
+            } catch {
+                return null;
+            }
+        },
+    },
+);
+
+/**
  * Banked hidden-time (ms) the hider accrued in earlier seeking
  * segments before re-anchoring with a Move powerup. Headline scoring
  * is `(foundAt - hidingPeriodEndsAt) + hiddenCreditMs`, so a Move

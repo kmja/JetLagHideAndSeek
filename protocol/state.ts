@@ -115,6 +115,27 @@ export interface SetupState {
      */
     endgameConfirmedAt?: number | null;
     /**
+     * Unix ms until which the SEEKERS are frozen by a hider's Move
+     * powerup (the end of the fresh hiding period Move grants). Null when
+     * no freeze is active. Synced so the seeker device actually shows the
+     * "seekers frozen — hold position" banner (it's otherwise a hider-local
+     * atom). Rides the welcome snapshot for late joiners. Optional for
+     * back-compat.
+     */
+    seekersFrozenUntil?: number | null;
+    /**
+     * The hider's transit-station location revealed to the seekers when a
+     * Move powerup is played (Move's defining mechanic: "send the seekers
+     * the location of your transit station"). The seeker map drops a
+     * marker here. Null when no Move reveal is active; cleared each round.
+     * Optional for back-compat.
+     */
+    revealedStation?: {
+        lat: number;
+        lng: number;
+        name?: string;
+    } | null;
+    /**
      * Full Photon OSM feature for the host's selected play area
      * (`OpenStreetMap` on the client). Carries the extent / osm_id
      * the hider device needs so its settings dialog can recognise
