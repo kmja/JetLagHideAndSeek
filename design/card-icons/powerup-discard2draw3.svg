@@ -1,10 +1,10 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="316" height="307" viewBox="0 0 316 307" fill="none">
 <rect width="316" height="307" fill="white"/>
-<path d="M241 190.93V117.936C241 110.814 237.213 104.23 231.057 100.649L167.838 63.8688C161.604 60.2424 153.901 60.2525 147.678 63.8952L84.8974 100.64C78.7672 104.228 75 110.798 75 117.901L75 190.965C75 198.068 78.7672 204.638 84.8974 208.226L147.678 244.971C153.902 248.614 161.604 248.624 167.838 244.997L231.057 208.217C237.213 204.636 241 198.052 241 190.93Z" stroke="black" stroke-width="8" stroke-linecap="square"/>
-<rect x="179" y="207" width="64" height="88" rx="12" transform="rotate(180 179 207)" stroke="black" stroke-width="8"/>
-<path d="M189 97L149 97L148.587 97.0049C140.079 97.2205 133.22 104.079 133.005 112.587L133 115L141 115C141 110.582 144.582 105 149 105L189 105C193.418 105 197 108.582 197 113L197 177C197 181.418 193.418 185 189 185L183 185L183 193L189 193C197.837 193 205 185.837 205 177L205 113L204.995 112.587C204.779 104.079 197.921 97.2205 189.413 97.0049L189 97Z" fill="black"/>
-<circle cx="98" cy="214" r="56" fill="white" stroke="black" stroke-width="8"/>
-<circle cx="209" cy="75" r="40" fill="black"/>
-<text x="97" y="216" text-anchor="middle" dominant-baseline="central" font-family="'Poppins', system-ui, sans-serif" font-weight="700" font-size="66" fill="black">+3</text>
+<path d="M241 190.93V117.936C241 110.814 237.213 104.23 231.057 100.649L167.838 63.8688C161.604 60.2424 153.901 60.2525 147.678 63.8952L84.8974 100.64C78.7672 104.228 75 110.798 75 117.901L75 190.965C75 198.068 78.7672 204.638 84.8974 208.226L147.678 244.971C153.902 248.614 161.604 248.624 167.838 244.997L231.057 208.217C237.213 204.636 241 198.052 241 190.93Z" stroke="#1F2F3F" stroke-width="8" stroke-linecap="square"/>
+<rect x="179" y="207" width="64" height="88" rx="12" transform="rotate(180 179 207)" stroke="#1F2F3F" stroke-width="8"/>
+<path d="M189 97L149 97L148.587 97.0049C140.079 97.2205 133.22 104.079 133.005 112.587L133 115L141 115C141 110.582 144.582 105 149 105L189 105C193.418 105 197 108.582 197 113L197 177C197 181.418 193.418 185 189 185L183 185L183 193L189 193C197.837 193 205 185.837 205 177L205 113L204.995 112.587C204.779 104.079 197.921 97.2205 189.413 97.0049L189 97Z" fill="#1F2F3F"/>
+<circle cx="98" cy="214" r="56" fill="white" stroke="#1F2F3F" stroke-width="8"/>
+<circle cx="209" cy="75" r="40" fill="#1F2F3F"/>
+<text x="97" y="216" text-anchor="middle" dominant-baseline="central" font-family="'Poppins', system-ui, sans-serif" font-weight="700" font-size="66" fill="#1F2F3F">+3</text>
 <text x="208" y="77" text-anchor="middle" dominant-baseline="central" font-family="'Poppins', system-ui, sans-serif" font-weight="700" font-size="50" fill="white">-2</text>
 </svg>
