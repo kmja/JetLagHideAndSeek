@@ -428,7 +428,28 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v930`. Use `git log` for the per-version detail;
+build stamp. Current: `v931`. Use `git log` for the per-version detail;
+
+**v931 — preload progress + Stop/Resume in the lobby.** Preload already
+STARTED on lobby open (the `GameLobbyDialog` open-effect fires
+`preloadDuringHidingPeriod` for host+guest, seeker+hider) — but the detailed
+per-bucket progress only showed in Settings, and there was no way to halt it.
+Now the lobby renders the full **`PreloadChoicesPanel`** (`showStatus`, area
+estimate from `estimateTotalAreaKm2`) with the map byte/percent bar + transit
+step bar, plus a **Stop / Resume** control. `preload.ts` gained
+`stopPreload()` / `resumePreload()` + a persisted **`preloadPaused`** atom
+(`gameSetup.ts`): Stop aborts the in-flight **map** download (the heavy MB-scale
+transfer — a module-level `AbortController` whose `signal` now threads into
+`loadTilePackForPlayArea` + `preloadTilesForPlayArea`, both already signal-ready;
+an aborted run does NOT stamp a completion timestamp so it reads resumable) and
+sets `preloadPaused`, which every start path now honours
+(`preloadDuringHidingPeriod`, `runPreloadForBucket`, `runMapPreload`, and by
+extension the lobby-open effect + `GameStartWatcher`). Resume clears the flag and
+re-runs the enabled buckets — completed work is a cache hit and the tile-walk
+skips tiles already in the SW range cache, so it CONTINUES rather than restarts.
+References/transit have no abort signal yet (lighter, cache-keyed) — a Stop lets
+their current query finish but blocks any restart. The metered-link opt-in
+checkbox stays as the top row so a cellular download never begins silently.
 
 **v930 — multi-device stability: no forced reload, role-picker clipping,
 seeker-location spoof (from real-game testing).**

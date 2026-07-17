@@ -238,6 +238,18 @@ export const preloadBucketInFlight = atom<{
     transit: boolean;
 }>({ map: false, references: false, transit: false });
 
+/**
+ * User-facing STOP for the preload (v931). Persisted so a stop survives a
+ * reload. While true the orchestrator refuses to (re)start any bucket and
+ * `stopPreload()` aborts the in-flight map download; `resumePreload()`
+ * clears it and re-runs the enabled buckets (completed work is cache-hit,
+ * so resume continues rather than restarts).
+ */
+export const preloadPaused = persistentAtom<boolean>("preloadPaused", false, {
+    encode: (v) => (v ? "1" : ""),
+    decode: (v) => v === "1",
+});
+
 /** Persisted byte sizes for each preload bucket. v368: was volatile, so
  *  after a reload the badge fell back to "Downloaded (cached)" — accurate
  *  but less informative. Now persisted alongside `preloadBucketTimestamps`

@@ -20,6 +20,8 @@ import {
     CheckCircle2,
     Loader2,
     Map as MapIcon,
+    Play,
+    Square,
     TramFront,
 } from "lucide-react";
 
@@ -30,12 +32,13 @@ import {
     preloadBucketTimestamps,
     preloadChoices,
     preloadMapProgress,
+    preloadPaused,
     preloadTransitProgress,
     type TransitPreloadStep,
     setupCompleted,
     type PreloadChoices,
 } from "@/lib/gameSetup";
-import { runPreloadForBucket } from "@/lib/preload";
+import { resumePreload, runPreloadForBucket, stopPreload } from "@/lib/preload";
 import { cn } from "@/lib/utils";
 
 import { Checkbox } from "./ui/checkbox";
@@ -134,9 +137,12 @@ export function PreloadChoicesPanel({
     const inFlight = useStore(preloadBucketInFlight);
     const bucketBytes = useStore(preloadBucketBytes);
     const $setup = useStore(setupCompleted);
+    const paused = useStore(preloadPaused);
 
     // Default: show status once game is set up
     const displayStatus = showStatus ?? $setup;
+
+    const anyLoading = inFlight.map || inFlight.references || inFlight.transit;
 
     const toggle = (id: keyof PreloadChoices) => {
         const wasOn = choices[id];
@@ -335,6 +341,36 @@ export function PreloadChoicesPanel({
                         : "0 KB"}
                 </span>
             </div>
+
+            {/* Stop / Resume the whole preload (v931). Shown once a game is
+                set up — while loading, offer Stop; while paused, offer
+                Resume. Stop aborts the heavy map download; resume continues
+                (completed work is a cache hit). */}
+            {displayStatus && (paused || anyLoading) && (
+                <button
+                    type="button"
+                    onClick={() => (paused ? resumePreload() : stopPreload())}
+                    className={cn(
+                        "w-full mt-1 inline-flex items-center justify-center gap-1.5",
+                        "rounded-md border px-3 py-2 text-xs font-poppins font-semibold transition-colors",
+                        paused
+                            ? "border-primary bg-primary/10 text-primary hover:bg-primary/20"
+                            : "border-border bg-secondary/60 text-foreground hover:bg-secondary",
+                    )}
+                >
+                    {paused ? (
+                        <>
+                            <Play className="w-3.5 h-3.5" />
+                            Resume preloading
+                        </>
+                    ) : (
+                        <>
+                            <Square className="w-3.5 h-3.5" />
+                            Stop preloading
+                        </>
+                    )}
+                </button>
+            )}
         </div>
     );
 }

@@ -76,6 +76,7 @@ import {
     playerColor,
     playerInitials,
 } from "@/lib/playerColor";
+import { estimateTotalAreaKm2 } from "@/lib/playAreaSize";
 import { preloadDuringHidingPeriod } from "@/lib/preload";
 import { returnToLandingPage } from "@/lib/roundActions";
 import { fetchTilePackBytes } from "@/lib/tilePack";
@@ -84,6 +85,7 @@ import { cn } from "@/lib/utils";
 import { PlayAreaStep, TransitStep } from "./GameSetupDialog";
 import { SizeBadge } from "./JetLagLogo";
 import { PlayAreaPreviewMap } from "./PlayAreaPreviewMap";
+import { PreloadChoicesPanel } from "./PreloadChoicesPanel";
 import { RoundEndSection } from "./RoundEndSection";
 
 /**
@@ -1143,31 +1145,49 @@ export function GameLobbyDialog() {
                     {/* (Share moved to the fixed header — the ROOM CODE IS the
                         lobby header now, v857.) */}
 
-                    {/* Preload opt-in — only on a metered link. On wifi
-                        the lobby preloads silently (see the effect), so
-                        this checkbox doesn't render at all. */}
-                    {!isMidGame && metered && (
-                        <label className="flex items-center gap-3 p-3 rounded-md border border-border bg-secondary/30 cursor-pointer animate-in fade-in duration-200">
-                            <Checkbox
-                                checked={preloadOn}
-                                onCheckedChange={(c) =>
-                                    setPreloadOn(c === true)
-                                }
-                                aria-label="Preload game data"
+                    {/* Preload for offline play (v931). Preload already
+                        starts on lobby open (see the effect); this surfaces
+                        the DETAILED per-bucket progress + a Stop/Resume
+                        control, so a player can watch the download and pause
+                        it (e.g. on cellular). On a metered link the top row
+                        keeps the compact opt-in checkbox so an unwanted
+                        download never starts silently. */}
+                    {!isMidGame && (
+                        <div className="space-y-2">
+                            <div className="text-[11px] uppercase tracking-[0.16em] font-poppins font-bold text-muted-foreground px-1">
+                                Preload for offline play
+                            </div>
+                            {metered && (
+                                <label className="flex items-center gap-3 p-3 rounded-md border border-border bg-secondary/30 cursor-pointer animate-in fade-in duration-200">
+                                    <Checkbox
+                                        checked={preloadOn}
+                                        onCheckedChange={(c) =>
+                                            setPreloadOn(c === true)
+                                        }
+                                        aria-label="Preload game data"
+                                    />
+                                    <span className="flex-1 text-sm font-medium text-foreground">
+                                        Preload game data{" "}
+                                        <span className="text-muted-foreground tabular-nums">
+                                            (~
+                                            {estimatePreloadMB(
+                                                $mapGeoLocation,
+                                                $size,
+                                                packBytes,
+                                            )}
+                                            MB)
+                                        </span>
+                                    </span>
+                                </label>
+                            )}
+                            <PreloadChoicesPanel
+                                showStatus
+                                areaKm2={estimateTotalAreaKm2(
+                                    $mapGeoLocation,
+                                    $additional,
+                                )}
                             />
-                            <span className="flex-1 text-sm font-medium text-foreground">
-                                Preload game data{" "}
-                                <span className="text-muted-foreground tabular-nums">
-                                    (~
-                                    {estimatePreloadMB(
-                                        $mapGeoLocation,
-                                        $size,
-                                        packBytes,
-                                    )}
-                                    MB)
-                                </span>
-                            </span>
-                        </label>
+                        </div>
                     )}
 
                     {/* v318: leaderboard — surfaces the rolling

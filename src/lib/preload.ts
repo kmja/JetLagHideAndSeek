@@ -20,6 +20,7 @@ import {
     preloadBucketTimestamps,
     preloadChoices,
     preloadMapProgress,
+    preloadPaused,
     preloadTransitProgress,
     type TransitPreloadStep,
 } from "@/lib/gameSetup";
@@ -134,6 +135,8 @@ if (typeof window !== "undefined") {
  */
 export function preloadDuringHidingPeriod(): void {
     if (!playArea.get()) return;
+    // v931: a user STOP suppresses all (re)starts until they resume.
+    if (preloadPaused.get()) return;
     const choices = preloadChoices.get();
 
     // Diagnostic (v220) for the cache-pill stall — dev-only so it
@@ -164,9 +167,40 @@ export function runPreloadForBucket(
     bucket: "map" | "references" | "transit",
 ): void {
     if (!playArea.get()) return;
+    if (preloadPaused.get()) return;
     if (bucket === "map") runMapPreload();
     else if (bucket === "references") runReferencesPreload();
     else if (bucket === "transit") runTransitPreload();
+}
+
+/**
+ * User STOP (v931): halt the preload. Aborts the in-flight map download
+ * (the heavy MB-scale transfer — it's the only abortable bucket) and sets
+ * the persisted `preloadPaused` flag so the orchestrator + every auto-
+ * trigger (lobby-open effect, GameStartWatcher, per-bucket re-runs) refuse
+ * to start anything until `resumePreload()`. References/transit in flight
+ * finish their (cheap, cache-keyed) current query; they just won't restart.
+ */
+export function stopPreload(): void {
+    preloadPaused.set(true);
+    if (mapAbort) {
+        mapAbort.abort();
+        mapAbort = null;
+    }
+    // Clear the map spinner/progress immediately so the UI reads "paused",
+    // and drop the in-flight flag so a resume can restart the bucket.
+    preloadMapProgress.set(null);
+    preloadBucketInFlight.set({ ...preloadBucketInFlight.get(), map: false });
+}
+
+/**
+ * User RESUME (v931): clear the pause and re-run the enabled buckets.
+ * Completed work is a cache hit, and the map tile-walk skips tiles already
+ * in the SW range cache, so resume CONTINUES rather than restarts.
+ */
+export function resumePreload(): void {
+    preloadPaused.set(false);
+    preloadDuringHidingPeriod();
 }
 
 /**
@@ -192,11 +226,18 @@ function withPreloadTimeout<T>(p: Promise<T>, label: string): Promise<T> {
     ]);
 }
 
+// v931: the map bucket's abort controller, so `stopPreload()` can cancel
+// the in-flight tile-pack / range-walk download (the heavy transfer).
+let mapAbort: AbortController | null = null;
+
 function runMapPreload(): void {
     // Idempotent — a second call while one is in flight just returns.
     if (preloadBucketInFlight.get().map) return;
+    if (preloadPaused.get()) return;
     console.debug("[preload] warming basemap for play-area");
     preloadBucketInFlight.set({ ...preloadBucketInFlight.get(), map: true });
+    mapAbort = new AbortController();
+    const signal = mapAbort.signal;
     // Wire-byte accounting — CountingSource inside tilePreload calls
     // `recordBytes` on every range response; the pack path records the
     // single download total. Re-runs of an already-warm play area
@@ -223,6 +264,7 @@ function runMapPreload(): void {
             // "skipped" / "error" when there's no usable pack, and we
             // fall back to the original range-walk preload.
             const pack = await loadTilePackForPlayArea({
+                signal,
                 onProgress: (loaded, total) => {
                     preloadMapProgress.set({
                         phase: "pack",
@@ -243,17 +285,26 @@ function runMapPreload(): void {
                 finishBucket();
                 return;
             }
+            if (signal.aborted) return; // stopped during the pack download
             // No pack for this area — clear any stale one and warm via
             // the range walk exactly as before.
             clearTilePack();
-            const result = await preloadTilesForPlayArea();
+            const result = await preloadTilesForPlayArea({ signal });
+            if (signal.aborted) return; // stopped mid-walk — not complete
             console.debug("[preload] map tiles done (range walk)", result);
             finishBucket();
         } catch (e) {
+            // A user STOP aborts the download — not a failure, and we must
+            // NOT stamp a completion timestamp (so it reads resumable).
+            if (signal.aborted) {
+                stopMeter("map");
+                return;
+            }
             console.warn("[preload] map preload failed:", e);
             stopMeter("map");
             preloadMapProgress.set(null);
         } finally {
+            if (mapAbort?.signal === signal) mapAbort = null;
             preloadBucketInFlight.set({
                 ...preloadBucketInFlight.get(),
                 map: false,
