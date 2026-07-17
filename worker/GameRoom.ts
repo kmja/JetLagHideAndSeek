@@ -45,6 +45,7 @@ import {
     type Participant,
     type PushSubscriptionData,
     type Role,
+    type RoundProgressShare,
     type ServerMessage,
     type SetupState,
 } from "@protocol/index";
@@ -133,6 +134,7 @@ interface PersistedRoom {
     deviceToParticipant: [string, string][];
     hidingZone: HidingZoneShare | null;
     deckState: DeckStateShare | null;
+    roundProgress?: RoundProgressShare | null;
     pushSubscriptions: [string, PushSubscriptionData][];
     /** When the room last went idle (0 conns) — persisted so eviction timing
      *  survives a DO memory eviction between alarm ticks. */
@@ -198,6 +200,14 @@ export class GameRoom {
      */
     private deckState: DeckStateShare | null = null;
 
+    /**
+     * v942 (durability): the HIDER's scored-time ledger + pause-clock state.
+     * Held OUTSIDE `GameState` like `deckState` — the hider owns it and pushes
+     * on every change; relayed to the OTHER hiders + persisted, so the running
+     * SCORE survives that hider's device dying. Cleared each round.
+     */
+    private roundProgress: RoundProgressShare | null = null;
+
     /** Per-participant Web Push subscriptions. Keyed by participant id. */
     private pushSubscriptions: Map<string, PushSubscriptionData> = new Map();
 
@@ -255,6 +265,7 @@ export class GameRoom {
                 );
                 this.hidingZone = stored.hidingZone ?? null;
                 this.deckState = stored.deckState ?? null;
+                this.roundProgress = stored.roundProgress ?? null;
                 this.pushSubscriptions = new Map(
                     stored.pushSubscriptions ?? [],
                 );
@@ -288,6 +299,7 @@ export class GameRoom {
                 deviceToParticipant: [...this.deviceToParticipant],
                 hidingZone: this.hidingZone,
                 deckState: this.deckState,
+                roundProgress: this.roundProgress,
                 pushSubscriptions: [...this.pushSubscriptions],
                 idleSince: this.idleSince,
             };
@@ -407,6 +419,7 @@ export class GameRoom {
             this.deviceToParticipant.clear();
             this.hidingZone = null;
             this.deckState = null;
+            this.roundProgress = null;
             this.pushSubscriptions.clear();
             this.locLastAt.clear();
             this.locReminderSent.clear();
@@ -580,6 +593,8 @@ export class GameRoom {
                 return this.handleSetHideZone(socket, msg.zone);
             case "setDeck":
                 return this.handleSetDeck(socket, msg.deck);
+            case "setRoundProgress":
+                return this.handleSetRoundProgress(socket, msg.progress);
             case "setName":
                 return this.handleSetName(socket, msg.displayName);
             case "setLocationTracking":
@@ -843,6 +858,10 @@ export class GameRoom {
         if (existing && existing.role === "hider") {
             this.sendTo(socket, { t: "hideZone", zone: this.hidingZone });
             this.sendTo(socket, { t: "deck", deck: this.deckState });
+            this.sendTo(socket, {
+                t: "roundProgress",
+                progress: this.roundProgress,
+            });
         }
         this.broadcastPresence();
     }
@@ -865,6 +884,10 @@ export class GameRoom {
         if (effRole === "hider") {
             this.sendTo(socket, { t: "hideZone", zone: this.hidingZone });
             this.sendTo(socket, { t: "deck", deck: this.deckState });
+            this.sendTo(socket, {
+                t: "roundProgress",
+                progress: this.roundProgress,
+            });
         }
     }
 
@@ -911,6 +934,33 @@ export class GameRoom {
             const cp = this.game.participants.find((q) => q.id === pid);
             if (cp?.role === "hider") {
                 this.sendTo(c.socket, { t: "deck", deck });
+            }
+        }
+    }
+
+    /**
+     * A hider pushed their scored-time ledger + pause state (v942). Store it,
+     * persist it, and fan it to every OTHER hider — never to seekers. This is
+     * what makes the running SCORE durable against that hider's device dying.
+     * Mirrors `handleSetDeck`.
+     */
+    private handleSetRoundProgress(
+        socket: WebSocket,
+        progress: RoundProgressShare,
+    ) {
+        const conn = this.lookupConn(socket);
+        if (!conn) return;
+        const p = this.game.participants.find(
+            (q) => q.id === conn.participantId,
+        );
+        if (!p || p.role !== "hider") return;
+        if (!progress || typeof progress !== "object") return;
+        this.roundProgress = progress;
+        for (const [pid, c] of this.conns.entries()) {
+            if (pid === conn.participantId) continue;
+            const cp = this.game.participants.find((q) => q.id === pid);
+            if (cp?.role === "hider") {
+                this.sendTo(c.socket, { t: "roundProgress", progress });
             }
         }
     }
@@ -1553,6 +1603,9 @@ export class GameRoom {
         // New round → fresh shared deck; the hide team reshuffles locally
         // (roundStarted → resetHiderRoundState) and pushes it as they draw.
         this.deckState = null;
+        // v942: fresh round → drop the scored-time ledger; the new hider's
+        // client resets it and pushes as it accrues.
+        this.roundProgress = null;
         // Per-participant location-update timestamps are per-round
         // (the next round's clocks restart). Without clearing, a
         // stale prev > new ts could swallow the new round's first

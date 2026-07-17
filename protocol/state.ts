@@ -56,6 +56,31 @@ export interface DeckStateShare {
     pendingQueue: unknown[];
 }
 
+/**
+ * The HIDER's scored-time ledger + pause-clock state (v942, Track-1 of the
+ * durability pass). Held OUTSIDE `GameState` like `DeckStateShare` — the
+ * hider owns it and pushes it on every change; the server relays it to the
+ * OTHER hiders + persists it, so the running SCORE survives that hider's
+ * device dying (lost/broken/cleared) and a co-hider can report the final
+ * time. Not sent to seekers (the hidden time is revealed at round end via
+ * `roundSummary`); the pause is the hider's clock. All fields are the raw
+ * atom values (`src/lib/gameSetup.ts`).
+ */
+export interface RoundProgressShare {
+    /** Move powerup time bank (adds to hidden time). */
+    hiddenCreditMs: number;
+    /** Banked late-answer / resumed-pause debits (subtract from hidden time). */
+    hiddenDebitMs: number;
+    /** Manual pause start (null when not manually paused). */
+    manualPausedAt: number | null;
+    /** Whether the manual pause began during the hiding period. */
+    manualPauseWasHiding: boolean;
+    /** Location-share pause start (null when not paused for location). */
+    gamePausedForLocationAt: number | null;
+    /** When the seeker location went stale (drives the pause countdown). */
+    locationGraceStartedAt: number | null;
+}
+
 export type TransitMode = "bus" | "tram" | "train" | "subway" | "ferry";
 export type GameSize = "small" | "medium" | "large";
 

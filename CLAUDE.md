@@ -428,7 +428,31 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v941`. Use `git log` for the per-version detail;
+build stamp. Current: `v942`. Use `git log` for the per-version detail;
+
+**v942 — durability pass, Phase 1: the hider's SCORE survives a device
+dying.** First of a 4-phase pass making the server the durable book-of-record
+so no single device's loss (lost / broken / storage-cleared / handed to a
+teammate) can destroy unrecoverable game state — the motivation is a phone
+dying in a tunnel or on battery, NOT anti-cheat. Phase 1 covers the score
+ledger + pause clock, which lived ONLY in the hider's localStorage: if that
+device died mid-round the running hidden-time (Move bank `hiddenCreditMs`,
+late-answer/pause debits `hiddenDebitMs`) was unrecoverable and no co-hider
+could report it. Now it's a HIDER-owned synced blob — new
+`RoundProgressShare` (`{hiddenCreditMs, hiddenDebitMs, manualPausedAt,
+manualPauseWasHiding, gamePausedForLocationAt, locationGraceStartedAt}`) held
+OUTSIDE `GameState` and relayed to the OTHER hiders + persisted, EXACTLY
+mirroring the v832 deck sync: `readRoundProgress`/`applyRoundProgress`
+(`gameSetup.ts`), microtask-batched echo-guarded (`applyingRemoteRoundProgress`)
+hider-only push on any of the six atoms → `setRoundProgress` → server
+`handleSetRoundProgress` (hider-only, fans to other hiders) → `roundProgress`
+delivered on join/resume/role-claim so a recovered device adopts it. Cleared
+per round (server rotate + client reset) and on eviction. Seekers never see
+it (the hidden time is revealed at round end via `roundSummary`). Sync-the-
+running-total (a sub-second change as the device dies could be lost — the
+event-source alternative was deferred). Demo broker no-ops the message.
+Phases 2–4 (scouted spots, curse backfill, audit + kill-and-rejoin test) to
+follow.
 
 **v941 — location reminders are DO-alarm-driven (fire when everyone's
 offline) + "we're tracking GPS another way" opt-out.**

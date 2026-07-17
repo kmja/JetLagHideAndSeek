@@ -21,6 +21,7 @@ import type {
     GameState,
     HidingZoneShare,
     Role,
+    RoundProgressShare,
     SetupState,
     TransitMode,
 } from "./state";
@@ -213,6 +214,18 @@ export interface CMsgSetDeck {
 }
 
 /**
+ * A hider pushes their scored-time ledger + pause-clock state (v942). The
+ * server stores it and fans it to every OTHER hider — never to seekers — and
+ * persists it, so the running SCORE survives that hider's device dying and a
+ * co-hider (or the same hider on a fresh device) can recover it. Same
+ * last-write-wins relay as `setDeck`.
+ */
+export interface CMsgSetRoundProgress {
+    t: "setRoundProgress";
+    progress: RoundProgressShare;
+}
+
+/**
  * A participant renames themselves in the lobby. The server updates their
  * `displayName` (de-duped against the roster) and broadcasts presence so
  * every device sees the new name. Trimmed empty is ignored server-side.
@@ -333,6 +346,7 @@ export type ClientMessage =
     | CMsgRotateHider
     | CMsgSetHideZone
     | CMsgSetDeck
+    | CMsgSetRoundProgress
     | CMsgSetName
     | CMsgSetLocationTracking
     | CMsgStartEndgame
@@ -486,6 +500,16 @@ export interface SMsgDeck {
 }
 
 /**
+ * Delivered to hide-team connections when a hider pushes their scored-time
+ * ledger + pause state, and to a hider on join/resume so they recover it
+ * (v942). Never sent to seekers. `null` means "no ledger yet this round".
+ */
+export interface SMsgRoundProgress {
+    t: "roundProgress";
+    progress: RoundProgressShare | null;
+}
+
+/**
  * Server → hide team: a seeker's live location. Forwarded only to
  * participants whose role is hider or coHider — other seekers don't
  * see their teammates this way. The `participantId` lets the hider
@@ -526,6 +550,7 @@ export type ServerMessage =
     | SMsgSetupChanged
     | SMsgHideZone
     | SMsgDeck
+    | SMsgRoundProgress
     | SMsgSeekerLocation
     | SMsgError
     | SMsgPong

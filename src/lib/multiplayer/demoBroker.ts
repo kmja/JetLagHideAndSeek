@@ -449,6 +449,11 @@ function handleClientMessage(msg: ClientMessage) {
             // demo has no peers to relay to, so nothing else to do.
             return;
 
+        case "setRoundProgress":
+            // v942: the score ledger already lives in the local atoms;
+            // single-device demo has no co-hider to relay it to.
+            return;
+
         case "castCurse": {
             // Hider cast a curse from the local app — echo it as the
             // broker would (every seeker would receive it). The user

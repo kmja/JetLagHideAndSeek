@@ -37,7 +37,9 @@ import {
 import type { OpenStreetMap } from "@/maps/api";
 import {
     allowedTransit,
+    applyRoundProgress,
     effectiveHiddenDebitMs,
+    gamePausedForLocationAt,
     gameSize,
     gameStartCelebrationAt,
     gameStartOverLobby,
@@ -45,9 +47,14 @@ import {
     endgameStartedAt,
     endOfRoundDialogOpen,
     hiddenCreditMs,
+    hiddenDebitMs,
     hidingPeriodEndsAt,
+    locationGraceStartedAt,
     locationTrackingExternal,
+    manualPausedAt,
+    manualPauseWasHiding,
     playArea,
+    readRoundProgress,
     revealedStation,
     roundEndBaseMs,
     roundEndBonusPieces,
@@ -1130,6 +1137,20 @@ function handleServerMessage(msg: ServerMessage) {
                 applyingRemoteDeck = false;
             }
             return;
+        case "roundProgress":
+            // v942 (durability): a teammate pushed the hider's scored-time
+            // ledger + pause state (or the server is delivering it on our
+            // join/resume so we recover it after a device died). Adopt it
+            // under the echo guard so the writes don't loop back out.
+            if (msg.progress) {
+                applyingRemoteRoundProgress = true;
+                try {
+                    applyRoundProgress(msg.progress);
+                } finally {
+                    applyingRemoteRoundProgress = false;
+                }
+            }
+            return;
         case "setupChanged": {
             if (msg.setup.playArea) playArea.set(msg.setup.playArea);
             allowedTransit.set(msg.setup.allowedTransit);
@@ -1393,6 +1414,9 @@ let applyingRemoteZone = false;
 /** v831 Track 2: set while adopting an inbound shared deck, so the outbound
  *  deck subscription doesn't echo a wire-driven set back to the server. */
 let applyingRemoteDeck = false;
+/** v942: set while adopting an inbound round-progress blob, so the outbound
+ *  ledger subscription doesn't echo a wire-driven set back to the server. */
+let applyingRemoteRoundProgress = false;
 export function installMultiplayerBridge() {
     if (_installed) return;
     _installed = true;
@@ -1496,4 +1520,38 @@ export function installMultiplayerBridge() {
     pendingDraw.subscribe(scheduleDeckPush);
     pendingDrawQueue.subscribe(scheduleDeckPush);
     installingDeckSubs = false;
+
+    // v942 (durability): mirror the HIDER's scored-time ledger + pause state
+    // to the server on every change, so the running SCORE survives that
+    // hider's device dying. Same microtask-batched, echo-guarded, hider-only
+    // push as the deck. The six atoms are one logical value (a Move draw sets
+    // credit; a late answer sets debit; a pause sets its timestamps), so
+    // batch a microtask to send ONCE.
+    let progressPushQueued = false;
+    let installingProgressSubs = true;
+    const scheduleProgressPush = () => {
+        if (installingProgressSubs) return;
+        if (applyingRemoteRoundProgress) return;
+        if (progressPushQueued) return;
+        progressPushQueued = true;
+        queueMicrotask(() => {
+            progressPushQueued = false;
+            if (applyingRemoteRoundProgress) return;
+            if (!multiplayerEnabled.get()) return;
+            if (!currentGameCode.get()) return;
+            if (transportStatus.get() !== "open") return;
+            if (playerRole.get() !== "hider") return;
+            getTransport().send({
+                t: "setRoundProgress",
+                progress: readRoundProgress(),
+            });
+        });
+    };
+    hiddenCreditMs.subscribe(scheduleProgressPush);
+    hiddenDebitMs.subscribe(scheduleProgressPush);
+    manualPausedAt.subscribe(scheduleProgressPush);
+    manualPauseWasHiding.subscribe(scheduleProgressPush);
+    gamePausedForLocationAt.subscribe(scheduleProgressPush);
+    locationGraceStartedAt.subscribe(scheduleProgressPush);
+    installingProgressSubs = false;
 }

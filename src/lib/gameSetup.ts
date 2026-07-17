@@ -889,6 +889,56 @@ export const manualPauseWasHiding = persistentAtom<boolean>(
 );
 
 /**
+ * v942 (durability): the HIDER's scored-time ledger + pause-clock state as
+ * one blob, synced to the server so it survives that hider's device dying.
+ * `readRoundProgress` snapshots the six owning atoms; `applyRoundProgress`
+ * adopts an inbound blob. Mirrors `readSharedDeckState`/`applySharedDeckState`.
+ */
+export interface RoundProgressSnapshot {
+    hiddenCreditMs: number;
+    hiddenDebitMs: number;
+    manualPausedAt: number | null;
+    manualPauseWasHiding: boolean;
+    gamePausedForLocationAt: number | null;
+    locationGraceStartedAt: number | null;
+}
+
+export function readRoundProgress(): RoundProgressSnapshot {
+    return {
+        hiddenCreditMs: hiddenCreditMs.get(),
+        hiddenDebitMs: hiddenDebitMs.get(),
+        manualPausedAt: manualPausedAt.get(),
+        manualPauseWasHiding: manualPauseWasHiding.get(),
+        gamePausedForLocationAt: gamePausedForLocationAt.get(),
+        locationGraceStartedAt: locationGraceStartedAt.get(),
+    };
+}
+
+export function applyRoundProgress(p: RoundProgressSnapshot): void {
+    if (Number.isFinite(p.hiddenCreditMs)) hiddenCreditMs.set(p.hiddenCreditMs);
+    if (Number.isFinite(p.hiddenDebitMs)) hiddenDebitMs.set(p.hiddenDebitMs);
+    manualPausedAt.set(
+        typeof p.manualPausedAt === "number" &&
+            Number.isFinite(p.manualPausedAt)
+            ? p.manualPausedAt
+            : null,
+    );
+    manualPauseWasHiding.set(!!p.manualPauseWasHiding);
+    gamePausedForLocationAt.set(
+        typeof p.gamePausedForLocationAt === "number" &&
+            Number.isFinite(p.gamePausedForLocationAt)
+            ? p.gamePausedForLocationAt
+            : null,
+    );
+    locationGraceStartedAt.set(
+        typeof p.locationGraceStartedAt === "number" &&
+            Number.isFinite(p.locationGraceStartedAt)
+            ? p.locationGraceStartedAt
+            : null,
+    );
+}
+
+/**
  * Total ms to subtract from the hider's hidden time for clock pauses:
  * the banked `hiddenDebitMs` PLUS, while a pause (location OR manual) is
  * in progress, the live elapsed pause so the displayed/scored time
