@@ -303,9 +303,15 @@ function CurseBody({
 }) {
     // Physical layout: "CURSE OF THE …" name at top-left, description
     // below, casting cost pinned at the bottom. All cqw so it scales.
-    // Curse of the Cairn has an unusually long description (a full rock-
-    // tower rulebook paragraph), so it uses a smaller body size to fit.
-    const isCairn = /\bcairn\b/i.test(card.name);
+    // The card body height is fixed (5:7 minus header + casting cost), so a
+    // long description would clip; an automatic length→size ramp shrinks the
+    // body font continuously (short curses stay 4.5cqw; Curse of the Cairn's
+    // ~750-char rock-tower paragraph lands at the 3.6cqw floor) so every
+    // curse fits without a per-card special-case.
+    const descFs = Math.max(
+        3.6,
+        Math.min(4.5, 4.5 - (card.description.length - 350) * 0.00224),
+    );
     return (
         <div
             className="flex-1 flex flex-col min-h-0"
@@ -330,7 +336,7 @@ function CurseBody({
             >
                 <p
                     className="leading-snug"
-                    style={{ color: NAVY, fontSize: isCairn ? cu(3.6) : cu(4.5) }}
+                    style={{ color: NAVY, fontSize: cu(descFs) }}
                 >
                     {renderBodyText(card.description, gameSize)}
                 </p>

@@ -428,7 +428,15 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v927`. Use `git log` for the per-version detail;
+build stamp. Current: `v928`. Use `git log` for the per-version detail;
+
+**v928 — automatic curse-description length ramp (`CardTile.tsx`).** Replaced the
+Cairn-only 3.6cqw special-case with a continuous length→font-size ramp so ANY
+long curse fits the fixed card body without clipping:
+`descFs = clamp(3.6, 4.5, 4.5 − (len − 350)·0.00224)`. Short curses stay 4.5cqw;
+the ramp starts at 350 chars and hits the 3.6cqw floor by ~750 (Cairn). Verified
+Curse of the Hidden Hangman (521 chars, previously clipped) now fits at ~4.1cqw,
+and Cairn (751) at the floor.
 
 **v927 — debug card gallery gets a full-size Carousel view (`DebugCardsPage`).**
 The `/debug/cards` gallery gained a **Grid / Carousel** view toggle (beside the
