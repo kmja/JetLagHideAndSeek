@@ -123,6 +123,10 @@ interface PreloadChoicesPanelProps {
     /** When true, show per-bucket download status (timestamp + spinner).
      *  Defaults to true when setup is complete (game is running). */
     showStatus?: boolean;
+    /** v944: render ONE combined progress bar instead of the three
+     *  per-bucket rows. Used in the lobby, where the detailed breakdown is
+     *  noise — the player just wants "is the offline map ready yet?". */
+    compact?: boolean;
     className?: string;
 }
 
@@ -130,8 +134,28 @@ export function PreloadChoicesPanel({
     areaKm2 = null,
     runImmediatelyOnEnable = false,
     showStatus,
+    compact = false,
     className,
 }: PreloadChoicesPanelProps) {
+    if (compact) {
+        return <CompactPreloadBar areaKm2={areaKm2} className={className} />;
+    }
+    return (
+        <PreloadChoicesPanelFull
+            areaKm2={areaKm2}
+            runImmediatelyOnEnable={runImmediatelyOnEnable}
+            showStatus={showStatus}
+            className={className}
+        />
+    );
+}
+
+function PreloadChoicesPanelFull({
+    areaKm2 = null,
+    runImmediatelyOnEnable = false,
+    showStatus,
+    className,
+}: Omit<PreloadChoicesPanelProps, "compact">) {
     const choices = useStore(preloadChoices);
     const timestamps = useStore(preloadBucketTimestamps);
     const inFlight = useStore(preloadBucketInFlight);
@@ -367,6 +391,141 @@ export function PreloadChoicesPanel({
                         <>
                             <Square className="w-3.5 h-3.5" />
                             Stop preloading
+                        </>
+                    )}
+                </button>
+            )}
+        </div>
+    );
+}
+
+/**
+ * v944: the lobby's compact preload view — ONE combined progress bar across
+ * every enabled bucket instead of the three detailed rows. Progress is a
+ * byte-weighted blend (the Map bucket dominates the download, so it drives
+ * most of the bar). Falls back to an indeterminate look before the first
+ * fraction lands. Carries the same Stop / Resume affordance.
+ */
+function CompactPreloadBar({
+    areaKm2,
+    className,
+}: {
+    areaKm2: number | null;
+    className?: string;
+}) {
+    const choices = useStore(preloadChoices);
+    const timestamps = useStore(preloadBucketTimestamps);
+    const inFlight = useStore(preloadBucketInFlight);
+    const paused = useStore(preloadPaused);
+    const mapProgress = useStore(preloadMapProgress);
+    const transitProgress = useStore(preloadTransitProgress);
+
+    const ids = ["map", "references", "transit"] as const;
+    const enabled = ids.filter((id) => choices[id]);
+    if (enabled.length === 0) return null;
+
+    const doneAt = (id: keyof PreloadChoices) =>
+        id === "map"
+            ? timestamps.map
+            : id === "references"
+              ? timestamps.references
+              : timestamps.transit;
+    const isInFlight = (id: keyof PreloadChoices) =>
+        id === "map"
+            ? inFlight.map
+            : id === "references"
+              ? inFlight.references
+              : inFlight.transit;
+    const weightOf = (id: keyof PreloadChoices) =>
+        BUCKETS.find((b) => b.id === id)!.estimateMb(areaKm2);
+
+    const fracOf = (id: keyof PreloadChoices): number => {
+        if (doneAt(id) !== null) return 1;
+        if (!isInFlight(id)) return 0;
+        if (id === "map") {
+            if (!mapProgress || mapProgress.phase === "header") return 0.02;
+            if (mapProgress.phase === "pack") {
+                return mapProgress.packTotalBytes
+                    ? Math.min(1, mapProgress.bytesFetched / mapProgress.packTotalBytes)
+                    : 0.5;
+            }
+            // range walk
+            return mapProgress.tilesTotal
+                ? Math.min(1, mapProgress.tilesDone / mapProgress.tilesTotal)
+                : 0.05;
+        }
+        if (id === "transit") {
+            if (!transitProgress || transitProgress.total === 0) return 0.5;
+            return Math.min(1, transitProgress.done.length / transitProgress.total);
+        }
+        return 0.5; // references in flight (fast, no fine-grained progress)
+    };
+
+    let wSum = 0;
+    let fSum = 0;
+    for (const id of enabled) {
+        const w = weightOf(id);
+        wSum += w;
+        fSum += w * fracOf(id);
+    }
+    const pct = wSum > 0 ? Math.min(100, Math.round((fSum / wSum) * 100)) : 0;
+    const anyLoading = enabled.some(isInFlight);
+    const allDone = enabled.every((id) => doneAt(id) !== null);
+
+    return (
+        <div className={cn("space-y-2", className)}>
+            <div className="rounded-md border border-primary/30 bg-secondary/20 px-3 py-2.5 space-y-1.5">
+                <div className="flex items-center gap-2">
+                    {allDone ? (
+                        <CheckCircle2 className="w-4 h-4 shrink-0 text-green-400" />
+                    ) : paused ? (
+                        <Square className="w-4 h-4 shrink-0 text-muted-foreground" />
+                    ) : (
+                        <Loader2 className="w-4 h-4 shrink-0 animate-spin text-primary" />
+                    )}
+                    <span className="text-sm font-medium text-foreground flex-1 min-w-0">
+                        {allDone
+                            ? "Ready to play offline"
+                            : paused
+                              ? "Preload paused"
+                              : "Preloading for offline play…"}
+                    </span>
+                    {!allDone && (
+                        <span className="text-xs font-mono tabular-nums text-muted-foreground shrink-0">
+                            {pct}%
+                        </span>
+                    )}
+                </div>
+                {!allDone && (
+                    <div className="h-1.5 w-full bg-background/60 rounded-full overflow-hidden">
+                        <div
+                            className="h-full bg-primary transition-[width] duration-300 ease-out"
+                            style={{ width: `${pct}%` }}
+                        />
+                    </div>
+                )}
+            </div>
+            {(paused || anyLoading) && (
+                <button
+                    type="button"
+                    onClick={() => (paused ? resumePreload() : stopPreload())}
+                    className={cn(
+                        "w-full inline-flex items-center justify-center gap-1.5",
+                        "rounded-md border px-3 py-1.5 text-xs font-poppins font-semibold transition-colors",
+                        paused
+                            ? "border-primary bg-primary/10 text-primary hover:bg-primary/20"
+                            : "border-border bg-secondary/60 text-foreground hover:bg-secondary",
+                    )}
+                >
+                    {paused ? (
+                        <>
+                            <Play className="w-3.5 h-3.5" />
+                            Resume
+                        </>
+                    ) : (
+                        <>
+                            <Square className="w-3.5 h-3.5" />
+                            Stop
                         </>
                     )}
                 </button>

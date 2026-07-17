@@ -286,6 +286,15 @@ function runMapPreload(): void {
                 return;
             }
             if (signal.aborted) return; // stopped during the pack download
+            // No usable pack — log WHY (absent 404 / skipped non-relation /
+            // error) so a "why is it range-walking a starred city" report is
+            // diagnosable from devtools instead of guesswork. `absent` = the
+            // pack 404'd in R2 (operator gap / stale star / wrong relation
+            // id); `skipped` = the play area isn't an OSM relation (a custom
+            // polygon can't have a pack).
+            console.warn(
+                `[preload] no city tile pack (status=${pack.status}, osm=${pack.osmId ?? "?"}) — falling back to per-tile range walk`,
+            );
             // No pack for this area — clear any stale one and warm via
             // the range walk exactly as before.
             clearTilePack();

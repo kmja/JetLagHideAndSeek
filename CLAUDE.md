@@ -428,7 +428,31 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v943`. Use `git log` for the per-version detail;
+build stamp. Current: `v944`. Use `git log` for the per-version detail;
+
+**v944 — lobby preload = ONE compact progress bar + tile-pack fallback
+diagnostic.**
+- **Compact lobby preload.** The lobby rendered the full three-row
+  `PreloadChoicesPanel` (per-bucket blurbs + individual progress), which is
+  noise pre-game — the player just wants "is the offline map ready?".
+  `PreloadChoicesPanel` gained a **`compact`** prop → a new `CompactPreloadBar`:
+  ONE combined progress bar whose percent is a **byte-weighted blend** of every
+  enabled bucket's fraction (each bucket weighted by its `estimateMb`, so the
+  Map bucket dominates), a single "Preloading for offline play… N%" /
+  "Ready to play offline" / "Preload paused" label, and the same Stop/Resume
+  control. The full breakdown stays in Settings (`PreloadChoicesPanelFull`, the
+  old body, extracted verbatim). `GameLobbyDialog` passes `compact`.
+- **Tile-pack fallback diagnostic.** `runMapPreload` (`preload.ts`) correctly
+  PREFERS the city tile pack (`loadTilePackForPlayArea`) and only range-walks
+  z14/z15 tiles when the pack fetch returns non-`loaded` — but a range walk on
+  a STARRED city ("why isn't it fetching the pack from R2?") was undiagnosable.
+  It now `console.warn`s the exact reason before falling back:
+  `no city tile pack (status=absent|skipped|error, osm=<id>)`. `absent` = the
+  pack 404'd in R2 (operator pack-build gap / stale pre-v725 star / the
+  `mapGeoLocation.osm_id` the client requests ≠ the warmed relation id);
+  `skipped` = the play area isn't an OSM relation. The client logic was already
+  correct — this surfaces WHICH of those it is (a server/ops signal vs a
+  relation-id mismatch) instead of silent range-walking.
 
 **v943 — durability pass, Phases 2–4: scouted spots + active curses survive a
 device dying; coverage audited.** Completes the 4-phase durability pass begun

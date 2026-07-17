@@ -1182,6 +1182,7 @@ export function GameLobbyDialog() {
                                 </label>
                             )}
                             <PreloadChoicesPanel
+                                compact
                                 showStatus
                                 areaKm2={estimateTotalAreaKm2(
                                     $mapGeoLocation,
