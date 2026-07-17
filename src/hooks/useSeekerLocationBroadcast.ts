@@ -60,6 +60,24 @@ export function useSeekerLocationBroadcast() {
             return;
         }
 
+        // Trailing-edge send state: a fix that arrives inside the min-gap
+        // is remembered here and flushed when the gap elapses, so a
+        // ONE-SHOT fix (a spoofed location fires the watcher exactly once,
+        // and real GPS is suppressed while spoofing) is never silently
+        // dropped. A newer fix supersedes the pending one.
+        let pending: { lat: number; lng: number; accuracy: number } | null =
+            null;
+        let flushTimer: number | null = null;
+
+        const doSend = (lat: number, lng: number, accuracy: number) => {
+            const now = Date.now();
+            lastSentRef.current = { lat, lng, accuracy, ts: now };
+            seekerPushLocation(lat, lng, accuracy);
+            // Surface our own broadcast time so the seeker's
+            // LocationPauseWatcher can tell we're actively sharing.
+            seekerSelfBroadcastAt.set(now);
+        };
+
         const maybeSend = (
             lat: number,
             lng: number,
@@ -67,12 +85,28 @@ export function useSeekerLocationBroadcast() {
         ) => {
             const now = Date.now();
             const last = lastSentRef.current;
-            if (last && now - last.ts < MIN_BROADCAST_GAP_MS) return;
-            lastSentRef.current = { lat, lng, accuracy, ts: now };
-            seekerPushLocation(lat, lng, accuracy);
-            // Surface our own broadcast time so the seeker's
-            // LocationPauseWatcher can tell we're actively sharing.
-            seekerSelfBroadcastAt.set(now);
+            if (last && now - last.ts < MIN_BROADCAST_GAP_MS) {
+                // Too soon — defer this fix and flush it when the gap
+                // elapses (unless a newer fix arrives first).
+                pending = { lat, lng, accuracy };
+                if (flushTimer === null) {
+                    const wait = MIN_BROADCAST_GAP_MS - (now - last.ts) + 10;
+                    flushTimer = window.setTimeout(() => {
+                        flushTimer = null;
+                        const p = pending;
+                        pending = null;
+                        if (p) doSend(p.lat, p.lng, p.accuracy);
+                    }, wait);
+                }
+                return;
+            }
+            // Clear for a superseded pending fix, then send now.
+            pending = null;
+            if (flushTimer !== null) {
+                window.clearTimeout(flushTimer);
+                flushTimer = null;
+            }
+            doSend(lat, lng, accuracy);
         };
 
         const watchId = navigator.geolocation.watchPosition(
@@ -109,6 +143,7 @@ export function useSeekerLocationBroadcast() {
         return () => {
             navigator.geolocation.clearWatch(watchId);
             window.clearInterval(heartbeat);
+            if (flushTimer !== null) window.clearTimeout(flushTimer);
         };
     }, [active]);
 }

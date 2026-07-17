@@ -428,7 +428,38 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v929`. Use `git log` for the per-version detail;
+build stamp. Current: `v930`. Use `git log` for the per-version detail;
+
+**v930 — multi-device stability: no forced reload, role-picker clipping,
+seeker-location spoof (from real-game testing).**
+- **PWA no longer reloads you out of the lobby.** `registerType` was
+  `"autoUpdate"` (`vite.config.ts`), which wires a generated
+  `activated → window.location.reload()` that fired the instant a new deploy's
+  SW was detected (the 60 s / on-focus poll in `PWAUpdatePrompt`) with NO state
+  check — during the 2–3 min deploy cadence it hard-reloaded players "out of
+  nowhere", ejecting them from the lobby/game. Now **`"prompt"`** mode: `sw.ts`
+  no longer `skipWaiting()`s on install (the new SW WAITS), and `PWAUpdatePrompt`
+  decides — `isSafeToReload()` (`currentGameCode === null && hidingPeriodEndsAt
+  === null`) auto-applies an update when IDLE (preserving v777 auto-update-on-
+  deploy on the landing/setup screens), otherwise defers and auto-applies the
+  moment the user becomes idle (leaves the room / round ends), with the existing
+  "Reload to update" prompt as the manual escape hatch.
+- **Guest role-picker no longer clips off the top.** The shared `DialogContent`
+  vertically centers with `translate-y-[calc(-50%+…)]`; the `RolePicker`'s plain
+  `translate-y-0`/`top-4` override didn't reliably beat that arbitrary value via
+  twMerge, so a tall picker stayed centered and its TOP clipped above the
+  viewport. Forced the top-anchor with `!important` + a safe-area-aware
+  `max-h`/`top` so it sits below the notch and scrolls.
+- **Seeker location (incl. a spoof) now reaches the hider reliably.** The
+  seeker broadcast (`useSeekerLocationBroadcast`) dropped any fix inside the 5 s
+  min-gap and never retried it. A SPOOFED location fires the geolocation watcher
+  exactly ONCE (real GPS is suppressed while spoofing), so a spoof set within
+  5 s of a prior broadcast was silently lost and the 30 s heartbeat only resent
+  the stale pre-spoof fix. Added a **trailing-edge flush**: a fix deferred by the
+  gap is remembered and sent when the gap elapses (a newer fix supersedes it),
+  so the latest position — spoof or real — is always eventually broadcast.
+  (Single-device DEMO mode still can't surface a spoofed seeker — the demo
+  broker drops the local `loc`; that's a testing artifact, not a real-game bug.)
 
 **v929 — Move powerup is now fully automatic + card copy fixes.** From a
 per-card audit of every powerup/curse (all the changelog's claimed payloads —

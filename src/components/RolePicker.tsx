@@ -158,12 +158,18 @@ export function RolePicker() {
                     "pointer-events-auto",
                     "!bg-[hsl(var(--sidebar-background))] !text-[hsl(var(--sidebar-foreground))]",
                     "flex flex-col p-0 gap-0",
-                    // v803: ANCHOR TO THE TOP (override the default vertical
-                    // centering: `top-[50%]` + `translate-y-[-50%]`) so the
-                    // dialog stays put when the keyboard opens/closes — the
-                    // name field is near the top and clears the keyboard.
-                    // Cap the height + scroll so a short viewport never clips.
-                    "top-4 translate-y-0 max-h-[calc(100dvh-2rem)] overflow-y-auto",
+                    // v803/v930: ANCHOR TO THE TOP. The base DialogContent
+                    // vertically centers with `top-[50%]` +
+                    // `translate-y-[calc(-50%+…)]`; a plain `translate-y-0`
+                    // override didn't reliably beat that complex arbitrary
+                    // value via twMerge, so a tall picker stayed centered and
+                    // its TOP clipped above the viewport (the reported guest
+                    // bug). Force the top-anchor with `!important` so the base
+                    // centering can't win, sit just below the safe-area top,
+                    // and cap the height to the visible area so it scrolls
+                    // instead of clipping.
+                    "!top-[calc(env(safe-area-inset-top)+0.75rem)] !translate-y-0",
+                    "max-h-[calc(100dvh-env(safe-area-inset-top)-env(safe-area-inset-bottom)-1.5rem)] overflow-y-auto",
                 )}
                 overlayClassName="z-[1060]"
             >

@@ -40,7 +40,11 @@ declare const self: ServiceWorkerGlobalScope & {
 // demo flag to hijack a real game — see session.ts); a reloaded demo drops to
 // offline. The SKIP_WAITING message handler is kept too so a manual
 // updateSW(true) still works.
-self.addEventListener("install", () => self.skipWaiting());
+// v930: do NOT skipWaiting on install. With "prompt" registration the new
+// SW must WAIT until the app decides it's safe to swap (PWAUpdatePrompt
+// calls updateSW(true) → posts SKIP_WAITING), so a fresh deploy never takes
+// over + reloads out from under a live lobby/game. The message handler below
+// is what performs the swap when the app is ready.
 self.addEventListener("message", (event) => {
     if ((event.data as { type?: string } | undefined)?.type === "SKIP_WAITING")
         self.skipWaiting();
