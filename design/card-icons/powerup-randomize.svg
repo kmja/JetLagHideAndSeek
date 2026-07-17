@@ -1,15 +1,11 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<!-- Randomize Question — Jet Lag Hide+Seek hider-card icon.
-     Source of truth once edited: hand back / port into src/components/CardTile.tsx.
-     The white background rect is a PREVIEW aid only (the card body is white);
-     it is not part of the icon. -->
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="400" height="400">
-  <rect width="100" height="100" fill="#ffffff"/>
-  <polygon points="50,16 78,31 50,46 22,31" fill="#ffffff" stroke="#1F2F3F" stroke-width="5.5" stroke-linejoin="round"/>
-  <polygon points="22,31 50,46 50,80 22,65" fill="#ffffff" stroke="#1F2F3F" stroke-width="5.5" stroke-linejoin="round"/>
-  <polygon points="50,46 78,31 78,65 50,80" fill="#ffffff" stroke="#1F2F3F" stroke-width="5.5" stroke-linejoin="round"/>
-  <ellipse cx="43" cy="28" rx="4.4" ry="2.8" fill="#1F2F3F"/>
-  <ellipse cx="57" cy="34" rx="4.4" ry="2.8" fill="#1F2F3F"/>
-  <ellipse cx="64" cy="55" rx="3" ry="4.2" fill="#1F2F3F"/>
-  <text x="36" y="67" text-anchor="middle" font-size="19" font-weight="800" fill="#1F2F3F" font-family="Poppins, system-ui, sans-serif" transform="rotate(8 36 62)">?</text>
+<svg xmlns="http://www.w3.org/2000/svg" width="321" height="319" viewBox="0 0 321 319" fill="none">
+<rect width="321" height="319" fill="white"/>
+<path d="M244 180.497V107.502C244 100.381 240.213 93.7963 234.057 90.215L170.838 53.4352C164.604 49.8088 156.901 49.8189 150.678 53.4616L87.8974 90.2066C81.7672 93.7945 78 100.364 78 107.467L78 180.531C78 187.634 81.7672 194.204 87.8974 197.792L150.678 234.537C156.902 238.18 164.604 238.19 170.838 234.564L234.057 197.784C240.213 194.203 244 187.618 244 180.497Z" stroke="black" stroke-width="8" stroke-linecap="square"/>
+<path d="M161 229.566L161 155.602C161 148.334 164.944 141.637 171.3 138.112L239 100.566" stroke="black" stroke-width="8" stroke-linecap="square"/>
+<path d="M161 227.566L161 153.602C161 146.334 157.056 139.637 150.7 136.112L83 98.5664" stroke="black" stroke-width="8" stroke-linecap="square"/>
+<path d="M84.9998 100.115L153.485 137.468C158.18 140.028 163.844 140.074 168.58 137.589L239.999 100.117" stroke="black" stroke-width="8" stroke-linecap="square"/>
+<path d="M119.914 166.551L119.336 172.486L112.264 169.338L111.621 159.129L119.079 157.735L123 159.481V151.458L114 147.451V153.785L105 149.778V139.715L112.457 138.32L124.543 143.701L132 151.736V167.217L124.543 168.612L119.914 166.551ZM109.693 188.459V175.089L121.907 180.527V193.897L109.693 188.459Z" fill="black"/>
+<circle cx="10" cy="10" r="10" transform="matrix(0.939693 -0.34202 0 1 194 162.209)" fill="black"/>
+<circle cx="10" cy="10" r="10" transform="matrix(-0.819152 -0.573576 0.819152 -0.573576 160.383 119.898)" fill="black"/>
+<circle cx="10" cy="10" r="10" transform="matrix(-0.819152 -0.573576 0.819152 -0.573576 160.383 88.9434)" fill="black"/>
 </svg>

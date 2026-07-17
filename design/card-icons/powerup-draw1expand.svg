@@ -4,6 +4,6 @@
 <rect x="190" y="198" width="64" height="88" rx="12" transform="rotate(180 190 198)" stroke="black" stroke-width="8"/>
 <circle cx="98" cy="214" r="56" fill="white" stroke="black" stroke-width="8"/>
 <circle cx="209" cy="75" r="40" fill="black"/>
-<text x="98" y="217" text-anchor="middle" dominant-baseline="central" font-family="'Inter Tight', system-ui, sans-serif" font-weight="900" font-size="64" letter-spacing="-5" fill="black">+1</text>
-<text x="209" y="77" text-anchor="middle" dominant-baseline="central" font-family="'Inter Tight', system-ui, sans-serif" font-weight="900" font-size="48" letter-spacing="-3.5" fill="white">+1</text>
+<path d="M99.1933 220.89H87.0133V233.35H75.6733V220.89H63.4933V210.18H75.6733V197.65H87.0133V210.18H99.1933V220.89ZM105.208 200.03V188.9H124.598V240H112.138V200.03H105.208Z" fill="black"/>
+<path d="M209.699 70.9V78H187.699V70.9H209.699ZM215.453 63.45V55.5H229.303V92H220.403V63.45H215.453Z" fill="white"/>
 </svg>

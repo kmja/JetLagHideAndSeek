@@ -5,6 +5,6 @@
 <path d="M189 97L149 97L148.587 97.0049C140.079 97.2205 133.22 104.079 133.005 112.587L133 115L141 115C141 110.582 144.582 105 149 105L189 105C193.418 105 197 108.582 197 113L197 177C197 181.418 193.418 185 189 185L183 185L183 193L189 193C197.837 193 205 185.837 205 177L205 113L204.995 112.587C204.779 104.079 197.921 97.2205 189.413 97.0049L189 97Z" fill="black"/>
 <circle cx="98" cy="214" r="56" fill="white" stroke="black" stroke-width="8"/>
 <circle cx="209" cy="75" r="40" fill="black"/>
-<text x="98" y="217" text-anchor="middle" dominant-baseline="central" font-family="'Inter Tight', system-ui, sans-serif" font-weight="900" font-size="64" letter-spacing="-5" fill="black">+3</text>
-<text x="209" y="77" text-anchor="middle" dominant-baseline="central" font-family="'Inter Tight', system-ui, sans-serif" font-weight="900" font-size="48" letter-spacing="-3.5" fill="white">-2</text>
+<text x="97" y="216" text-anchor="middle" dominant-baseline="central" font-family="'Poppins', system-ui, sans-serif" font-weight="700" font-size="66" fill="black">+3</text>
+<text x="208" y="77" text-anchor="middle" dominant-baseline="central" font-family="'Poppins', system-ui, sans-serif" font-weight="700" font-size="50" fill="white">-2</text>
 </svg>

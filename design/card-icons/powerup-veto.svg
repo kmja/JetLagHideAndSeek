@@ -1,13 +1,5 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<!-- Veto Question — Jet Lag Hide+Seek hider-card icon.
-     Source of truth once edited: hand back / port into src/components/CardTile.tsx.
-     The white background rect is a PREVIEW aid only (the card body is white);
-     it is not part of the icon. -->
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="400" height="400">
-  <rect width="100" height="100" fill="#ffffff"/>
-  <polygon points="50,8 85,25 87,61 52,88 17,70 14,33" fill="none" stroke="#DC3D38" stroke-width="6.5" stroke-linejoin="round"/>
-  <rect x="37" y="29" width="26" height="38" rx="5" transform="rotate(10 50 48)" fill="#ffffff" stroke="#ffffff" stroke-width="13"/>
-  <rect x="37" y="29" width="26" height="38" rx="5" transform="rotate(10 50 48)" fill="#ffffff" stroke="#DC3D38" stroke-width="5"/>
-  <line x1="30" y1="76" x2="71" y2="21" stroke="#ffffff" stroke-width="10" stroke-linecap="round"/>
-  <line x1="30" y1="76" x2="71" y2="21" stroke="#DC3D38" stroke-width="6" stroke-linecap="round"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="297" height="301" viewBox="0 0 297 301" fill="none">
+<rect width="297" height="301" fill="white"/>
+<path d="M107.375 223.65L75.8974 205.226C69.7672 201.638 66 195.068 66 187.965L66 114.901C66 107.798 69.7672 101.228 75.8974 97.6402L138.678 60.8952C144.902 57.2525 152.604 57.2424 158.838 60.8688L190.375 79.2165M107.375 223.65L138.678 241.971C144.902 245.614 152.604 245.624 158.838 241.997L222.057 205.217C228.213 201.636 232 195.052 232 187.93V114.936C232 107.814 228.213 101.23 222.057 97.6486L190.375 79.2165M107.375 223.65L190.375 79.2165" stroke="black" stroke-width="8" stroke-linecap="square"/>
+<rect x="181" y="195" width="64" height="88" rx="12" transform="rotate(180 181 195)" stroke="black" stroke-width="8"/>
 </svg>

@@ -1,13 +1,7 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<!-- Duplicate Another Card — Jet Lag Hide+Seek hider-card icon.
-     Source of truth once edited: hand back / port into src/components/CardTile.tsx.
-     The white background rect is a PREVIEW aid only (the card body is white);
-     it is not part of the icon. -->
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="400" height="400">
-  <rect width="100" height="100" fill="#ffffff"/>
-  <rect x="29" y="29" width="27" height="39" rx="5" transform="rotate(-10 42 48)" fill="#ffffff" stroke="#ffffff" stroke-width="13"/>
-  <rect x="29" y="29" width="27" height="39" rx="5" transform="rotate(-10 42 48)" fill="#ffffff" stroke="#1F2F3F" stroke-width="5"/>
-  <rect x="45" y="32" width="27" height="39" rx="5" transform="rotate(6 58 51)" fill="#ffffff" stroke="#ffffff" stroke-width="13"/>
-  <rect x="45" y="32" width="27" height="39" rx="5" transform="rotate(6 58 51)" fill="#ffffff" stroke="#1F2F3F" stroke-width="5"/>
-  <path d="M 52 51 H 66 M 59 44 V 58" stroke="#1F2F3F" stroke-width="5" stroke-linecap="round" transform="rotate(6 58 51)"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="321" height="319" viewBox="0 0 321 319" fill="none">
+<rect width="321" height="319" fill="white"/>
+<path d="M234 185.93V112.936C234 105.814 230.213 99.2298 224.057 95.6486L160.838 58.8688C154.604 55.2424 146.901 55.2525 140.678 58.8952L77.8974 95.6402C71.7672 99.2281 68 105.798 68 112.901L68 185.965C68 193.068 71.7672 199.638 77.8974 203.226L140.678 239.971C146.902 243.614 154.604 243.624 160.838 239.997L224.057 203.217C230.213 199.636 234 193.052 234 185.93Z" stroke="black" stroke-width="8" stroke-linecap="square"/>
+<rect x="130" y="96" width="64" height="88" rx="12" stroke="black" stroke-width="8"/>
+<path d="M120 206H160L160.413 205.995C168.921 205.779 175.779 198.921 175.995 190.413L176 188H168C168 192.418 164.418 198 160 198H120C115.582 198 112 194.418 112 190V126C112 121.582 115.582 118 120 118L126 118V110H120C111.163 110 104 117.163 104 126V190L104.005 190.413C104.221 198.921 111.079 205.779 119.587 205.995L120 206Z" fill="black"/>
+<path d="M159.92 156C158.815 156 157.92 155.105 157.92 154V126C157.92 124.895 158.815 124 159.92 124H164.08C165.185 124 166.08 124.895 166.08 126V154C166.08 155.105 165.185 156 164.08 156H159.92ZM148 144.08C146.895 144.08 146 143.185 146 142.08V137.92C146 136.815 146.895 135.92 148 135.92H176C177.105 135.92 178 136.815 178 137.92V142.08C178 143.185 177.105 144.08 176 144.08H148Z" fill="black"/>
 </svg>
