@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Draw 1, Expand 1 — Jet Lag Hide+Seek hider-card icon.
+     Source of truth once edited: hand back / port into src/components/CardTile.tsx.
+     The white background rect is a PREVIEW aid only (the card body is white);
+     it is not part of the icon. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="400" height="400">
+  <rect width="100" height="100" fill="#ffffff"/>
+  <polygon points="50,6 87,21 91,60 56,90 19,75 11,34" fill="none" stroke="#1F2F3F" stroke-width="6.5" stroke-linejoin="round"/>
+  <rect x="30" y="26" width="23" height="33" rx="5" transform="rotate(-20 41 42)" fill="#ffffff" stroke="#ffffff" stroke-width="13"/>
+  <rect x="30" y="26" width="23" height="33" rx="5" transform="rotate(-20 41 42)" fill="#ffffff" stroke="#1F2F3F" stroke-width="5"/>
+  <rect x="41" y="26" width="23" height="33" rx="5" transform="rotate(-7 52 42)" fill="#ffffff" stroke="#ffffff" stroke-width="13"/>
+  <rect x="41" y="26" width="23" height="33" rx="5" transform="rotate(-7 52 42)" fill="#ffffff" stroke="#1F2F3F" stroke-width="5"/>
+  <rect x="52" y="28" width="23" height="33" rx="5" transform="rotate(6 63 44)" fill="#ffffff" stroke="#ffffff" stroke-width="13"/>
+  <rect x="52" y="28" width="23" height="33" rx="5" transform="rotate(6 63 44)" fill="#ffffff" stroke="#1F2F3F" stroke-width="5"/>
+  <!-- draw badge (outlined, bottom-left) -->
+  <circle cx="24" cy="73" r="21" fill="#ffffff"/>
+  <circle cx="24" cy="73" r="16.5" fill="#ffffff" stroke="#1F2F3F" stroke-width="5"/>
+  <text x="24" y="78" text-anchor="middle" font-size="14" font-weight="800" fill="#1F2F3F" font-family="Poppins, system-ui, sans-serif">+1</text>
+  <!-- hand-delta badge (solid, top-right) -->
+  <circle cx="80" cy="20" r="18.5" fill="#ffffff"/>
+  <circle cx="80" cy="20" r="14" fill="#1F2F3F"/>
+  <text x="80" y="24.5" text-anchor="middle" font-size="13" font-weight="800" fill="#ffffff" font-family="Poppins, system-ui, sans-serif">+1</text>
+</svg>

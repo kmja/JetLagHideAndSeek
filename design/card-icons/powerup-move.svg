@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Move — Jet Lag Hide+Seek hider-card icon.
+     Source of truth once edited: hand back / port into src/components/CardTile.tsx.
+     The white background rect is a PREVIEW aid only (the card body is white);
+     it is not part of the icon. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="400" height="400">
+  <rect width="100" height="100" fill="#ffffff"/>
+  <polygon points="50,8 84,28 82,64 50,88 16,66 18,28" fill="none" stroke="#1F2F3F" stroke-width="7" stroke-linejoin="round"/>
+  <path d="M 41 65.1 C 29.45 51.9 30 48.05 30 42 A 11 11 0 1 1 52 42 C 52 48.05 52.55 51.9 41 65.1 Z" fill="#ffffff" stroke="#1F2F3F" stroke-width="5" stroke-linejoin="round"/>
+  <path d="M 57 72.3 C 43.35 56.7 44 52.15 44 45 A 13 13 0 1 1 70 45 C 70 52.15 70.65 56.7 57 72.3 Z" fill="#1F2F3F" stroke="#ffffff" stroke-width="4" stroke-linejoin="round"/>
+  <circle cx="57" cy="44.5" r="5" fill="#ffffff"/>
+</svg>
