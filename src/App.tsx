@@ -93,7 +93,18 @@ function GameRouteGate({
     const $welcomeSeen = useStore(welcomeSeen);
     const $setupCompleted = useStore(setupCompleted);
     const $role = useStore(playerRole);
-    if (!$welcomeSeen) return <Navigate to="/welcome" replace />;
+    if (!$welcomeSeen) {
+        // Preserve a shared `?join=CODE` deep link when bouncing a fresh
+        // device to /welcome, so the join flow can prefill the room code
+        // (the param would otherwise be dropped by the redirect). v925.
+        const join = new URLSearchParams(window.location.search).get("join");
+        return (
+            <Navigate
+                to={join ? `/welcome?join=${encodeURIComponent(join)}` : "/welcome"}
+                replace
+            />
+        );
+    }
     if (!$setupCompleted) return <Navigate to="/setup" replace />;
     if ($role !== null) {
         const onHiderSide = $role === "hider";

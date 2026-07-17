@@ -221,15 +221,15 @@ function TimeBonusBody({
     return (
         <div
             className="flex-1 flex flex-col items-center text-center"
-            style={{ padding: cu(4), paddingTop: cu(5) }}
+            style={{ padding: cu(8) }}
         >
-            <ClockHexIcon largest={card.minutes.large} w={74} />
+            <ClockHexIcon largest={card.minutes.large} w={55} h={55} />
             {/* The title is vertically CENTERED in the gap between the icon
                 and the minute badge (this flex-1 row does the centering). */}
             <div className="flex-1 flex items-center justify-center">
                 <div
-                    className="font-display font-black uppercase tracking-tight leading-[0.95]"
-                    style={{ color: NAVY, fontSize: cu(13) }}
+                    className="font-display font-black uppercase leading-[0.95]"
+                    style={{ color: NAVY, fontSize: cu(12) }}
                 >
                     <div>Time</div>
                     <div>Bonus</div>
@@ -252,17 +252,17 @@ function PowerupBody({
     return (
         <div
             className="flex-1 flex flex-col min-h-0"
-            style={{ padding: cu(5.3) }}
+            style={{ padding: cu(8) }}
         >
             <div
                 className="flex justify-center shrink-0"
                 style={{ marginTop: cu(2) }}
             >
-                <PowerupGlyph powerup={card.powerup} w={54} />
+                <PowerupGlyph powerup={card.powerup} w={55} h={55} />
             </div>
             <div
-                className="font-display font-black uppercase tracking-tight leading-[0.98] text-center shrink-0"
-                style={{ color: NAVY, fontSize: cu(9.5), marginTop: cu(4) }}
+                className="font-display font-black uppercase leading-[0.98] text-center shrink-0"
+                style={{ color: NAVY, fontSize: cu(12), marginTop: cu(4) }}
             >
                 {powerupTitleLines(card.name).map((line, i) => (
                     <div key={i}>{line}</div>
@@ -294,13 +294,16 @@ function CurseBody({
 }) {
     // Physical layout: "CURSE OF THE …" name at top-left, description
     // below, casting cost pinned at the bottom. All cqw so it scales.
+    // Curse of the Cairn has an unusually long description (a full rock-
+    // tower rulebook paragraph), so it uses a smaller body size to fit.
+    const isCairn = /\bcairn\b/i.test(card.name);
     return (
         <div
             className="flex-1 flex flex-col min-h-0"
-            style={{ padding: cu(10) }}
+            style={{ padding: cu(8) }}
         >
             <div
-                className="font-display font-black uppercase tracking-tight leading-[1.02] shrink-0"
+                className="font-display font-black uppercase leading-[1.02] shrink-0"
                 style={{
                     color: NAVY,
                     fontSize: cu(8),
@@ -318,7 +321,7 @@ function CurseBody({
             >
                 <p
                     className="leading-snug"
-                    style={{ color: NAVY, fontSize: cu(4) }}
+                    style={{ color: NAVY, fontSize: isCairn ? cu(3.6) : cu(4.5) }}
                 >
                     {renderBodyText(card.description, gameSize)}
                 </p>
@@ -471,18 +474,18 @@ const TB_TICKS = (
  */
 // Tight viewBox = the icon's real content bounding box + 5 units (half the
 // stroke width, so strokes aren't clipped) — NO decorative padding, so the
-// rendered SVG fills its box edge-to-edge. The container is sized to this
-// box's aspect ratio, so `meet` never letterboxes.
+// rendered SVG fills its box (centered by `meet`).
 const TB_VIEWBOX = "59 46.16 188 204.84";
-const TB_ASPECT = 204.84 / 188;
 
 function ClockHexIcon({
     largest,
     w = 20,
+    h = 20,
 }: {
     largest: number;
-    /** Icon WIDTH in cqw; height follows from the glyph's aspect ratio. */
+    /** Icon box width/height in cqw. */
     w?: number;
+    h?: number;
 }) {
     const tier =
         TIER_METER.find((t) => largest >= t.threshold) ??
@@ -490,7 +493,7 @@ function ClockHexIcon({
     return (
         <div
             className="relative inline-flex items-center justify-center shrink-0"
-            style={{ width: cu(w), height: cu(w * TB_ASPECT) }}
+            style={{ width: cu(w), height: cu(h), marginTop: cu(2) }}
         >
             <svg
                 viewBox={TB_VIEWBOX}
@@ -824,17 +827,19 @@ function powerupArt(powerup: PowerupKind): {
 function PowerupGlyph({
     powerup,
     w = 20,
+    h = 20,
 }: {
     powerup: PowerupKind;
-    /** Icon WIDTH in cqw; height follows from the glyph's aspect ratio. */
+    /** Icon box width/height in cqw. */
     w?: number;
+    h?: number;
 }) {
-    const { viewBox, aspect, body } = powerupArt(powerup);
+    const { viewBox, body } = powerupArt(powerup);
     return (
         <svg
             viewBox={viewBox}
             className="shrink-0"
-            style={{ width: cu(w), height: cu(w * aspect) }}
+            style={{ width: cu(w), height: cu(h) }}
             aria-hidden="true"
         >
             {body}
@@ -919,7 +924,7 @@ function SizeMinutesBadge({
                     backgroundColor: color,
                     color: "#ffffff",
                     fontSize: cu(4),
-                    padding: `${cu(0.9)} 0 ${cu(1.1)}`,
+                    padding: `${cu(1)} 0 ${cu(1)}`,
                 }}
             >
                 {SIZE_LETTER[size]}

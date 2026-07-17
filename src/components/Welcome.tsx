@@ -1,5 +1,4 @@
 import { useStore } from "@nanostores/react";
-import { Eye, Loader2, MapPin, Users } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "react-toastify";
@@ -9,18 +8,11 @@ import { Input } from "@/components/ui/input";
 import { setupCompleted, welcomeSeen } from "@/lib/gameSetup";
 import { playerRole } from "@/lib/hiderRole";
 import {
-    currentGameCode,
     displayName as displayNameAtom,
     multiplayerError,
-    participants as participantsAtom,
     pickRandomCastName,
-    transportStatus,
 } from "@/lib/multiplayer/session";
-import {
-    joinAsGuest,
-    leaveGame,
-    setOnlineRole,
-} from "@/lib/multiplayer/store";
+import { joinAsGuest } from "@/lib/multiplayer/store";
 import { cn } from "@/lib/utils";
 
 import { InstallAppButton } from "./InstallAppButton";
@@ -31,62 +23,58 @@ import { HideSeekMark, HideSeekScene, HideSeekWordmark } from "./JetLagLogo";
  * seeker view; now its own fullsize page mounted at `/welcome` so
  * the seeker shell (sidebars, map, top + bottom nav, drawers) never
  * loads on first launch. The seeker / hider route guards redirect
- * unseen users here; this component reverse-redirects to / or /h
- * once a role is picked.
+ * unseen users here; this component reverse-redirects to / once
+ * welcome is seen.
  *
  * Two paths out:
  *
- *  - "Start new game"  → flips `welcomeSeen=true` and navigates to
- *    /setup so the wizard takes over.
- *  - "Join a game"     → inline display-name + code form; on join we
- *    flip `welcomeSeen=true` and `setupCompleted=true` so the wizard
- *    doesn't open for the guest (the host pushes setup via the
- *    multiplayer transport instead).
+ *  - "Create game" → flips `welcomeSeen=true` and navigates to /setup
+ *    so the wizard takes over.
+ *  - "Join a game" → inline room-code form; on Continue we connect as a
+ *    guest with role STILL NULL, flip `welcomeSeen=true` and
+ *    `setupCompleted=true`, then navigate into the game shell. There the
+ *    SHARED `GameLobbyDialog` + `RolePicker` open (name + role picker on
+ *    top of the lobby) — the EXACT same surface the host lands on
+ *    (v925). The old bespoke inline roster/role picker that used to live
+ *    in Welcome was removed; hosting and joining now share one flow.
  *
  * Renders as a full-screen panel: no overlay, no escape hatch.
  * First-loaders MUST pick a path.
  */
 export function Welcome() {
     const $welcomeSeen = useStore(welcomeSeen);
-    const $status = useStore(transportStatus);
-    const $error = useStore(multiplayerError);
-    const $code = useStore(currentGameCode);
-    const $participants = useStore(participantsAtom);
     const navigate = useNavigate();
 
-    // Three-phase join:
-    //   intro     — pick "Start new game" or "Join a game"
-    //   join-form — enter name + code, click Continue
-    //   join-lobby — connected to room with role=null, pick role
-    //                from informed options (sees who's already in,
-    //                knows whether the hider seat is taken)
-    const [mode, setMode] = useState<"intro" | "join-form" | "join-lobby">(
-        "intro",
-    );
-    const [name, setName] = useState(displayNameAtom.get() || "");
+    // Two-phase intro:
+    //   intro     — pick "Create game" or "Join a game"
+    //   join-form — enter the room code, click Continue → into the shell
+    const [mode, setMode] = useState<"intro" | "join-form">("intro");
     const [code, setCode] = useState("");
     const [castPlaceholder] = useState(() => pickRandomCastName());
 
-    // v267: the welcome screen is now its own /welcome route, not a
-    // dialog overlay. If a returning user (welcomeSeen=true) somehow
-    // lands here, redirect away on mount so they don't see the
-    // first-load screen again.
+    // v267: the welcome screen is its own /welcome route. Redirect a
+    // returning user (welcomeSeen=true) away on mount so they don't see
+    // the first-load screen again. v925: also prefill the room code from
+    // a shared `?join=CODE` deep link (the route gate preserves the param
+    // when it bounces a fresh device to /welcome) and jump to the join
+    // form so the user only has to hit Continue.
     useEffect(() => {
-        if ($welcomeSeen) navigate("/", { replace: true });
+        if ($welcomeSeen) {
+            navigate("/", { replace: true });
+            return;
+        }
+        const j = new URLSearchParams(window.location.search).get("join");
+        if (j) {
+            const up = j.trim().toUpperCase();
+            if (/^[A-Z]{4,8}$/.test(up)) {
+                setCode(up);
+                setMode("join-form");
+            }
+        }
     }, [$welcomeSeen, navigate]);
 
-    const trimmedName = name.trim();
     const trimmedCode = code.trim().toUpperCase();
     const validCode = /^[A-Z]{4,8}$/.test(trimmedCode);
-    const canContinue = trimmedName.length > 0 && validCode;
-
-    // Group participants by role so the picker can show
-    // "Seekers (3) — Alice, Bob, Carol" / "Hider (1) — Dana"
-    // and disable the Hider tile when one already holds the seat.
-    const seekers = $participants.filter((p) => p.role === "seeker");
-    const hider = $participants.find((p) => p.role === "hider");
-    // v829: the hide team is a flat list of equal hiders (no co-hider role).
-    const hiders = $participants.filter((p) => p.role === "hider");
 
     const handleStartNew = () => {
         welcomeSeen.set(true);
@@ -96,53 +84,24 @@ export function Welcome() {
         if (!setupCompleted.get()) navigate("/setup");
     };
 
-    // Step 1 of join: connect with role=null so the participant
-    // appears in the roster but doesn't claim the hider seat
-    // prematurely. Transition to the lobby preview where the user
-    // sees who's in and picks their role with full context.
-    const handleContinueToLobby = () => {
-        if (!canContinue) return;
-        displayNameAtom.set(trimmedName);
+    // Join a room, mirroring the HOST flow: connect as a guest with role
+    // STILL NULL and mark welcome + setup done, then navigate into the
+    // game shell. The shared `GameLobbyDialog` opens with the `RolePicker`
+    // (name + role) on top — identical to what the host sees. The display
+    // NAME is chosen in that picker (a random cast name seeds the initial
+    // presence until then, exactly as it does for the host).
+    const handleJoin = () => {
+        if (!validCode) return;
         multiplayerError.set(null);
-        // Clear any stale local role so the server's null
-        // assignment for fresh joiners isn't overridden by a
-        // persisted role from a previous session.
+        // Clear any stale local role so the server's null assignment for a
+        // fresh joiner isn't overridden — RolePicker only opens on role null.
         playerRole.set(null);
-        joinAsGuest(trimmedCode, trimmedName);
-        setMode("join-lobby");
-        toast.info(`Joining game ${trimmedCode}…`, { autoClose: 2500 });
-    };
-
-    // Step 2 of join: user picked a role from the informed
-    // options. Persist it + push to server, then close Welcome
-    // and let the lobby / hider home take over.
-    const handlePickRole = (role: "seeker" | "hider") => {
-        playerRole.set(role);
-        setOnlineRole(role);
+        const name = displayNameAtom.get()?.trim() || castPlaceholder;
+        joinAsGuest(trimmedCode, name);
         welcomeSeen.set(true);
         setupCompleted.set(true);
-        // SOFT-navigate for BOTH roles (v755). The hider used to HARD-navigate
-        // (`window.location.assign("/h")`) as a bundle-size micro-opt, but a
-        // full page reload tore down the live multiplayer WebSocket mid-flight
-        // — including the host's just-sent `hostPushSetup` (transit modes /
-        // game size) — then reconnected and let `applySnapshot` overwrite the
-        // local wizard atoms with the server's now-STALE/default setup. That's
-        // the "settings don't carry over + the whole UI reloads" bug. Staying
-        // on the SPA keeps the connection (and the wizard values) intact; the
-        // route guard mounts HiderPage/SeekerPage by role (HiderPage is
-        // lazy-loaded, so the welcome chunk isn't meaningfully co-bundled).
-        navigate(role === "hider" ? "/h" : "/", {
-            replace: true,
-        });
-    };
-
-    // Abort the join from the lobby preview — disconnect, clear
-    // the role/session/code bits, return to intro so the user can
-    // pick a different code or start fresh.
-    const handleAbortJoin = () => {
-        leaveGame();
-        playerRole.set(null);
-        setMode("intro");
+        toast.info(`Joining game ${trimmedCode}…`, { autoClose: 2500 });
+        navigate("/", { replace: true });
     };
 
     return (
@@ -175,7 +134,7 @@ export function Welcome() {
                     The Game lockup with the Hide+Seek wordmark stacked
                     tightly beneath it (as on the box). In intro mode only
                     the blurb + buttons drop into the centred band below;
-                    the join/lobby modes also show the compact mark here. */}
+                    the join form also shows the compact mark here. */}
                 <div
                     className={cn(
                         "px-6 pt-8 flex flex-col items-center text-center gap-8 shrink-0",
@@ -230,29 +189,17 @@ export function Welcome() {
                             </div>
                         </div>
                     </>
-                ) : mode === "join-form" ? (
+                ) : (
                     <>
                         <div className="px-6 pb-5 text-sm leading-relaxed text-current/85 space-y-1">
                             <p>
-                                Got a code from a friend? Pick a display name
-                                so the rest of the game knows who you are,
-                                then enter the 6-character code.
+                                Got a code from a friend? Enter the room code
+                                and you'll drop into the lobby, where you pick
+                                your display name and role.
                             </p>
                         </div>
 
                         <div className="px-6 pb-2 space-y-3">
-                            <div className="space-y-1.5">
-                                <label className="text-[10px] uppercase tracking-[0.16em] font-inter-tight font-bold text-muted-foreground">
-                                    Display name
-                                </label>
-                                <Input
-                                    value={name}
-                                    onChange={(e) => setName(e.target.value)}
-                                    placeholder={`What others see (e.g. ${castPlaceholder})`}
-                                    maxLength={24}
-                                    autoFocus
-                                />
-                            </div>
                             <div className="space-y-1.5">
                                 <label className="text-[10px] uppercase tracking-[0.16em] font-inter-tight font-bold text-muted-foreground">
                                     Game code
@@ -262,16 +209,14 @@ export function Welcome() {
                                     onChange={(e) => setCode(e.target.value)}
                                     placeholder="6 characters"
                                     maxLength={8}
+                                    autoFocus
                                     autoCapitalize="characters"
                                     spellCheck={false}
                                     className="font-mono uppercase tracking-[0.2em]"
                                     onKeyDown={(e) => {
-                                        if (
-                                            e.key === "Enter" &&
-                                            canContinue
-                                        ) {
+                                        if (e.key === "Enter" && validCode) {
                                             e.preventDefault();
-                                            handleContinueToLobby();
+                                            handleJoin();
                                         }
                                     }}
                                 />
@@ -291,147 +236,10 @@ export function Welcome() {
                             </Button>
                             <Button
                                 className="flex-1 font-display font-extrabold uppercase tracking-[0.02em]"
-                                onClick={handleContinueToLobby}
-                                disabled={!canContinue}
+                                onClick={handleJoin}
+                                disabled={!validCode}
                             >
                                 Continue
-                            </Button>
-                        </div>
-                    </>
-                ) : (
-                    /* mode === "join-lobby" — connected with role=null,
-                       roster has populated, user picks role from the
-                       informed set of available options. */
-                    <>
-                        <div className="px-6 pb-3 text-sm leading-relaxed text-current/85 space-y-1">
-                            <p>
-                                <span className="font-semibold text-white">
-                                    {$code ?? trimmedCode}
-                                </span>{" "}
-                                — pick the role you want. Seek, or hide;
-                                multiple players can hide together.
-                            </p>
-                        </div>
-
-                        {/* Connecting / error states. We render the
-                            roster underneath as soon as the snapshot
-                            arrives even before transport flips to
-                            "open" (participants atom populates from
-                            the snapshot/presence push). */}
-                        {$status !== "open" && (
-                            <div className="px-6 pb-3 flex items-center gap-2 text-xs text-muted-foreground">
-                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                                <span>
-                                    {$status === "connecting"
-                                        ? "Connecting…"
-                                        : $status === "reconnecting"
-                                          ? "Reconnecting…"
-                                          : $status === "closed"
-                                            ? "Disconnected."
-                                            : "Working…"}
-                                </span>
-                            </div>
-                        )}
-                        {$error && (
-                            <div className="mx-6 mb-3 rounded-sm border-2 border-destructive/40 bg-destructive/5 px-3 py-2 text-xs text-destructive">
-                                {$error.message}
-                            </div>
-                        )}
-
-                        {/* Roster — participants grouped by role.
-                            Surfaces "Hider — Dana" so the joiner
-                            knows whose hide they'd be helping if
-                            they pick co-hider. */}
-                        <div className="px-6 pb-4 space-y-2">
-                            <RosterGroup
-                                label={`Seekers · ${seekers.length}`}
-                                tone="seeker"
-                                entries={seekers.map((p) => ({
-                                    name:
-                                        p.displayName || "Anonymous",
-                                }))}
-                                emptyHint="No seekers yet."
-                            />
-                            <RosterGroup
-                                label={`Team Hiders · ${hiders.length}`}
-                                tone="hider"
-                                entries={hiders.map((p) => ({
-                                    name: p.displayName || "Anonymous",
-                                }))}
-                                emptyHint="No hiders yet."
-                            />
-                        </div>
-
-                        {/* Role tiles. v829: any number of players can
-                            hide together — no exclusive seat, no co-hider. */}
-                        <div className="px-6 pb-2 space-y-2">
-                            <label className="text-[10px] uppercase tracking-[0.16em] font-inter-tight font-bold text-muted-foreground block">
-                                Your role
-                            </label>
-                            <button
-                                type="button"
-                                onClick={() => handlePickRole("seeker")}
-                                disabled={$status !== "open"}
-                                className={cn(
-                                    "w-full flex items-start gap-3 p-3 rounded-sm border-2 text-left",
-                                    "bg-secondary border-border",
-                                    "transition-colors",
-                                    "hover:bg-accent hover:border-primary/50",
-                                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                                    "disabled:opacity-50 disabled:cursor-not-allowed",
-                                )}
-                            >
-                                <Eye className="w-5 h-5 shrink-0 mt-0.5 text-primary" />
-                                <div className="flex-1 min-w-0">
-                                    <div className="font-display font-extrabold uppercase tracking-[0.06em] text-sm">
-                                        Seeker
-                                    </div>
-                                    <div className="text-[11px] text-muted-foreground leading-snug mt-0.5">
-                                        Asks questions, eliminates regions
-                                        on the map, closes in on the hider.
-                                    </div>
-                                </div>
-                            </button>
-                            <button
-                                type="button"
-                                onClick={() => handlePickRole("hider")}
-                                disabled={$status !== "open"}
-                                className={cn(
-                                    "w-full flex items-start gap-3 p-3 rounded-sm border-2 text-left",
-                                    "bg-secondary border-border",
-                                    "transition-colors",
-                                    "hover:bg-accent hover:border-[hsl(var(--accent-yellow))/0.5]",
-                                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                                    "disabled:opacity-50 disabled:cursor-not-allowed",
-                                )}
-                            >
-                                <MapPin
-                                    className="w-5 h-5 shrink-0 mt-0.5"
-                                    style={{
-                                        color: "hsl(var(--accent-yellow))",
-                                    }}
-                                />
-                                <div className="flex-1 min-w-0">
-                                    <div className="font-display font-extrabold uppercase tracking-[0.06em] text-sm">
-                                        Hider
-                                    </div>
-                                    <div className="text-[11px] text-muted-foreground leading-snug mt-0.5">
-                                        Answers the seekers' questions and
-                                        plays the deck of hider cards. Team
-                                        up — multiple players can hide
-                                        together.
-                                    </div>
-                                </div>
-                            </button>
-                        </div>
-
-                        <div className="px-6 pb-7 pt-2 flex gap-2">
-                            <Button
-                                variant="ghost"
-                                className="flex-1"
-                                onClick={handleAbortJoin}
-                            >
-                                Leave room
                             </Button>
                         </div>
                     </>
@@ -442,8 +250,8 @@ export function Welcome() {
                     it sits inside a bottom RESERVE whose height matches the
                     sun band, so the centred middle above stops exactly at
                     the sun's top edge and the link rides on the mountain;
-                    the join / lobby modes keep the opaque sticky panel so
-                    it reads over scrolling content.
+                    the join form keeps the opaque sticky panel so it reads
+                    over scrolling content.
 
                     Reserve height mirrors HideSeekScene's geometry: apex
                     height D = (ew/2)/tan(40°) plus sun radius r =
@@ -478,66 +286,6 @@ export function Welcome() {
                     </div>
                 )}
             </div>
-        </div>
-    );
-}
-
-function RosterGroup({
-    label,
-    tone,
-    entries,
-    emptyHint,
-}: {
-    label: string;
-    tone: "seeker" | "hider";
-    entries: { name: string; badge?: string }[];
-    emptyHint: string;
-}) {
-    const dotColor =
-        tone === "seeker"
-            ? "bg-primary"
-            : "bg-accent-yellow";
-    return (
-        <div className="rounded-md border border-border bg-secondary/40 px-3 py-2 space-y-1">
-            <div className="flex items-center gap-1.5">
-                <span
-                    className={cn(
-                        "inline-block w-2 h-2 rounded-full shrink-0",
-                        dotColor,
-                    )}
-                    aria-hidden
-                />
-                <span className="text-[10px] uppercase tracking-[0.12em] font-display font-extrabold text-muted-foreground">
-                    {label}
-                </span>
-            </div>
-            {entries.length > 0 ? (
-                <ul className="text-xs text-current/85 leading-snug pl-3.5 space-y-0.5">
-                    {entries.map((e, i) => (
-                        <li
-                            key={`${e.name}-${i}`}
-                            className="flex items-center gap-1.5"
-                        >
-                            <span>{e.name}</span>
-                            {e.badge && (
-                                <span
-                                    className={cn(
-                                        "text-[9px] font-display font-extrabold uppercase tracking-[0.10em]",
-                                        "rounded-[3px] px-1 py-[1px] leading-none",
-                                        "bg-accent-yellow text-[hsl(var(--sidebar-background))]",
-                                    )}
-                                >
-                                    {e.badge}
-                                </span>
-                            )}
-                        </li>
-                    ))}
-                </ul>
-            ) : emptyHint ? (
-                <div className="text-[11px] text-muted-foreground italic leading-snug pl-3.5">
-                    {emptyHint}
-                </div>
-            ) : null}
         </div>
     );
 }

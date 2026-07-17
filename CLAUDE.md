@@ -428,7 +428,32 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v924`. Use `git log` for the per-version detail;
+build stamp. Current: `v925`. Use `git log` for the per-version detail;
+
+**v925 — join flow mirrors the host flow + card sizing pass.**
+- **Joining a room now lands on the SAME lobby + RolePicker as hosting**
+  (`Welcome.tsx`, `App.tsx`). The old bespoke inline roster/role picker inside
+  Welcome (`join-lobby` mode + `RosterGroup` + `handlePickRole`) was REMOVED.
+  Now "Join a game" is just a room-code form; on Continue, `handleJoin` connects
+  as a guest (`joinAsGuest` — sets `currentGameCode` + `displayName`=cast name +
+  `localIsHost=false` synchronously) with **`playerRole` kept null** and flips
+  **`welcomeSeen=true` + `setupCompleted=true`**, then navigates to `/`. That
+  satisfies exactly the host's gating: `GameRouteGate` admits the shell, the
+  hoisted `GameLobbyDialog` opens (guest's `hidingPeriodEndsAt` arrives null via
+  `applySnapshot` pre-start), and the shared `RolePicker` opens on top (role null
+  + code set) — where the guest picks display name + role, identical to the host.
+  The lobby autohost effect no-ops for the guest (`if ($code && $mp) return`).
+  **Deep-link (`?join=CODE`) now works on a FRESH device:** `GameRouteGate`
+  preserves the `?join=` param when bouncing an unseen user to `/welcome`, and
+  Welcome reads it on mount to prefill the code + jump to the join form. (The
+  invite link is `/?join=CODE` from `InviteSheet`.)
+- **Card sizing tweaks (`CardTile.tsx`):** icons are **55×55 cqw** (explicit
+  w+h again, not aspect-derived) with **margin-top 2cqw**; the general card
+  padding is **8cqw** all round (time-bonus, powerup, curse); non-curse headers
+  are **12cqw** (curse stays 8cqw); `tracking-tight` removed from every card
+  header; the time-bonus size-letter band is `4cqw` / `1cqw 0 1cqw` padding; and
+  the curse description is **4.5cqw**, dropping to **3.6cqw for Curse of the
+  Cairn** (its rock-tower paragraph is too long to fit larger).
 
 **v924 — card icon framing (zero-padding viewBoxes) + title line-breaks +
 thicker curse text (`CardTile.tsx`).** (1) **Icons fill their box with NO
