@@ -226,6 +226,17 @@ export interface CMsgSetRoundProgress {
 }
 
 /**
+ * A hider pushes their scouted-spots notebook (v942 Phase 2). Relayed to the
+ * OTHER hiders + persisted, so the notes survive a device swap and are shared
+ * across the hide team. Opaque `unknown[]` on the wire (the client owns the
+ * `ScoutedSpot` type). Never sent to seekers.
+ */
+export interface CMsgSetScoutedSpots {
+    t: "setScoutedSpots";
+    spots: unknown[];
+}
+
+/**
  * A participant renames themselves in the lobby. The server updates their
  * `displayName` (de-duped against the roster) and broadcasts presence so
  * every device sees the new name. Trimmed empty is ignored server-side.
@@ -347,6 +358,7 @@ export type ClientMessage =
     | CMsgSetHideZone
     | CMsgSetDeck
     | CMsgSetRoundProgress
+    | CMsgSetScoutedSpots
     | CMsgSetName
     | CMsgSetLocationTracking
     | CMsgStartEndgame
@@ -510,6 +522,16 @@ export interface SMsgRoundProgress {
 }
 
 /**
+ * Delivered to hide-team connections when a hider pushes their scouted-spots
+ * notebook, and to a hider on join/resume so they recover it (v942 Phase 2).
+ * Never sent to seekers. `null` means "none yet this round".
+ */
+export interface SMsgScoutedSpots {
+    t: "scoutedSpots";
+    spots: unknown[] | null;
+}
+
+/**
  * Server → hide team: a seeker's live location. Forwarded only to
  * participants whose role is hider or coHider — other seekers don't
  * see their teammates this way. The `participantId` lets the hider
@@ -536,6 +558,19 @@ export interface SMsgCurseReceived {
     curse: CursePayload;
 }
 
+/**
+ * Delivered to a SEEKER on join/resume/role-claim: the full set of curses
+ * cast this round, so a seeker whose device died mid-round recovers every
+ * active curse cast on them (v943 durability). Each curse carries its
+ * server-assigned `castId`; the client merges them into `receivedCurses`,
+ * deduped by `castId`, so a same-device reconnect (which still holds them in
+ * localStorage) doesn't double them.
+ */
+export interface SMsgCurseBacklog {
+    t: "curseBacklog";
+    curses: CursePayload[];
+}
+
 export type ServerMessage =
     | SMsgWelcome
     | SMsgSnapshot
@@ -551,10 +586,12 @@ export type ServerMessage =
     | SMsgHideZone
     | SMsgDeck
     | SMsgRoundProgress
+    | SMsgScoutedSpots
     | SMsgSeekerLocation
     | SMsgError
     | SMsgPong
-    | SMsgCurseReceived;
+    | SMsgCurseReceived
+    | SMsgCurseBacklog;
 
 /* ────────────────── Shared payload types ────────────────── */
 
@@ -603,6 +640,15 @@ export interface CursePayload {
      * Absent for every other curse and older clients.
      */
     travelDestination?: string;
+    /**
+     * Server-assigned monotonic id, stamped in `handleCastCurse` when the
+     * curse is cast (v943 durability). Lets a seeker's client dedup a
+     * re-delivered curse backlog against curses it already holds, so a
+     * same-device reconnect doesn't double them while a fresh device (empty
+     * localStorage) recovers the full active-curse set. Absent on the share
+     * -link (`?c=`) path and older clients.
+     */
+    castId?: number;
 }
 
 /** Push subscription stored by the client for server-side delivery. */

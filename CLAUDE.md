@@ -428,7 +428,45 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v942`. Use `git log` for the per-version detail;
+build stamp. Current: `v943`. Use `git log` for the per-version detail;
+
+**v943 — durability pass, Phases 2–4: scouted spots + active curses survive a
+device dying; coverage audited.** Completes the 4-phase durability pass begun
+in v942 (the server as the book-of-record for round-critical state a device
+could lose — the concern is a tunnel / dead battery / swapped phone, NOT
+anti-cheat). Full map in **MULTIPLAYER.md → "Durability"**.
+- **Phase 2 — scouted spots.** The hide team's scouted-spots notebook
+  (`scoutedSpots`, `hiderRole.ts`) is now a hide-team-secret synced blob like
+  the deck/zone: new `CMsgSetScoutedSpots`/`SMsgScoutedSpots`, worker
+  `handleSetScoutedSpots` (hider-only, fans to other hiders, persisted to DO
+  storage + re-delivered on join/resume/role-claim, reset per round + on
+  eviction), client bridge `scheduleScoutedPush` (microtask-batched,
+  echo-guarded via `applyingRemoteScoutedSpots`, hider-only), inbound
+  `case "scoutedSpots"`. Demo broker no-ops the message.
+- **Phase 3 — active curses.** The server now stores the curses cast this round
+  (`castCurses`, each stamped a monotonic `castId` in `handleCastCurse`) and
+  re-delivers them to a SEEKER on join/resume/role-claim via a new
+  `SMsgCurseBacklog` (`{t:"curseBacklog", curses}`) — so a seeker whose device
+  died recovers every active curse cast on them, for display AND enforcement
+  (Drained Brain / Spotty Memory / Urban Explorer). `CursePayload.castId?` +
+  `ReceivedCurse.castId?` carry the id; the client merges the backlog into
+  `receivedCurses` deduped by `castId` (no `notify()` — it's recovery), so a
+  SURVIVING device (localStorage intact) keeps its acknowledged/dismissed flags
+  instead of doubling curses. The fresh `curseReceived` cast now also dedups by
+  `castId`. Persisted to DO storage; reset per round + on eviction.
+- **Phase 4 — audit.** Swept every per-round atom (`roundReset.ts` is the
+  authoritative set) and confirmed each game-critical value is server-backed:
+  `GameState`/`SetupState` (welcome snapshot: setup, questions, `roundFoundAt`,
+  endgame stamps, `seekersFrozenUntil`/`revealedStation`), plus the out-of-band
+  secrets (`hidingZone`, `deckState`, `roundProgress`, `scoutedSpots`,
+  `castCurses`) each re-delivered on rejoin + persisted. Derived state
+  (`disabledStations`/`permanentOverlay`, `hiderInbox`, `activeBlockingCurse`)
+  rebuilds from recovered data. Accepted local-only gaps (deliberately NOT
+  backed — non-critical/ephemeral): celebration dedupe keys,
+  `gameStartPosition` (Travel-times anchor), `spottyMemoryCategory`/
+  `seekerOnTransit` (a dice roll / self-declared toggle), and the HIDER's
+  `castCurses` mirror (informational — a reflection of their own actions; the
+  game-critical direction, curses ON the seekers, IS backed).
 
 **v942 — durability pass, Phase 1: the hider's SCORE survives a device
 dying.** First of a 4-phase pass making the server the durable book-of-record

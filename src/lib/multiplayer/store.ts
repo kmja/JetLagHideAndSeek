@@ -77,6 +77,8 @@ import {
     readSharedDeckState,
     resetHiderRoundState,
     roundFoundAt,
+    scoutedSpots,
+    type ScoutedSpot,
 } from "@/lib/hiderRole";
 import { appConfirm } from "@/lib/confirm";
 import {
@@ -919,6 +921,29 @@ function applySnapshot(state: GameState) {
     reconcileLocalRoleFromPresence(state.participants);
 }
 
+/**
+ * Build a `ReceivedCurse` from a wire `CursePayload`. Shared by the fresh
+ * `curseReceived` cast and the `curseBacklog` recovery (v943). Carries every
+ * curse-specific enforcement/proof field through so the seeker's question UI
+ * + CurseInbox behave identically whichever path delivered the curse.
+ */
+function curseToReceived(curse: CursePayload) {
+    return {
+        name: curse.name,
+        description: curse.description,
+        castingCost: curse.castingCost,
+        disabledCategories: curse.disabledCategories,
+        disabledQuestions: curse.disabledQuestions,
+        photoUrl: curse.photoUrl,
+        filmSeconds: curse.filmSeconds,
+        rockCount: curse.rockCount,
+        travelDestination: curse.travelDestination,
+        castId: curse.castId,
+        receivedAt: Date.now(),
+        acknowledged: false,
+    };
+}
+
 /** Dispatch a single inbound message. */
 function handleServerMessage(msg: ServerMessage) {
     switch (msg.t) {
@@ -1151,6 +1176,18 @@ function handleServerMessage(msg: ServerMessage) {
                 }
             }
             return;
+        case "scoutedSpots":
+            // v942 Phase 2: a teammate updated the scouted-spots notebook
+            // (or the server delivered it on our join so we recover it).
+            if (Array.isArray(msg.spots)) {
+                applyingRemoteScoutedSpots = true;
+                try {
+                    scoutedSpots.set(msg.spots as ScoutedSpot[]);
+                } finally {
+                    applyingRemoteScoutedSpots = false;
+                }
+            }
+            return;
         case "setupChanged": {
             if (msg.setup.playArea) playArea.set(msg.setup.playArea);
             allowedTransit.set(msg.setup.allowedTransit);
@@ -1350,40 +1387,44 @@ function handleServerMessage(msg: ServerMessage) {
             // `receivedCurses` (the atom CurseInbox renders from). The
             // hider never receives their own cast (server excludes the
             // caster), and CurseInbox only mounts on the seeker surface.
-            receivedCurses.set([
-                ...receivedCurses.get(),
-                {
-                    name: msg.curse.name,
-                    description: msg.curse.description,
-                    castingCost: msg.curse.castingCost,
-                    // Carry curse-specific enforcement params (Drained
-                    // Brain's chosen categories) so the seeker's question
-                    // UI can gate the right categories.
-                    disabledCategories: msg.curse.disabledCategories,
-                    // Drained Brain: the 3 specific questions blocked (v907).
-                    disabledQuestions: msg.curse.disabledQuestions,
-                    // Proof photo for a photo-cost curse (Zoologist /
-                    // Luxury Car) — the seekers see what the hider shot.
-                    photoUrl: msg.curse.photoUrl,
-                    // Target film duration (Bird Guide) — the seekers must
-                    // film a bird for at least this many seconds.
-                    filmSeconds: msg.curse.filmSeconds,
-                    // Target rock count (Curse of the Cairn) — the seekers
-                    // must build a tower of this many rocks.
-                    rockCount: msg.curse.rockCount,
-                    // Destination (Mediocre Travel Agent) — where the hider
-                    // is sending the seekers.
-                    travelDestination: msg.curse.travelDestination,
-                    receivedAt: Date.now(),
-                    acknowledged: false,
-                },
-            ]);
-            notify({
-                title: msg.curse.name,
-                body: msg.curse.description,
-                tag: "curse",
-            });
+            {
+                // Dedup by server castId so a curse the server also replays
+                // in a backlog (same-device reconnect) isn't doubled.
+                const existing = receivedCurses.get();
+                if (
+                    msg.curse.castId != null &&
+                    existing.some((c) => c.castId === msg.curse.castId)
+                ) {
+                    return;
+                }
+                receivedCurses.set([...existing, curseToReceived(msg.curse)]);
+                notify({
+                    title: msg.curse.name,
+                    body: msg.curse.description,
+                    tag: "curse",
+                });
+            }
             return;
+        case "curseBacklog": {
+            // v943 (durability): the server re-delivers every curse cast this
+            // round when a seeker (re)joins. Merge in only the ones we don't
+            // already hold (dedup by castId) so a fresh device recovers the
+            // full active-curse set while a surviving device keeps its
+            // acknowledged/dismissed flags. No notify() — this is recovery,
+            // not a fresh cast.
+            const existing = receivedCurses.get();
+            const have = new Set(
+                existing
+                    .map((c) => c.castId)
+                    .filter((id): id is number => id != null),
+            );
+            const fresh = msg.curses.filter(
+                (c) => c.castId == null || !have.has(c.castId),
+            );
+            if (fresh.length === 0) return;
+            receivedCurses.set([...existing, ...fresh.map(curseToReceived)]);
+            return;
+        }
         case "pong":
             // No-op; latency tracking can hook in here later.
             return;
@@ -1417,6 +1458,8 @@ let applyingRemoteDeck = false;
 /** v942: set while adopting an inbound round-progress blob, so the outbound
  *  ledger subscription doesn't echo a wire-driven set back to the server. */
 let applyingRemoteRoundProgress = false;
+/** v942 Phase 2: same, for the scouted-spots notebook sync. */
+let applyingRemoteScoutedSpots = false;
 export function installMultiplayerBridge() {
     if (_installed) return;
     _installed = true;
@@ -1554,4 +1597,31 @@ export function installMultiplayerBridge() {
     gamePausedForLocationAt.subscribe(scheduleProgressPush);
     locationGraceStartedAt.subscribe(scheduleProgressPush);
     installingProgressSubs = false;
+
+    // v943 (durability): mirror the HIDER's scouted-spots notebook to the
+    // server, so the hide team's marked spots survive a device swap and any
+    // co-hider sees them. Same microtask-batched, echo-guarded, hider-only
+    // push as the deck/round-progress.
+    let scoutedPushQueued = false;
+    let installingScoutedSub = true;
+    const scheduleScoutedPush = () => {
+        if (installingScoutedSub) return;
+        if (applyingRemoteScoutedSpots) return;
+        if (scoutedPushQueued) return;
+        scoutedPushQueued = true;
+        queueMicrotask(() => {
+            scoutedPushQueued = false;
+            if (applyingRemoteScoutedSpots) return;
+            if (!multiplayerEnabled.get()) return;
+            if (!currentGameCode.get()) return;
+            if (transportStatus.get() !== "open") return;
+            if (playerRole.get() !== "hider") return;
+            getTransport().send({
+                t: "setScoutedSpots",
+                spots: scoutedSpots.get(),
+            });
+        });
+    };
+    scoutedSpots.subscribe(scheduleScoutedPush);
+    installingScoutedSub = false;
 }

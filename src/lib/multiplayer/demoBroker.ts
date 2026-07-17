@@ -454,6 +454,11 @@ function handleClientMessage(msg: ClientMessage) {
             // single-device demo has no co-hider to relay it to.
             return;
 
+        case "setScoutedSpots":
+            // v943: the scouted-spots notebook already lives in the local
+            // atom; single-device demo has no co-hider to relay it to.
+            return;
+
         case "castCurse": {
             // Hider cast a curse from the local app — echo it as the
             // broker would (every seeker would receive it). The user

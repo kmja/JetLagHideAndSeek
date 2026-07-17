@@ -135,6 +135,11 @@ interface PersistedRoom {
     hidingZone: HidingZoneShare | null;
     deckState: DeckStateShare | null;
     roundProgress?: RoundProgressShare | null;
+    scoutedSpots?: unknown[] | null;
+    /** v943: curses cast this round + the monotonic id counter, so the
+     *  active-curse set survives a DO eviction and a seeker device swap. */
+    castCurses?: CursePayload[];
+    curseCastSeq?: number;
     pushSubscriptions: [string, PushSubscriptionData][];
     /** When the room last went idle (0 conns) — persisted so eviction timing
      *  survives a DO memory eviction between alarm ticks. */
@@ -208,6 +213,23 @@ export class GameRoom {
      */
     private roundProgress: RoundProgressShare | null = null;
 
+    /**
+     * v942 Phase 2 (durability): the hide team's scouted-spots notebook.
+     * Hider-owned + hide-team-secret like `deckState`; relayed to other
+     * hiders + persisted so the notes survive a device swap. Opaque blob.
+     */
+    private scoutedSpots: unknown[] | null = null;
+
+    /**
+     * v943 (durability): the curses cast this round, each stamped with a
+     * monotonic `castId`. Held OUTSIDE `GameState` (curses are hider→seeker,
+     * not seeker-visible in the shared state); re-delivered to a seeker on
+     * join/resume/role-claim so a seeker whose device died recovers every
+     * active curse. Cleared each round. `curseCastSeq` is the id counter.
+     */
+    private castCurses: CursePayload[] = [];
+    private curseCastSeq = 0;
+
     /** Per-participant Web Push subscriptions. Keyed by participant id. */
     private pushSubscriptions: Map<string, PushSubscriptionData> = new Map();
 
@@ -266,6 +288,9 @@ export class GameRoom {
                 this.hidingZone = stored.hidingZone ?? null;
                 this.deckState = stored.deckState ?? null;
                 this.roundProgress = stored.roundProgress ?? null;
+                this.scoutedSpots = stored.scoutedSpots ?? null;
+                this.castCurses = stored.castCurses ?? [];
+                this.curseCastSeq = stored.curseCastSeq ?? 0;
                 this.pushSubscriptions = new Map(
                     stored.pushSubscriptions ?? [],
                 );
@@ -300,6 +325,9 @@ export class GameRoom {
                 hidingZone: this.hidingZone,
                 deckState: this.deckState,
                 roundProgress: this.roundProgress,
+                scoutedSpots: this.scoutedSpots,
+                castCurses: this.castCurses,
+                curseCastSeq: this.curseCastSeq,
                 pushSubscriptions: [...this.pushSubscriptions],
                 idleSince: this.idleSince,
             };
@@ -420,6 +448,9 @@ export class GameRoom {
             this.hidingZone = null;
             this.deckState = null;
             this.roundProgress = null;
+            this.scoutedSpots = null;
+            this.castCurses = [];
+            this.curseCastSeq = 0;
             this.pushSubscriptions.clear();
             this.locLastAt.clear();
             this.locReminderSent.clear();
@@ -595,6 +626,8 @@ export class GameRoom {
                 return this.handleSetDeck(socket, msg.deck);
             case "setRoundProgress":
                 return this.handleSetRoundProgress(socket, msg.progress);
+            case "setScoutedSpots":
+                return this.handleSetScoutedSpots(socket, msg.spots);
             case "setName":
                 return this.handleSetName(socket, msg.displayName);
             case "setLocationTracking":
@@ -862,6 +895,16 @@ export class GameRoom {
                 t: "roundProgress",
                 progress: this.roundProgress,
             });
+            this.sendTo(socket, {
+                t: "scoutedSpots",
+                spots: this.scoutedSpots,
+            });
+        }
+        // v943 (durability): re-deliver the active-curse backlog to a
+        // reconnecting seeker so a device that died mid-round recovers every
+        // curse cast on it (curses live outside GameState, like the zone).
+        if (existing && existing.role === "seeker" && this.castCurses.length) {
+            this.sendTo(socket, { t: "curseBacklog", curses: this.castCurses });
         }
         this.broadcastPresence();
     }
@@ -888,6 +931,15 @@ export class GameRoom {
                 t: "roundProgress",
                 progress: this.roundProgress,
             });
+            this.sendTo(socket, {
+                t: "scoutedSpots",
+                spots: this.scoutedSpots,
+            });
+        }
+        // v943 (durability): a freshly-claimed seeker gets the active-curse
+        // backlog so mid-round curses are visible + enforced right away.
+        if (effRole === "seeker" && this.castCurses.length) {
+            this.sendTo(socket, { t: "curseBacklog", curses: this.castCurses });
         }
     }
 
@@ -961,6 +1013,28 @@ export class GameRoom {
             const cp = this.game.participants.find((q) => q.id === pid);
             if (cp?.role === "hider") {
                 this.sendTo(c.socket, { t: "roundProgress", progress });
+            }
+        }
+    }
+
+    /**
+     * A hider pushed their scouted-spots notebook (v942 Phase 2). Store,
+     * persist, and fan to the OTHER hiders — never seekers. Mirrors the deck.
+     */
+    private handleSetScoutedSpots(socket: WebSocket, spots: unknown[]) {
+        const conn = this.lookupConn(socket);
+        if (!conn) return;
+        const p = this.game.participants.find(
+            (q) => q.id === conn.participantId,
+        );
+        if (!p || p.role !== "hider") return;
+        if (!Array.isArray(spots)) return;
+        this.scoutedSpots = spots;
+        for (const [pid, c] of this.conns.entries()) {
+            if (pid === conn.participantId) continue;
+            const cp = this.game.participants.find((q) => q.id === pid);
+            if (cp?.role === "hider") {
+                this.sendTo(c.socket, { t: "scoutedSpots", spots });
             }
         }
     }
@@ -1606,6 +1680,11 @@ export class GameRoom {
         // v942: fresh round → drop the scored-time ledger; the new hider's
         // client resets it and pushes as it accrues.
         this.roundProgress = null;
+        this.scoutedSpots = null;
+        // v943: curses are per-round — drop the active set so a next-round
+        // seeker doesn't recover last round's curses on reconnect.
+        this.castCurses = [];
+        this.curseCastSeq = 0;
         // Per-participant location-update timestamps are per-round
         // (the next round's clocks restart). Without clearing, a
         // stale prev > new ts could swallow the new round's first
@@ -1631,15 +1710,21 @@ export class GameRoom {
         if (!conn) return;
         const sender = this.game.participants.find((p) => p.id === conn.participantId);
         if (!sender || sender.role !== "hider") return;
+        // v943 (durability): stamp a monotonic id + store this round's curse
+        // so a seeker who reconnects/swaps devices recovers it (delivered as
+        // a `curseBacklog` on join). The stamped copy is what we fan out, so
+        // every recipient shares the same `castId` and dedups a re-delivery.
+        const stamped: CursePayload = { ...curse, castId: ++this.curseCastSeq };
+        this.castCurses.push(stamped);
         // Fan out to all online seekers.
         for (const [pid, c] of this.conns.entries()) {
             const cp = this.game.participants.find((q) => q.id === pid);
             if (cp?.role === "seeker") {
-                this.sendTo(c.socket, { t: "curseReceived", curse });
+                this.sendTo(c.socket, { t: "curseReceived", curse: stamped });
             }
         }
         // Push to offline seekers via Web Push.
-        this.state.waitUntil(this.pushCurseToOfflineSeekers(curse));
+        this.state.waitUntil(this.pushCurseToOfflineSeekers(stamped));
     }
 
     private handleSubscribePush(socket: WebSocket, subscription: PushSubscriptionData) {

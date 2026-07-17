@@ -384,6 +384,60 @@ tally and `startNewRound`'s leaderboard append prefer the synced values, falling
 back to the local computation for the hider's own device + solo. Store-only
 no-op in the demo broker (single hider).
 
+### Durability — the server is the book of record for recoverable round state (v932, v942–v943)
+
+The concern isn't anti-cheat — it's a device going offline at the wrong moment
+(a tunnel, a dead battery, a swapped phone) and **losing round progress that
+can't otherwise be reconstructed**. The design principle: every piece of
+round-critical state that a device could lose is mirrored server-side and
+re-delivered on reconnect / role-claim, so a fresh device (empty localStorage)
+recovers the running game, not just a same-device reload.
+
+Two storage layers back this:
+
+- **`GameState` (welcome snapshot)** — the shared, seeker-visible state:
+  participants/roster, the full `SetupState` (play area, size, transit,
+  `hidingPeriodEndsAt`, endgame stamps, `seekersFrozenUntil`, `revealedStation`,
+  `locationTrackingExternal`, house rules), the `questions` stack, and
+  `roundFoundAt`. Rides `welcome`/`snapshot`; applied in `applySnapshot`.
+- **Out-of-band hide-team secrets** — held OUTSIDE `GameState` (seekers must not
+  see them) and re-delivered to the relevant role on join/resume/role-claim,
+  each also persisted to DO storage (v932) so it survives a DO memory eviction:
+  - `hidingZone` → `hideZone` (hiders)
+  - `deckState` (hand/deck/discard/limit/chalice/pendingDraw) → `deck` (hiders, v832)
+  - `roundProgress` (hiddenCreditMs/hiddenDebitMs + the four pause timestamps) →
+    `roundProgress` (hiders, v942 Phase 1 — **the running SCORE survives the
+    hider's device dying**)
+  - `scoutedSpots` (the hide team's notebook) → `scoutedSpots` (hiders, v942 Phase 2)
+  - `castCurses` (curses cast this round, each stamped a monotonic `castId`) →
+    `curseBacklog` (**seekers**, v943 Phase 3 — a seeker whose device died
+    recovers every active curse cast on them, for display AND enforcement).
+    The client merges the backlog into `receivedCurses` deduped by `castId`, so a
+    surviving device (localStorage intact) keeps its acknowledged/dismissed flags
+    instead of doubling curses.
+
+All hide-team-secret pushes are microtask-batched, echo-guarded (an
+`applyingRemote*` flag stops the inbound adopt from bouncing back out), hider-only,
+and reset per round (worker `handleRotateHider` + eviction; client `roundReset`).
+
+**Derived local state needs no backing** — it rebuilds from recovered data:
+`disabledStations`/`permanentOverlay` (the elimination overlay from `questions`),
+`hiderInbox` (a mirror of `questions`), `activeBlockingCurse` (from
+`receivedCurses`).
+
+**Accepted local-only gaps (deliberately NOT backed — non-critical / ephemeral):**
+- Celebration dedupe keys (`gameStart*`/`seekingStart*`/`closingInWarningLevel`),
+  `endOfRoundDialogOpen`, map-overlay toggles — volatile UI, correct to reset on
+  a fresh device.
+- `gameStartPosition` — the seeker's GPS at game start, anchoring the optional
+  Travel-times overlay; lost on a device swap (a non-core overlay).
+- `spottyMemoryCategory` / `seekerOnTransit` — a dice-roll result / a
+  self-declared toggle, re-rollable / re-toggleable by nature.
+- `castCurses` (the **hider's** mirror of curses THEY cast — informational, a
+  reflection of their own actions; the game-critical direction, curses ON the
+  seekers, IS backed via the seeker `curseBacklog`). Clearing curses is a
+  real-world action anyway.
+
 ## Quick sanity test
 
 After deploying:

@@ -25,6 +25,14 @@ export interface ReceivedCurse extends SharedCursePayload {
      * and when the curse actually ends.
      */
     dismissed?: boolean;
+    /**
+     * Server-assigned monotonic id for a curse cast over the wire (v943
+     * durability). Lets the multiplayer bridge dedup a re-delivered
+     * `curseBacklog` against curses already held, so a device that survived
+     * (localStorage intact) doesn't double them while a fresh device
+     * recovers the full active-curse set. Absent on the `?c=` share-link path.
+     */
+    castId?: number;
 }
 
 const KEY = "__jlhs_receivedCurses";
