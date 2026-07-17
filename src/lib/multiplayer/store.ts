@@ -298,6 +298,21 @@ export function tryResumeFromPersistent() {
     });
 }
 
+/**
+ * Force an immediate reconnect (skips the backoff wait). Used by the
+ * Reconnecting banner's manual "Retry now" button. No-op if there's nothing
+ * to reconnect to (not in a game) or in demo mode.
+ */
+export function reconnectNow() {
+    if (demoMode.get()) return;
+    if (!currentGameCode.get() || !sessionToken.get()) {
+        // Nothing to resume — try a fresh resume from persistent state.
+        tryResumeFromPersistent();
+        return;
+    }
+    getTransport().reconnect();
+}
+
 /** Drop the connection and clear session state. */
 export function leaveGame() {
     // Demo broker owns its own timers; routing the teardown through it

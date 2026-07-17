@@ -14,6 +14,7 @@ import { BetaGate } from "@/components/BetaGate";
 import { GoGoGoOverlay } from "@/components/GoGoGoOverlay";
 import { MapErrorBoundary } from "@/components/MapErrorBoundary";
 import { PWAUpdatePrompt } from "@/components/PWAUpdatePrompt";
+import { ReconnectingBanner } from "@/components/ReconnectingBanner";
 import { RouteTransitionCurtain } from "@/components/RouteTransitionCurtain";
 import { installGpsSpoof } from "@/lib/debugGpsSpoof";
 import { setupCompleted, welcomeSeen } from "@/lib/gameSetup";
@@ -254,6 +255,12 @@ export function App() {
                 celebration is active, so mounting it globally is safe on every
                 route. */}
             <GoGoGoOverlay />
+            {/* v935: full-screen "Reconnecting…" curtain while an online game
+                is mid-reconnect — dims + blocks the app so the player can't
+                act against stale, un-synced state, and it's obvious the game
+                is resyncing rather than silently frozen. Inert unless in a
+                game with a non-open socket. */}
+            <ReconnectingBanner />
             {/* Toast portal — single instance shared across both
                 routes. v304: progress bar visible (it's the
                 visual countdown), draggable enabled (swipe to

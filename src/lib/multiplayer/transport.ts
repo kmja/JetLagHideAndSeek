@@ -27,6 +27,15 @@ export interface TransportEvents {
 const PING_INTERVAL_MS = 25_000;
 const RECONNECT_BASE_MS = 250;
 const RECONNECT_MAX_MS = 8_000;
+/**
+ * After the tab resumes, a socket that still reads `readyState === OPEN` may
+ * actually be a ZOMBIE — the OS killed it while backgrounded without firing a
+ * `close` event, so the cached status stays "open" and nothing reconnects
+ * (the reported "opened the app, won't reconnect"). On resume we send a ping
+ * and, if no inbound traffic (the server's pong or anything else) arrives
+ * within this window, treat the socket as dead and force a fresh connect.
+ */
+const LIVENESS_PROBE_MS = 4_000;
 
 export class MultiplayerTransport {
     private url: string | null = null;
@@ -42,6 +51,12 @@ export class MultiplayerTransport {
     private reconnectAttempt = 0;
     private reconnectTimer: number | null = null;
     private pingTimer: number | null = null;
+    /** Epoch ms of the last inbound message — the liveness signal a resume
+     *  probe checks to unmask a zombie socket. */
+    private lastInboundAt = 0;
+    /** True while a resume liveness probe is awaiting its deadline, so
+     *  repeated visibility events don't stack probes / double-reconnect. */
+    private livenessProbePending = false;
     /** When true, manual close — don't auto-reconnect. */
     private closedByUser = false;
     /**
@@ -197,6 +212,13 @@ export class MultiplayerTransport {
         return this.status;
     }
 
+    /** Public "retry now" — force a fresh connection regardless of the
+     *  cached status (used by the Reconnecting banner's manual button and
+     *  any caller that wants to skip the backoff wait). */
+    reconnect(): void {
+        this.forceReconnect();
+    }
+
     /* ────────────────── Internals ────────────────── */
 
     private openSocket() {
@@ -250,6 +272,9 @@ export class MultiplayerTransport {
     }
 
     private handleMessage(evt: MessageEvent) {
+        // Any inbound byte proves the socket is alive — the liveness probe
+        // reads this to tell a real connection from a resumed zombie.
+        this.lastInboundAt = Date.now();
         let msg: ServerMessage;
         try {
             const raw =
@@ -309,6 +334,63 @@ export class MultiplayerTransport {
         this.openSocket();
     }
 
+    /**
+     * Called when the tab resumes (visibility / online / pageshow). Ensures
+     * we actually have a LIVE connection, not a zombie that reads OPEN but
+     * was silently killed while backgrounded:
+     *   - Not OPEN (null / connecting-stuck / closing / closed) → reconnect
+     *     immediately (skips any backoff wait).
+     *   - OPEN → send a ping and, if no inbound traffic arrives within
+     *     LIVENESS_PROBE_MS, force a fresh connect. A real socket answers
+     *     with a pong in well under that; a zombie never does.
+     */
+    private ensureLive(): void {
+        if (this.closedByUser || !this.url) return;
+        if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
+            // During a backoff WAIT this.socket is null → reconnect now.
+            this.reconnectNow();
+            return;
+        }
+        if (this.livenessProbePending) return;
+        const probeAt = Date.now();
+        try {
+            this.socket.send(
+                JSON.stringify({ t: "ping", ts: probeAt } as ClientMessage),
+            );
+        } catch {
+            this.forceReconnect();
+            return;
+        }
+        this.livenessProbePending = true;
+        window.setTimeout(() => {
+            this.livenessProbePending = false;
+            if (this.closedByUser) return;
+            // No inbound message since we probed → the socket is a zombie.
+            if (this.lastInboundAt < probeAt) this.forceReconnect();
+        }, LIVENESS_PROBE_MS);
+    }
+
+    /**
+     * Drop the current socket (however it reads) and open a fresh one
+     * immediately, preserving reconnect semantics so the re-auth handshake
+     * is re-sent. Used when a resumed socket is proven dead.
+     */
+    private forceReconnect(): void {
+        if (this.closedByUser || !this.url) return;
+        if (this.socket) {
+            try {
+                this.socket.close(1000, "stale socket");
+            } catch {
+                /* ignore */
+            }
+            this.socket = null;
+        }
+        this.clearTimers();
+        // Keep it a "reconnect" so handleOpen re-sends the resume handshake.
+        if (this.reconnectAttempt === 0) this.reconnectAttempt = 1;
+        this.openSocket();
+    }
+
     private attachLifecycleListeners(): void {
         if (this.lifecycleHandler !== null) return;
         if (typeof window === "undefined") return;
@@ -319,7 +401,7 @@ export class MultiplayerTransport {
                 document.visibilityState === "visible" ||
                 (typeof navigator !== "undefined" && navigator.onLine)
             ) {
-                this.reconnectNow();
+                this.ensureLive();
             }
         };
         this.lifecycleHandler = handler;

@@ -963,6 +963,18 @@ export class GameRoom {
         };
         this.game.questions[idx] = merged;
         this.broadcast({ t: "qAnswered", key, question: merged });
+        // v935: Web Push any OFFLINE seeker so a locked/backgrounded phone
+        // learns the answer arrived. The in-app `qAnswered` → notify() only
+        // fires when the tab is visible, so without this a seeker with the
+        // screen off got nothing (the reported bug). Mirrors the hide-team
+        // push on a new question.
+        this.state.waitUntil(
+            this.pushToOfflineRole("seeker", {
+                title: "Answer received",
+                body: "The hider answered your question — open the app to see the result.",
+                tag: `answer-${key}`,
+            }),
+        );
     }
 
     private handleUpdateQuestion(
@@ -1181,6 +1193,19 @@ export class GameRoom {
         body: string;
         tag: string;
     }) {
+        return this.pushToOfflineRole("hider", payload);
+    }
+
+    /** Web Push `payload` to every OFFLINE participant with the given role
+     *  (a role's online members already got the WebSocket broadcast). The
+     *  seeker variant (v935) is what notifies a locked/backgrounded seeker
+     *  that the hider answered their question — the in-app `notify()` only
+     *  fires when the tab is visible, so without this a seeker with the phone
+     *  in their pocket got nothing when the answer arrived. */
+    private async pushToOfflineRole(
+        roleWanted: Role,
+        payload: { title: string; body: string; tag: string },
+    ) {
         const vapidKeysStr = (this.env as { VAPID_KEYS?: string }).VAPID_KEYS;
         const vapidPublicKey = (this.env as { VAPID_PUBLIC_KEY?: string })
             .VAPID_PUBLIC_KEY;
@@ -1189,8 +1214,7 @@ export class GameRoom {
         if (!vapidKeys) return;
         for (const [pid, sub] of this.pushSubscriptions.entries()) {
             const p = this.game.participants.find((q) => q.id === pid);
-            if (!p || (p.role !== "hider") || p.online)
-                continue;
+            if (!p || p.role !== roleWanted || p.online) continue;
             const result = await sendWebPush(
                 sub,
                 payload,

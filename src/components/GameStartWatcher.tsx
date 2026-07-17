@@ -12,6 +12,14 @@ import { requestStationWarmAll } from "@/lib/journey/stations";
 import { preloadDuringHidingPeriod } from "@/lib/preload";
 
 /**
+ * A hiding period that's genuinely STARTING is minutes in the future (the
+ * shortest rulebook period is 30 min); one that's ended/ending sits at ≈now.
+ * This margin is the secondary start-vs-end discriminator, robust to a bit
+ * of cross-device clock skew.
+ */
+const START_LEAD_MARGIN_MS = 60_000;
+
+/**
  * Mount-only watcher. Opens the GoGoGoOverlay celebration the
  * moment the hiding period actually starts — i.e. when
  * `hidingPeriodEndsAt` transitions from null to a non-null
@@ -50,23 +58,28 @@ export function GameStartWatcher() {
         // new round so the next game still gets the celebration.
         if ($endsAt === null) return;
         // v820: a non-finite (NaN) clock must NEVER drive the celebration.
-        // `NaN === NaN` is false, so the value-keyed dedupe below can never
-        // hold for a NaN — without this guard the overlay re-fires every
-        // render/tick, thrashing GO-GO-GO forever and pegging the CPU.
+        // Without this guard the overlay could re-fire every render/tick.
         if (!Number.isFinite($endsAt)) return;
-        if ($firedFor === $endsAt) return;
-        // v350: only celebrate a hiding period that's actually
-        // STARTING — i.e. whose end is in the future. The bug: when the
-        // seeker taps "End hiding period · Start seeking",
-        // `endHidingPeriodNow` sets hidingPeriodEndsAt to Date.now() (a
-        // NEW value). That slipped past the value-keyed dedupe and
-        // re-fired the GO-GO-GO overlay right on top of the SEEK! one.
-        // A period being ENDED is at/just-past `now` by the time this
-        // effect runs, while a period STARTING is 30-180 min in the
-        // future — so the future check cleanly tells start from end.
-        // We return WITHOUT claiming the fire so a later legitimate
-        // start (new round → future endsAt) still celebrates.
-        if ($endsAt <= Date.now()) return;
+        // v935: fire the start flourish at most ONCE per round. `gameStart
+        // FiredFor` is cleared to null at every round/game start (resetShared
+        // RoundState / startNewRound, applied on the guest via the
+        // `roundStarted` handler), so a NON-null value means "already
+        // celebrated this round." This replaces the old value-keyed dedupe
+        // (`$firedFor === $endsAt`), which only suppressed the SAME
+        // timestamp and so REPLAYED GO-GO-GO on the seeker for every
+        // mid-round value CHANGE: the hider ending the hiding period early
+        // (sets endsAt to ~now — the reported bug), a pause/resume shifting
+        // the deadline forward, and a reconnect snapshot. Keyed on "have we
+        // fired this round" it's immune to all of them, and still celebrates
+        // each NEW round because the round reset nulls it first.
+        if ($firedFor !== null) return;
+        // Belt-and-braces: only celebrate a period genuinely STARTING (well
+        // in the future), never one at/near now — a hair of cross-device
+        // clock skew must not let an end-early (endsAt ≈ now) that somehow
+        // reaches here before the round-reset be mistaken for a start. Real
+        // hiding periods are >= 30 min, so a 1-min margin separates them
+        // cleanly with no dependency on clock sync between devices.
+        if ($endsAt <= Date.now() + START_LEAD_MARGIN_MS) return;
         // Claim the fire BEFORE any side effects so a paired mount
         // on the other route (e.g. SeekerPage + HiderPage both up
         // in one tab) doesn't double-fire on the same value.

@@ -428,7 +428,39 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v934`. Use `git log` for the per-version detail;
+build stamp. Current: `v935`. Use `git log` for the per-version detail;
+
+**v935 — multiplayer reliability batch (live-testing bugs): GO-GO-GO
+replay, no-push-on-answer, zombie reconnect + banner.**
+- **GO-GO-GO / countdown replayed on the seeker when the hiding period
+  ENDED.** `GameStartWatcher`'s value-keyed dedupe (`$firedFor === $endsAt`)
+  only suppressed the SAME timestamp, so any mid-round value CHANGE
+  re-triggered the start flourish — the hider ending the period early sets
+  `hidingPeriodEndsAt` to ≈now (a new value), which under a hair of
+  cross-device clock skew slipped past the `<= Date.now()` guard and fired
+  GO-GO-GO on top of the SEEK! overlay. Now dedupes on "already fired THIS
+  round" (`$firedFor !== null` — cleared to null by the per-round reset, so
+  each new round still celebrates), immune to end-early, pause/resume
+  deadline shifts, and reconnect snapshots. Plus a 1-min future margin as a
+  belt-and-braces start-vs-end discriminator.
+- **A locked/backgrounded seeker got NO notification when the hider
+  answered.** The server pushed offline hide-team members on a new question
+  but never pushed offline seekers on an ANSWER — and the in-app `qAnswered`
+  → `notify()` only fires when the tab is visible. `handleAnswerQuestion`
+  now Web-Pushes offline seekers (generalised `pushToOfflineRole`).
+- **"Opened the app, won't reconnect" (zombie socket).** After a long
+  background/suspend a WebSocket can read `readyState === OPEN` yet be dead
+  (no `close` event fired), so `reconnectNow()` bailed at its
+  `status === "open"` guard and never reconnected. The transport now runs a
+  LIVENESS PROBE on resume (`ensureLive`): not-open → reconnect immediately;
+  open → ping and, if no inbound traffic within `LIVENESS_PROBE_MS` (4 s),
+  `forceReconnect()` (tracks `lastInboundAt`). Public `transport.reconnect()`
+  + store `reconnectNow()` back a manual retry.
+- **"Reconnecting…" curtain** (`ReconnectingBanner`, mounted app-level):
+  while in an online game with a non-open socket (after a 1.5 s grace so a
+  fast reconnect doesn't flash it), a full-screen dim + blur blocks the app
+  so the player can't act against stale, un-synced state, with a "Retry now"
+  button. Inert in demo mode / outside a game.
 
 **v934 — offline players stay in the lobby roster (greyed), don't vanish.**
 Follow-up to v932's persistence fix: a player who closed/backgrounded the
