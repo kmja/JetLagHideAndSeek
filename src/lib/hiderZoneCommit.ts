@@ -7,10 +7,6 @@ import {
     zoneLockedCallout,
 } from "@/lib/gameSetup";
 import { hidingZone } from "@/lib/hiderRole";
-import {
-    HIDER_NOTIFICATION_PROMPT,
-    maybePromptForNotifications,
-} from "@/lib/notificationPrompt";
 
 export interface ZoneStation {
     lat: number;
@@ -22,8 +18,8 @@ export interface ZoneStation {
 
 /**
  * Confirm-and-commit a hiding zone from a picked station — the shared flow
- * behind BOTH the Zone drawer's nearby-stations picker and the on-map zone
- * hint (`HiderZoneHint`), so they can never drift.
+ * behind the Zone drawer's nearby-stations picker and a direct map tap, so
+ * every commit path runs the same lock-in confirm.
  *
  * Committing is a one-way, round-defining choice, so it asks "Lock in?"
  * first — with a map preview of the zone extent. On confirm it sets
@@ -73,8 +69,10 @@ export async function confirmAndCommitZone(
         zoneLockedCallout.set(true);
     }
 
-    // The hider just locked their zone and is now waiting on the seekers'
-    // questions — the ideal moment to offer background notifications (once).
-    maybePromptForNotifications(HIDER_NOTIFICATION_PROMPT);
+    // v946: the "get notified" ask moved to the hiding-period-END moment
+    // (SeekingStartWatcher) — "you'll get the first question soon" — which is
+    // when questions actually start and mirrors the seeker's post-first-
+    // question prompt. Committing a zone can happen well before that, so
+    // prompting here consumed the one-shot too early.
     return true;
 }

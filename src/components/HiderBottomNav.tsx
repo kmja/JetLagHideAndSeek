@@ -152,7 +152,9 @@ export function HiderBottomNav() {
                         aria-label="Open hiding zone controls"
                     >
                         <Tent className="w-5 h-5" strokeWidth={2} />
-                        <span className={navPrimaryLabelClass}>Zone</span>
+                        <span className={navPrimaryLabelClass}>
+                            {$hidingZone === null ? "Select zone" : "Zone"}
+                        </span>
                     </button>
 
                     {/* Map — opens the roomy map-options drawer (basemap /

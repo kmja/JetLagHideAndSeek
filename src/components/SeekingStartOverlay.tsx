@@ -12,6 +12,10 @@ import {
 } from "@/lib/gameSetup";
 import { playerRole } from "@/lib/hiderRole";
 import { notify } from "@/lib/notifications";
+import {
+    HIDER_NOTIFICATION_PROMPT,
+    maybePromptForNotifications,
+} from "@/lib/notificationPrompt";
 import { cn } from "@/lib/utils";
 
 /**
@@ -80,6 +84,12 @@ export function SeekingStartWatcher() {
                 : "Time to start asking questions and closing in on the hider.",
             tag: "seeking-start",
         });
+        // v946: the hider's contextual "get notified" ask — mirrors the
+        // seeker's post-first-question prompt, fired at the moment questions
+        // actually start (once per device; no-op if already decided).
+        if (isHider) {
+            maybePromptForNotifications(HIDER_NOTIFICATION_PROMPT);
+        }
     }, [$endsAt, $setupCompleted, $firedFor, $role, now]);
 
     return null;

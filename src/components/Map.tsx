@@ -60,8 +60,11 @@ import { selectedMapStation, travelTimesFC } from "@/lib/journey/state";
 import { shortenStationLabel } from "@/lib/stationLabel";
 import {
     multiplayerEnabled,
+    participants,
     seekerLocationSharing,
+    seekerLocations,
 } from "@/lib/multiplayer/session";
+import { playerColor, playerInitials } from "@/lib/playerColor";
 import { fadePaint } from "@/lib/mapPaint";
 import { createMapShim } from "@/lib/mapShim";
 import { buildStyle } from "@/lib/mapStyle";
@@ -356,6 +359,31 @@ export function Map({ className }: MapProps) {
     const $role = useStore(playerRole);
     const $seekerSharing = useStore(seekerLocationSharing);
     const $foundAt = useStore(roundFoundAt);
+    // v946: other seekers' live positions (the server now fans `loc` to
+    // seekers too, not just the hide team). Rendered as player-colour avatars
+    // like the hider map, so a seeker can see their teammates.
+    const $seekerLocations = useStore(seekerLocations);
+    const $participants = useStore(participants);
+    // Only render OTHER seekers (the server excludes our own fix already, and
+    // hiders broadcast via a separate channel — but gate on the seeker role
+    // so a stale entry can't render as a hider). Own map already shows the
+    // live "You" dot via SelfPositionMarker.
+    const otherSeekerPins = useMemo(
+        () =>
+            Object.entries($seekerLocations)
+                .map(([id, loc]) => {
+                    const p = $participants.find((q) => q.id === id);
+                    if (p && p.role !== "seeker") return null;
+                    return {
+                        id,
+                        name: p?.displayName?.trim() || "Seeker",
+                        lat: loc.lat,
+                        lng: loc.lng,
+                    };
+                })
+                .filter((v): v is NonNullable<typeof v> => v !== null),
+        [$seekerLocations, $participants],
+    );
     const showGpsShare =
         $mpEnabled && $role === "seeker" && $foundAt === null;
     // v835: display copy of the hiding-zones FC with a `shortName` on each
@@ -2525,6 +2553,34 @@ export function Map({ className }: MapProps) {
                         <SelfPositionMarker />
                     </Marker>
                 )}
+
+                {/* Other seekers' live positions (v946). Player-colour
+                    initials avatars matching the lobby roster / the hider
+                    map, with the name beneath. */}
+                {otherSeekerPins.map((s) => (
+                    <Marker
+                        key={s.id}
+                        longitude={s.lng}
+                        latitude={s.lat}
+                        anchor="center"
+                    >
+                        <div className="flex flex-col items-center pointer-events-none">
+                            <div
+                                title={s.name}
+                                className="flex items-center justify-center w-7 h-7 rounded-full border-2 border-background shadow-lg text-[11px] font-black text-white font-inter-tight leading-none"
+                                style={{ backgroundColor: playerColor(s.id) }}
+                            >
+                                {playerInitials(s.name)}
+                            </div>
+                            <span
+                                className="mt-1 px-1.5 py-0.5 rounded text-[10px] font-bold text-white shadow whitespace-nowrap leading-none"
+                                style={{ backgroundColor: playerColor(s.id) }}
+                            >
+                                {s.name}
+                            </span>
+                        </div>
+                    </Marker>
+                ))}
 
                 {/* Move powerup: the hider revealed their transit station
                     ("send the seekers the location of your transit station").

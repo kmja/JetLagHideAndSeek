@@ -532,9 +532,9 @@ export interface SMsgScoutedSpots {
 }
 
 /**
- * Server → hide team: a seeker's live location. Forwarded only to
- * participants whose role is hider or coHider — other seekers don't
- * see their teammates this way. The `participantId` lets the hider
+ * Server → hide team AND the other seekers: a seeker's live location
+ * (v946 — seekers see their teammates on the map too; the sender never gets
+ * their own fix echoed back). The `participantId` lets the client
  * disambiguate when multiple seekers are pinned on the map.
  */
 export interface SMsgSeekerLocation {

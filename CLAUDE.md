@@ -428,7 +428,33 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v945`. Use `git log` for the per-version detail;
+build stamp. Current: `v946`. Use `git log` for the per-version detail;
+
+**v946 — seekers see each other + seeking-start push + hider notify prompt +
+hider zone-entry moved to the nav.**
+- **Seekers see other seekers on the map.** The server fanned `loc` only to
+  the hide team; now `handleSeekerLocation` fans to the OTHER seekers too
+  (excluding the sender). The seeker `Map.tsx` renders them as player-colour
+  initials avatars + name (reusing `playerColor`/`playerInitials`), mirroring
+  the hider map. The client `loc` handler already stored any incoming location
+  into `seekerLocations`, so it worked for both roles once the server fans it.
+- **Seeker/hider PUSH when the hiding period ends.** `SeekingStartWatcher` uses
+  `notify()` (foreground-only) driven by a visibility-gated interval, so a
+  backgrounded/locked device got nothing when the timer expired. The DO alarm
+  is already scheduled to fire AT `hidingPeriodEndsAt`; `alarm()` now calls
+  `checkSeekingStartPush()`, which Web-Pushes every OFFLINE player once at the
+  transition (seeker + hider variants), deduped on the `hidingPeriodEndsAt`
+  value (`seekingStartPushedFor`). Fires right at natural expiry; within one
+  ~60 s tick on an early end.
+- **Hider "get notified" prompt at hiding-period end.** The contextual
+  `HIDER_NOTIFICATION_PROMPT` (v812) moved from zone-lock-in (which consumed
+  the one-shot too early, before questions can arrive) to the hiding-period-END
+  moment in `SeekingStartWatcher` — "You'll get the first question soon" —
+  mirroring the seeker's post-first-question ask.
+- **Hider zone entry point → the bottom nav.** The on-map "SELECT A STATION"
+  overlay (`HiderZoneHint`, deleted) was removed; the bottom-nav Zone slot now
+  reads **"Select zone"** until a zone is committed, then **"Zone"** — tapping
+  it opens the Zone drawer's station picker.
 
 **v945 — tile pack download is CHUNKED-RANGED (fixes the 503 / range-walk on
 big packs) + dropped the "keep the app open" seeker toast.**

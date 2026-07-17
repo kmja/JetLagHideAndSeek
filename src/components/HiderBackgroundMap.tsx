@@ -22,7 +22,6 @@ import { FadeOverlay } from "@/components/FadeOverlay";
 import { HiderGracePrompt } from "@/components/HiderGracePrompt";
 import { HiderMapTimer } from "@/components/HiderMapTimer";
 import { HiderPoiOverlay } from "@/components/HiderPoiOverlay";
-import { HiderZoneHint } from "@/components/HiderZoneHint";
 import { MapNavControls } from "@/components/MapNavControls";
 import { MapOverlayLoadingToasts } from "@/components/MapOverlayLoadingToasts";
 import { TransitRouteLayers } from "@/components/TransitRouteLayers";
@@ -1219,11 +1218,9 @@ export function HiderBackgroundMap() {
                 containing zone to one-tap commit. Only renders during grace. */}
             <HiderGracePrompt />
 
-            {/* v787: on-map zone-picker hint — mirrors the Zone drawer's
-                "zones you're in" list + Select buttons at the top of the map
-                during the hiding period, so the hider doesn't have to open the
-                drawer. Self-gates (hiding period + no committed zone). */}
-            <HiderZoneHint />
+            {/* v946: the on-map "Select a station" zone-picker hint was removed
+                — the bottom-nav "Select zone" slot is the entry point during
+                the hiding period (tap it to open the Zone drawer picker). */}
 
             {/* v632: the floating top-right map-options popover was removed.
                 Map display options now live in the hider bottom-nav "Map"

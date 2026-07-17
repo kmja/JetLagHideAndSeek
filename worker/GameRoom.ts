@@ -431,6 +431,10 @@ export class GameRoom {
 
     async alarm() {
         const now = Date.now();
+        // v946: push offline players the moment the hiding period ends. The
+        // alarm is scheduled to fire AT hidingPeriodEndsAt, so this is the
+        // transition beat for a backgrounded device.
+        this.checkSeekingStartPush();
         // Escalate seeker-location reminders (no-op outside seeking). This is
         // the whole point of the alarm-driven check: it fires even when every
         // player is offline, so a pocketed seeker still gets pushed.
@@ -1562,6 +1566,47 @@ export class GameRoom {
     private locLastAt: Map<string, number> = new Map();
     private locReminderSent: Map<string, { r1: boolean; r2: boolean }> =
         new Map();
+
+    /**
+     * v946: the `hidingPeriodEndsAt` value we've already fired the
+     * seeking-start push for (keyed on the value so a new round's fresh
+     * timestamp fires cleanly and a reload can't double-fire). Ephemeral —
+     * a rare double-push after a DO eviction is harmless.
+     */
+    private seekingStartPushedFor: number | null = null;
+
+    /**
+     * Push "the hiding period is over" to OFFLINE players when the hiding
+     * clock crosses zero (v946). The in-app `SeekingStartWatcher` only fires
+     * while the tab is VISIBLE (its interval is visibility-gated + `notify()`
+     * is foreground-only), so a backgrounded/locked seeker got nothing when
+     * the timer expired. The DO alarm is already scheduled to fire AT
+     * `hidingPeriodEndsAt` (scheduleAlarm), so this runs right at the
+     * transition; on an early end it fires within one alarm tick.
+     */
+    private checkSeekingStartPush() {
+        const endsAt = this.game.setup.hidingPeriodEndsAt;
+        if (endsAt == null || !Number.isFinite(endsAt)) return;
+        if (this.game.roundFoundAt != null) return; // round already over
+        if (Date.now() < endsAt) return; // still hiding
+        if (this.seekingStartPushedFor === endsAt) return; // already pushed
+        this.seekingStartPushedFor = endsAt;
+        this.state.waitUntil(
+            this.pushToOfflineRole("seeker", {
+                title: "Seeking phase started",
+                body: "The hiding period is over — start asking questions and close in on the hider.",
+                tag: "seeking-start",
+            }),
+        );
+        this.state.waitUntil(
+            this.pushToOfflineRole("hider", {
+                title: "Seeking phase started",
+                body: "The seekers are on the hunt. Every minute you stay hidden counts.",
+                tag: "seeking-start",
+            }),
+        );
+    }
+
     private handleSeekerLocation(
         socket: WebSocket,
         lat: number,
@@ -1604,8 +1649,12 @@ export class GameRoom {
             ts,
         };
         const payload = JSON.stringify(msg);
+        // Fan out to the hide team AND to the OTHER seekers (v946 — seekers
+        // want to see their teammates on the map). The sender never gets their
+        // own fix echoed back (they have their live GPS locally).
         for (const p of this.game.participants) {
-            if (p.role !== "hider") continue;
+            if (p.id === conn.participantId) continue;
+            if (p.role !== "hider" && p.role !== "seeker") continue;
             const c = this.conns.get(p.id);
             if (!c) continue;
             try {

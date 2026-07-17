@@ -66,6 +66,6 @@ export const SEEKER_NOTIFICATION_PROMPT: NotificationPromptCopy = {
 };
 
 export const HIDER_NOTIFICATION_PROMPT: NotificationPromptCopy = {
-    title: "Get notified when questions come in",
-    body: "You're hidden. Turn on notifications and we'll alert you each time the seekers ask something — even with the app in the background.",
+    title: "You'll get the first question soon",
+    body: "The seekers are on the hunt. Turn on notifications and we'll ping you each time a question comes in — even with the app in the background.",
 };
