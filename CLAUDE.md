@@ -428,7 +428,14 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v921`. Use `git log` for the per-version detail;
+build stamp. Current: `v922`. Use `git log` for the per-version detail;
+
+**v922 — bigger card icons + headers (match the physical cards).** Follow-up
+to v921: the authored icons + titles were too small versus the printed cards.
+Bumped in `CardTile.tsx`: `ClockHexIcon` cqw 52→74, `PowerupGlyph` cqw 46→66,
+the "TIME BONUS" title cu(9.3)→cu(13), and the powerup title cu(7)→cu(9.5). All
+still scale-invariant (cqw), so the mini hand cards scale in lockstep. Curse
+titles unchanged (already print-sized in v920).
 
 **v921 — hider card icons replaced with the user's authored SVG art
 (`CardTile.tsx`).** The v918/v919 hand-drawn 100×100 icon approximations were

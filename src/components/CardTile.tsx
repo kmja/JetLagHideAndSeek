@@ -203,10 +203,10 @@ function TimeBonusBody({
             className="flex-1 flex flex-col items-center text-center"
             style={{ padding: cu(5.3), paddingTop: cu(7) }}
         >
-            <ClockHexIcon largest={card.minutes.large} cqw={52} />
+            <ClockHexIcon largest={card.minutes.large} cqw={74} />
             <div
                 className="font-inter-tight font-black uppercase tracking-tight leading-[0.98]"
-                style={{ color: NAVY, fontSize: cu(9.3), marginTop: cu(4) }}
+                style={{ color: NAVY, fontSize: cu(13), marginTop: cu(3) }}
             >
                 <div>Time</div>
                 <div>Bonus</div>
@@ -239,11 +239,11 @@ function PowerupBody({
                 className="flex justify-center shrink-0"
                 style={{ marginTop: cu(2) }}
             >
-                <PowerupGlyph powerup={card.powerup} cqw={46} />
+                <PowerupGlyph powerup={card.powerup} cqw={66} />
             </div>
             <div
                 className="font-inter-tight font-black uppercase tracking-tight leading-[0.98] text-center shrink-0"
-                style={{ color: NAVY, fontSize: cu(7), marginTop: cu(4) }}
+                style={{ color: NAVY, fontSize: cu(9.5), marginTop: cu(4) }}
             >
                 {card.name}
             </div>
