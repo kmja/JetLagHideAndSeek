@@ -13,7 +13,12 @@ import {
     defaultUnit,
     mapGeoLocation,
 } from "@/lib/context";
-import { moreSheetOpen, setupCompleted } from "@/lib/gameSetup";
+import {
+    locationTrackingExternal,
+    moreSheetOpen,
+    setupCompleted,
+} from "@/lib/gameSetup";
+import { setLocationTrackingExternal } from "@/lib/multiplayer/store";
 import { estimateTotalAreaKm2 } from "@/lib/playAreaSize";
 import { SOUNDS_ENABLED, soundMuted } from "@/lib/sound";
 import { cn } from "@/lib/utils";
@@ -41,6 +46,7 @@ export function AppSettingsDrawer() {
     const $defaultUnit = useStore(defaultUnit);
     const $setupCompleted = useStore(setupCompleted);
     const $soundMuted = useStore(soundMuted);
+    const $externalTracking = useStore(locationTrackingExternal);
     // Committed play area (primary + added adjacents) so the preload
     // estimate reflects THIS game's size instead of the generic
     // null-area fallback (which always read ~19 MB regardless of city).
@@ -146,6 +152,34 @@ export function AppSettingsDrawer() {
                                         {$soundMuted ? "Off" : "On"}
                                     </button>
                                 </div>
+                                {$setupCompleted && (
+                                    <div className="flex items-center justify-between gap-3">
+                                        <span className="text-sm font-medium leading-snug">
+                                            Location warnings
+                                            <span className="block text-[11px] font-normal text-muted-foreground">
+                                                Off if seekers track GPS
+                                                another way
+                                            </span>
+                                        </span>
+                                        <button
+                                            type="button"
+                                            onClick={() =>
+                                                setLocationTrackingExternal(
+                                                    !$externalTracking,
+                                                )
+                                            }
+                                            aria-pressed={!$externalTracking}
+                                            className={cn(
+                                                "inline-flex items-center gap-1.5 h-9 px-3 rounded-md border text-sm font-medium transition-colors shrink-0",
+                                                $externalTracking
+                                                    ? "border-border text-muted-foreground"
+                                                    : "border-primary bg-primary/10 text-primary",
+                                            )}
+                                        >
+                                            {$externalTracking ? "Off" : "On"}
+                                        </button>
+                                    </div>
+                                )}
                             </div>
 
                             {/* House rules moved to the lobby (v601) — they

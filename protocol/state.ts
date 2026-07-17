@@ -165,6 +165,15 @@ export interface SetupState {
      * without it and each device keeps its local values.
      */
     houseRules?: HouseRulesState;
+    /**
+     * v940: the seekers are sharing their location by some OTHER means (a
+     * dedicated tracker app, walkie-GPS, etc.), so the app's in-game
+     * location-freshness enforcement should stand down — no "seekers must
+     * share their location" banner, no reminder pushes, and no clock pause.
+     * Any participant can toggle it (the banner's "we're tracking another
+     * way" dismiss); synced to the whole room. Optional for back-compat.
+     */
+    locationTrackingExternal?: boolean;
 }
 
 /**

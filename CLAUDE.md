@@ -428,7 +428,37 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v940`. Use `git log` for the per-version detail;
+build stamp. Current: `v941`. Use `git log` for the per-version detail;
+
+**v941 — location reminders are DO-alarm-driven (fire when everyone's
+offline) + "we're tracking GPS another way" opt-out.**
+- **Alarm-driven reminders.** v940's reminder check rode message activity
+  (the hider's ping), so if EVERY player backgrounds the app at once — very
+  common mid-game — nothing fired. The DO now runs a self-perpetuating alarm:
+  the single alarm slot is multiplexed by `scheduleAlarm()` to the SOONER of
+  the seeking-phase location tick (`ALARM_TICK_MS`=60 s, so reminders escalate
+  even with zero connections) and idle eviction (`idleSince + IDLE_EVICTION_MS`).
+  `alarm()` runs `checkLocationReminders()` then either tears down a
+  genuinely-idle room or re-schedules. `idleSince` is now PERSISTED (in
+  `PersistedRoom`) so eviction timing survives the DO being evicted from
+  memory between ticks — previously it reset to "now" on every
+  re-instantiation and the room never evicted. `armEviction`/`cancelEviction`/
+  `evictionAlarmSet` were replaced by `idleSince` + `scheduleAlarm` (called on
+  every connection change + non-ephemeral message; `forceCloseRoom` deletes
+  the alarm). Push still only nudges OFFLINE seekers.
+- **"We're tracking GPS another way" opt-out** — groups often share location
+  via a dedicated tracker, so the whole location rule can now be stood down
+  room-wide. New `SetupState.locationTrackingExternal` + client atom
+  (`gameSetup.ts`, persistent, reset on new GAME) + a dedicated
+  `setLocationTracking` message (ANY participant may send it — unlike the
+  host-only `hostPushSetup`; server `handleSetLocationTracking` stamps it +
+  broadcasts setupChanged, and gates `checkLocationReminders`). When on:
+  `LocationPauseWatcher` is dormant (no grace/pause), `LocationPauseBanner`
+  hides. Toggled by the banner's "We're tracking GPS another way — stop these
+  warnings" dismiss, re-enabled from Settings → App → "Location warnings"
+  (both call `setLocationTrackingExternal`). Demo broker no-ops the message
+  (single device). Turning it back OFF re-arms a clean staleness slate
+  server-side so reminders don't instantly re-fire.
 
 **v940 — lenient seeker-location freshness: reminder pushes at 5 & 10 min,
 pause at 15.** The old rule was a flat 5-min-to-pause off a tight 60 s

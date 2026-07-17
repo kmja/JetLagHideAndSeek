@@ -822,6 +822,23 @@ export const locationGraceStartedAt = persistentAtom<number | null>(
 );
 
 /**
+ * v940: the seekers are sharing location by some OTHER means (a dedicated
+ * tracker), so the app's location-freshness enforcement stands down — no
+ * banner, no reminder pushes, no clock pause. Synced room-wide via
+ * `SetupState.locationTrackingExternal`; any participant can toggle it (the
+ * banner's "we're tracking another way" dismiss). Persistent so a reload
+ * mid-game keeps the choice; reset only on a brand-new GAME.
+ */
+export const locationTrackingExternal = persistentAtom<boolean>(
+    "jlhs:locationTrackingExternal",
+    false,
+    {
+        encode: (v) => (v ? "1" : "0"),
+        decode: (v) => v === "1",
+    },
+);
+
+/**
  * Unix ms the game paused because no seeker was sharing location past
  * the grace window. While set, the hider's clock is frozen — scoring
  * subtracts the in-progress pause live, and banks it into

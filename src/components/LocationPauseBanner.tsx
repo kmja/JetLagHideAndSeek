@@ -7,7 +7,9 @@ import {
     LOCATION_PAUSE_AFTER_MS,
     LOCATION_REMINDER_2_MS,
     locationGraceStartedAt,
+    locationTrackingExternal,
 } from "@/lib/gameSetup";
+import { setLocationTrackingExternal } from "@/lib/multiplayer/store";
 import { cn } from "@/lib/utils";
 
 /**
@@ -34,12 +36,17 @@ export function LocationPauseBanner({
 }: { preview?: LocationPausePreview } = {}) {
     let $grace = useStore(locationGraceStartedAt);
     let $pausedAt = useStore(gamePausedForLocationAt);
+    const $externalTracking = useStore(locationTrackingExternal);
     if (preview) {
         $grace = preview.grace ?? null;
         $pausedAt = preview.paused ?? null;
     }
     const active = $grace != null || $pausedAt != null;
     const now = useNow(active);
+
+    // v940: seekers are tracking location by other means — the whole
+    // enforcement stood down, so show nothing.
+    if (!preview && $externalTracking) return null;
 
     if ($pausedAt != null) {
         return (
@@ -50,6 +57,7 @@ export function LocationPauseBanner({
                     <div className="text-xs opacity-90">
                         Waiting for a seeker to share their location.
                     </div>
+                    <TrackingElsewhereButton />
                 </div>
             </Banner>
         );
@@ -82,12 +90,30 @@ export function LocationPauseBanner({
                             Open the app so your live location updates.
                         </div>
                     )}
+                    <TrackingElsewhereButton />
                 </div>
             </Banner>
         );
     }
 
     return null;
+}
+
+/**
+ * "We're tracking GPS another way" dismiss (v940) — stands the location rule
+ * down room-wide (no banner, no reminder pushes, no clock pause). Synced to
+ * everyone via `setLocationTrackingExternal`; re-enable it from Settings.
+ */
+function TrackingElsewhereButton() {
+    return (
+        <button
+            type="button"
+            onClick={() => setLocationTrackingExternal(true)}
+            className="mt-1 text-[11px] font-semibold underline underline-offset-2 opacity-80 hover:opacity-100"
+        >
+            We&apos;re tracking GPS another way — stop these warnings
+        </button>
+    );
 }
 
 function Banner({

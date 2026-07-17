@@ -72,6 +72,10 @@ const FOUND_POS_STALE_MS = 3 * 60_000;
  */
 const LOC_REMINDER_1_MS = 5 * 60_000;
 const LOC_REMINDER_2_MS = 10 * 60_000;
+/** How often the DO wakes itself during the SEEKING phase to run the
+ *  location-reminder escalation — so it fires even when every player's app is
+ *  backgrounded/closed (no message activity to piggyback on). v940. */
+const ALARM_TICK_MS = 60_000;
 
 /** Great-circle distance in metres (server-side; no turf dependency). */
 function haversineMetersServer(
@@ -130,6 +134,9 @@ interface PersistedRoom {
     hidingZone: HidingZoneShare | null;
     deckState: DeckStateShare | null;
     pushSubscriptions: [string, PushSubscriptionData][];
+    /** When the room last went idle (0 conns) — persisted so eviction timing
+     *  survives a DO memory eviction between alarm ticks. */
+    idleSince?: number | null;
 }
 
 /* ────────────────── Connection bookkeeping ────────────────── */
@@ -194,8 +201,13 @@ export class GameRoom {
     /** Per-participant Web Push subscriptions. Keyed by participant id. */
     private pushSubscriptions: Map<string, PushSubscriptionData> = new Map();
 
-    /** Idle-eviction wake handle. */
-    private evictionAlarmSet = false;
+    /**
+     * Unix ms the room last went to ZERO connections (null while someone is
+     * connected). Drives idle eviction — persisted so it survives the DO
+     * being evicted from memory between alarm ticks (otherwise it reset to
+     * "now" on every re-instantiation and the room never evicted). v940.
+     */
+    private idleSince: number | null = null;
 
     /** True once the persisted snapshot has been restored (or confirmed
      *  absent) — set inside the constructor's blockConcurrencyWhile so no
@@ -246,6 +258,7 @@ export class GameRoom {
                 this.pushSubscriptions = new Map(
                     stored.pushSubscriptions ?? [],
                 );
+                this.idleSince = stored.idleSince ?? null;
                 // A cold isolate has no live sockets — everyone is offline
                 // until their client reconnects and re-attaches.
                 for (const p of this.game.participants) p.online = false;
@@ -276,6 +289,7 @@ export class GameRoom {
                 hidingZone: this.hidingZone,
                 deckState: this.deckState,
                 pushSubscriptions: [...this.pushSubscriptions],
+                idleSince: this.idleSince,
             };
             await this.state.storage.put(STATE_STORAGE_KEY, snapshot);
         } catch (e) {
@@ -327,55 +341,81 @@ export class GameRoom {
             this.handleSocketClose(server),
         );
 
-        // Cancel any pending eviction now that we have a fresh
-        // connection. We'll re-arm when conns go to zero again.
-        await this.cancelEviction();
+        // A socket is connecting — clear the idle marker and (re)schedule
+        // the alarm for whatever the room now needs.
+        this.idleSince = null;
+        await this.scheduleAlarm();
 
         return new Response(null, { status: 101, webSocket: client });
     }
 
-    /* ────────────────── Idle eviction ────────────────── */
+    /* ────────────────── Alarm: location ticks + idle eviction ────────── */
+
+    /** True while a round is LIVE (clock armed, not yet found). */
+    private roomIsActive(): boolean {
+        const endsAt = this.game.setup.hidingPeriodEndsAt;
+        return (
+            endsAt != null &&
+            Number.isFinite(endsAt) &&
+            this.game.roundFoundAt == null
+        );
+    }
 
     /**
-     * Wakes the DO with no connections so it can decide whether to
-     * tear down. We just check the conns map — if empty, we close
-     * the DO context by setting `evictionAlarmSet = false` and
-     * letting Cloudflare reclaim the instance once it idles.
+     * Set the DO alarm to the SOONER of two needs (v940):
+     *   - The seeking-phase location tick — so reminders escalate even when
+     *     every player's app is closed (no message activity to ride on).
+     *     Before seeking starts it's a single alarm at the seeking-start
+     *     instant; during seeking it re-arms every ALARM_TICK_MS.
+     *   - Idle eviction — `idleSince + IDLE_EVICTION_MS` while nobody's
+     *     connected.
+     * Deletes the alarm when neither applies. Idempotent; called on every
+     * connection change + state-changing message, and re-called by `alarm()`.
      */
-    async alarm() {
-        this.evictionAlarmSet = false;
+    private async scheduleAlarm() {
+        const now = Date.now();
+        const times: number[] = [];
+        if (this.roomIsActive()) {
+            const endsAt = this.game.setup.hidingPeriodEndsAt as number;
+            times.push(now >= endsAt ? now + ALARM_TICK_MS : endsAt);
+        }
         if (this.conns.size === 0) {
-            // Genuinely idle for the full window — tear the room down and
-            // drop its persisted snapshot so it doesn't resurrect on a late
-            // stray connection. Cloudflare reclaims the instance once the
-            // request queue empties.
+            times.push((this.idleSince ?? now) + IDLE_EVICTION_MS);
+        }
+        if (times.length === 0) {
+            await this.state.storage.deleteAlarm();
+            return;
+        }
+        await this.state.storage.setAlarm(Math.min(...times));
+    }
+
+    async alarm() {
+        const now = Date.now();
+        // Escalate seeker-location reminders (no-op outside seeking). This is
+        // the whole point of the alarm-driven check: it fires even when every
+        // player is offline, so a pocketed seeker still gets pushed.
+        this.checkLocationReminders();
+        // Idle for the full window with nobody connected → tear the room down
+        // and drop its persisted snapshot so a late stray connection can't
+        // resurrect a dead room.
+        if (
+            this.conns.size === 0 &&
+            now - (this.idleSince ?? now) >= IDLE_EVICTION_MS
+        ) {
             this.game.participants = [];
             this.tokens.clear();
             this.deviceToParticipant.clear();
             this.hidingZone = null;
             this.deckState = null;
             this.pushSubscriptions.clear();
+            this.locLastAt.clear();
+            this.locReminderSent.clear();
             await this.clearPersisted();
-        } else {
-            // A new connection arrived in the meantime; re-arm.
-            await this.armEviction();
+            await this.state.storage.deleteAlarm();
+            return;
         }
-    }
-
-    private async armEviction() {
-        if (this.evictionAlarmSet) return;
-        this.evictionAlarmSet = true;
-        await this.state.storage.setAlarm(Date.now() + IDLE_EVICTION_MS);
-    }
-
-    private async cancelEviction() {
-        // Always clear the stored alarm, not just when our in-memory flag
-        // says one is set: after a memory eviction the flag resets to false
-        // while the alarm the previous isolate armed is still scheduled in
-        // storage. Without an unconditional delete, that stale alarm would
-        // later fire and could tear down a room that has since been resumed.
-        this.evictionAlarmSet = false;
-        await this.state.storage.deleteAlarm();
+        // Keep the schedule alive for the next tick / eviction deadline.
+        await this.scheduleAlarm();
     }
 
     /* ────────────────── Message dispatch ────────────────── */
@@ -462,7 +502,12 @@ export class GameRoom {
         this.deviceToParticipant.clear();
         this.game.participants = [];
         this.game.questions = [];
+        this.game.setup.hidingPeriodEndsAt = null;
+        this.locLastAt.clear();
+        this.locReminderSent.clear();
         void this.clearPersisted();
+        // Room is dead — stop the alarm from ticking an empty room.
+        void this.state.storage.deleteAlarm();
     }
 
     /**
@@ -480,10 +525,14 @@ export class GameRoom {
         this.dispatchInner(socket, msg);
         // v932: persist after any state-changing message so the room
         // survives a memory eviction. Fire-and-forget (output-gate-safe).
-        if (!GameRoom.EPHEMERAL_MSG.has(msg.t)) void this.persist();
-        // v940: opportunistically escalate seeker-location reminders. The
-        // hider's ~25 s ping (and every seeker loc) keeps this ticking while
-        // the game is live; it no-ops outside the seeking phase.
+        // v940: also re-schedule the alarm — a state change (game armed,
+        // round found/rotated) shifts what the alarm needs to do next.
+        if (!GameRoom.EPHEMERAL_MSG.has(msg.t)) {
+            void this.persist();
+            void this.scheduleAlarm();
+        }
+        // v940: opportunistically escalate seeker-location reminders on
+        // message activity too (belt-and-braces with the alarm tick).
         this.checkLocationReminders();
     }
 
@@ -533,6 +582,8 @@ export class GameRoom {
                 return this.handleSetDeck(socket, msg.deck);
             case "setName":
                 return this.handleSetName(socket, msg.displayName);
+            case "setLocationTracking":
+                return this.handleSetLocationTracking(socket, msg.external);
             case "startEndgame":
                 return this.handleStartEndgame(socket, msg.at);
             case "cancelEndgame":
@@ -1220,7 +1271,32 @@ export class GameRoom {
      * which the hider's device can't send. Synchronous; schedules each push
      * via `waitUntil`. No-op outside seeking.
      */
+    /**
+     * Any participant toggles "seekers are tracking location externally"
+     * (v940). Stands down the location-freshness enforcement room-wide: the
+     * server stops sending reminders (gated in `checkLocationReminders`) and
+     * every client drops the banner + clock pause off the synced setup flag.
+     */
+    private handleSetLocationTracking(socket: WebSocket, external: boolean) {
+        const conn = this.lookupConn(socket);
+        if (!conn) return;
+        if (typeof external !== "boolean") return;
+        this.game.setup.locationTrackingExternal = external;
+        // Turning it back ON re-arms a clean slate so reminders don't
+        // immediately re-fire off the pre-existing staleness.
+        if (!external) {
+            this.locReminderSent.clear();
+            const now = Date.now();
+            for (const p of this.game.participants) {
+                if (p.role === "seeker") this.locLastAt.set(p.id, now);
+            }
+        }
+        this.broadcast({ t: "setupChanged", setup: this.game.setup });
+    }
+
     private checkLocationReminders() {
+        // Stood down — the seekers are tracking location by other means.
+        if (this.game.setup.locationTrackingExternal) return;
         const endsAt = this.game.setup.hidingPeriodEndsAt;
         if (endsAt == null || !Number.isFinite(endsAt)) return;
         const now = Date.now();
@@ -1551,10 +1627,17 @@ export class GameRoom {
         if (p) p.online = false;
         this.broadcastPresence();
         if (this.conns.size === 0) {
-            // Arm idle eviction. Tokens stay around until the alarm
-            // fires so a quick reconnect can reattach.
-            void this.armEviction();
+            // Mark idle so the alarm can eventually evict; tokens stay around
+            // until then so a quick reconnect can reattach. Persist the
+            // marker so eviction timing survives the DO being evicted from
+            // memory between alarm ticks.
+            this.idleSince = Date.now();
+            void this.persist();
         }
+        // (Re)schedule the alarm for whatever the room needs next — during
+        // an active round it keeps ticking for location reminders even with
+        // everyone now offline; otherwise it counts down to eviction.
+        void this.scheduleAlarm();
     }
 
     private attachConnection(socket: WebSocket, conn: Omit<ConnInfo, "socket">) {

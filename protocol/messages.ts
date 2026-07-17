@@ -223,6 +223,18 @@ export interface CMsgSetName {
 }
 
 /**
+ * Any participant → server: toggle whether the seekers are tracking their
+ * location by some OTHER means (v940). When on, the server stops sending
+ * location-freshness reminder pushes and stamps `setup.locationTracking
+ * External` so every device stands down the banner + clock pause. Broadcast
+ * via setupChanged.
+ */
+export interface CMsgSetLocationTracking {
+    t: "setLocationTracking";
+    external: boolean;
+}
+
+/**
  * Seeker triggers the endgame phase ("I'm close — lock your spot
  * down"). The server stamps `setup.endgameStartedAt` and broadcasts
  * a setupChanged so every client surfaces the transition. Idempotent:
@@ -322,6 +334,7 @@ export type ClientMessage =
     | CMsgSetHideZone
     | CMsgSetDeck
     | CMsgSetName
+    | CMsgSetLocationTracking
     | CMsgStartEndgame
     | CMsgCancelEndgame
     | CMsgConfirmEndgame

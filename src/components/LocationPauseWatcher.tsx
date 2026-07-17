@@ -9,6 +9,7 @@ import {
     LOCATION_PAUSE_AFTER_MS,
     LOCATION_SHARE_FRESH_MS,
     locationGraceStartedAt,
+    locationTrackingExternal,
 } from "@/lib/gameSetup";
 import { playerRole, roundFoundAt } from "@/lib/hiderRole";
 import {
@@ -48,6 +49,8 @@ export function LocationPauseWatcher() {
     // local play has no separate seeker device to share from, so a
     // missing broadcast must NOT pause anything.
     const $mp = useStore(multiplayerEnabled);
+    // v940: seekers tracking location externally → the whole rule stands down.
+    const $externalTracking = useStore(locationTrackingExternal);
     const isSeeker = $role === "seeker";
     // Drive the state machine off the shared 1 Hz clock so the grace
     // window + pause transitions fire even when no seeker event arrives.
@@ -55,9 +58,14 @@ export function LocationPauseWatcher() {
 
     useEffect(() => {
         // Only active during the seeking phase of an ONLINE game:
-        // online, clock run out, hider not yet found.
+        // online, clock run out, hider not yet found. v940: also dormant
+        // when the seekers are tracking location by other means.
         const seeking =
-            $mp && $endsAt != null && now >= $endsAt && $found == null;
+            $mp &&
+            !$externalTracking &&
+            $endsAt != null &&
+            now >= $endsAt &&
+            $found == null;
         if (!seeking) {
             // Outside seeking the rule is dormant. Clear any pending
             // grace, and if we were PAUSED when the round ended (found)
@@ -117,7 +125,7 @@ export function LocationPauseWatcher() {
             gamePausedForLocationAt.set(now);
             locationGraceStartedAt.set(null);
         }
-    }, [now, $endsAt, $found, $seekers, $selfBroadcast, isSeeker]);
+    }, [now, $endsAt, $found, $seekers, $selfBroadcast, isSeeker, $externalTracking]);
 
     return null;
 }

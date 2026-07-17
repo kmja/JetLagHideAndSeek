@@ -46,6 +46,7 @@ import {
     endOfRoundDialogOpen,
     hiddenCreditMs,
     hidingPeriodEndsAt,
+    locationTrackingExternal,
     playArea,
     revealedStation,
     roundEndBaseMs,
@@ -482,8 +483,21 @@ export function hostPushSetup() {
             askOncePerQuestion: askOncePerQuestion.get(),
             zoneRadiusBuffer: zoneRadiusBuffer.get(),
         },
+        locationTrackingExternal: locationTrackingExternal.get(),
     };
     getTransport().send({ t: "start", setup });
+}
+
+/**
+ * v940: toggle "seekers are tracking location externally" for the whole room.
+ * Sets the local atom immediately and syncs via a dedicated `setLocationTracking`
+ * message (any participant may send it — unlike the host-only `hostPushSetup`).
+ * Solo/offline just flips the atom.
+ */
+export function setLocationTrackingExternal(external: boolean) {
+    locationTrackingExternal.set(external);
+    if (!multiplayerEnabled.get()) return;
+    getTransport().send({ t: "setLocationTracking", external });
 }
 
 /**
@@ -838,6 +852,9 @@ function applySnapshot(state: GameState) {
     if ("revealedStation" in state.setup) {
         revealedStation.set(state.setup.revealedStation ?? null);
     }
+    if ("locationTrackingExternal" in state.setup) {
+        locationTrackingExternal.set(!!state.setup.locationTrackingExternal);
+    }
     if (state.setup.mapGeoLocation) {
         mapGeoLocation.set(
             state.setup.mapGeoLocation as OpenStreetMap,
@@ -1147,6 +1164,11 @@ function handleServerMessage(msg: ServerMessage) {
             // Move powerup: sync the seeker freeze + the revealed station.
             if ("seekersFrozenUntil" in msg.setup) {
                 seekersFrozenUntil.set(msg.setup.seekersFrozenUntil ?? null);
+            }
+            if ("locationTrackingExternal" in msg.setup) {
+                locationTrackingExternal.set(
+                    !!msg.setup.locationTrackingExternal,
+                );
             }
             if ("revealedStation" in msg.setup) {
                 const prevReveal = revealedStation.get();

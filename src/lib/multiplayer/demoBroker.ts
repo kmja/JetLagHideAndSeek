@@ -443,6 +443,12 @@ function handleClientMessage(msg: ClientMessage) {
             return;
         }
 
+        case "setLocationTracking":
+            // v940: the local atom was already flipped by
+            // `setLocationTrackingExternal` before the send; single-device
+            // demo has no peers to relay to, so nothing else to do.
+            return;
+
         case "castCurse": {
             // Hider cast a curse from the local app — echo it as the
             // broker would (every seeker would receive it). The user

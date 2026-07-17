@@ -12,6 +12,7 @@ import {
     HIDING_PERIOD_MINUTES,
     hiddenCreditMs,
     hidingPeriodEndsAt,
+    locationTrackingExternal,
     MOVE_PERIOD_MINUTES,
     pendingHidingDurationMin,
     preloadBucketTimestamps,
@@ -237,6 +238,9 @@ export function startNewGame() {
     // area so cached Overpass / transit data from the previous game is
     // no longer valid (or at least we can't assume it is).
     preloadBucketTimestamps.set({ map: null, references: null, transit: null });
+    // v940: a brand-new game re-enables location enforcement (the external-
+    // tracking opt-out is a per-game decision, like allowedTransit).
+    locationTrackingExternal.set(false);
     setupCompleted.set(false);
     // v252: no manual dialog-open — the route guard in
     // SeekerPage/HiderPage redirects to /setup the moment
