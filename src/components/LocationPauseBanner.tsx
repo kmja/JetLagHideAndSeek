@@ -4,7 +4,8 @@ import { MapPinOff, PauseCircle } from "lucide-react";
 import { useNow } from "@/hooks/useNow";
 import {
     gamePausedForLocationAt,
-    LOCATION_SHARE_GRACE_MS,
+    LOCATION_PAUSE_AFTER_MS,
+    LOCATION_REMINDER_2_MS,
     locationGraceStartedAt,
 } from "@/lib/gameSetup";
 import { cn } from "@/lib/utils";
@@ -55,10 +56,13 @@ export function LocationPauseBanner({
     }
 
     if ($grace != null) {
-        const remaining = Math.max(
-            0,
-            $grace + LOCATION_SHARE_GRACE_MS - now,
-        );
+        const elapsed = now - $grace;
+        // v940: gentle reminder for the first 10 min of staleness (the
+        // server also pushes at 5 and 10 min); only once the visible
+        // countdown window opens (10 min in) do we show the alarming
+        // "game pauses in m:ss" clock, which runs the last 5 min to 15.
+        const inCountdown = elapsed >= LOCATION_REMINDER_2_MS;
+        const remaining = Math.max(0, $grace + LOCATION_PAUSE_AFTER_MS - now);
         const mm = Math.floor(remaining / 60_000);
         const ss = Math.floor((remaining % 60_000) / 1000);
         return (
@@ -68,9 +72,16 @@ export function LocationPauseBanner({
                     <div className="font-semibold">
                         Seekers must share their location
                     </div>
-                    <div className="text-xs font-bold tabular-nums text-yellow-300">
-                        Game pauses in {mm}:{String(ss).padStart(2, "0")}
-                    </div>
+                    {inCountdown ? (
+                        <div className="text-xs font-bold tabular-nums text-yellow-300">
+                            Game pauses in {mm}:
+                            {String(ss).padStart(2, "0")}
+                        </div>
+                    ) : (
+                        <div className="text-xs opacity-90">
+                            Open the app so your live location updates.
+                        </div>
+                    )}
                 </div>
             </Banner>
         );

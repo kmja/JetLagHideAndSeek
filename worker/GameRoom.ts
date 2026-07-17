@@ -63,6 +63,16 @@ const FOUND_PROXIMITY_METERS = 50;
 /** Only trust a position fresher than this for the check (else can't verify). */
 const FOUND_POS_STALE_MS = 3 * 60_000;
 
+/**
+ * v940: seeker-location reminder thresholds (stale time → push). KEEP IN SYNC
+ * with the client's `LOCATION_REMINDER_1_MS` / `LOCATION_REMINDER_2_MS`
+ * (`src/lib/gameSetup.ts`), which drive the matching banner + the 15-min
+ * client-side pause. The worker can't import client code, so these are a
+ * small hand-mirror.
+ */
+const LOC_REMINDER_1_MS = 5 * 60_000;
+const LOC_REMINDER_2_MS = 10 * 60_000;
+
 /** Great-circle distance in metres (server-side; no turf dependency). */
 function haversineMetersServer(
     lat1: number,
@@ -471,6 +481,10 @@ export class GameRoom {
         // v932: persist after any state-changing message so the room
         // survives a memory eviction. Fire-and-forget (output-gate-safe).
         if (!GameRoom.EPHEMERAL_MSG.has(msg.t)) void this.persist();
+        // v940: opportunistically escalate seeker-location reminders. The
+        // hider's ~25 s ping (and every seeker loc) keeps this ticking while
+        // the game is live; it no-ops outside the seeking phase.
+        this.checkLocationReminders();
     }
 
     private dispatchInner(socket: WebSocket, msg: ClientMessage) {
@@ -1196,6 +1210,88 @@ export class GameRoom {
         return this.pushToOfflineRole("hider", payload);
     }
 
+    /**
+     * v940: seeker-location freshness escalation. Called opportunistically on
+     * message activity (the hider's ~25 s ping keeps it running while the
+     * game is live). During the SEEKING phase, for each seeker that's gone
+     * stale (no `loc` for 5 / 10 min) AND is offline, push a reminder so a
+     * backgrounded phone gets nudged. The eventual PAUSE is client-side on the
+     * hider (`LocationPauseWatcher`, 15 min); this only handles the pushes,
+     * which the hider's device can't send. Synchronous; schedules each push
+     * via `waitUntil`. No-op outside seeking.
+     */
+    private checkLocationReminders() {
+        const endsAt = this.game.setup.hidingPeriodEndsAt;
+        if (endsAt == null || !Number.isFinite(endsAt)) return;
+        const now = Date.now();
+        if (now < endsAt) return; // still in the hiding period
+        if (this.game.roundFoundAt != null) return; // round already over
+        for (const p of this.game.participants) {
+            if (p.role !== "seeker") continue;
+            // Only nudge a seeker who's actually AWAY (offline). An online
+            // seeker sees the in-app banner; a backgrounded PWA drops to
+            // offline within seconds, so by 5 min stale a pocketed phone is
+            // offline here.
+            if (p.online) continue;
+            // Staleness baseline: last loc we received, or seeking-start
+            // (endsAt) if this seeker never shared — so a seeker who never
+            // turns location on still escalates.
+            const baseline = Math.max(this.locLastAt.get(p.id) ?? 0, endsAt);
+            const stale = now - baseline;
+            if (stale < LOC_REMINDER_1_MS) continue;
+            const sent = this.locReminderSent.get(p.id) ?? {
+                r1: false,
+                r2: false,
+            };
+            if (stale >= LOC_REMINDER_2_MS && !sent.r2) {
+                sent.r1 = true;
+                sent.r2 = true;
+                this.locReminderSent.set(p.id, sent);
+                this.state.waitUntil(
+                    this.pushToParticipant(p.id, {
+                        title: "Share your location",
+                        body: "The hider still can't see you — open the app now, or the game pauses in 5 minutes.",
+                        tag: "loc-reminder",
+                    }),
+                );
+            } else if (stale >= LOC_REMINDER_1_MS && !sent.r1) {
+                sent.r1 = true;
+                this.locReminderSent.set(p.id, sent);
+                this.state.waitUntil(
+                    this.pushToParticipant(p.id, {
+                        title: "Share your location",
+                        body: "The hider can't see your location — open the app to keep sharing.",
+                        tag: "loc-reminder",
+                    }),
+                );
+            }
+        }
+    }
+
+    /** Web Push to ONE participant (if offline with a stored subscription).
+     *  Used by the location-freshness reminders. */
+    private async pushToParticipant(
+        pid: string,
+        payload: { title: string; body: string; tag: string },
+    ) {
+        const sub = this.pushSubscriptions.get(pid);
+        if (!sub) return;
+        const vapidKeysStr = (this.env as { VAPID_KEYS?: string }).VAPID_KEYS;
+        const vapidPublicKey = (this.env as { VAPID_PUBLIC_KEY?: string })
+            .VAPID_PUBLIC_KEY;
+        if (!vapidKeysStr || !vapidPublicKey) return;
+        const vapidKeys = parseVapidKeys(vapidKeysStr);
+        if (!vapidKeys) return;
+        const result = await sendWebPush(
+            sub,
+            payload,
+            vapidKeys,
+            vapidPublicKey,
+            "mailto:karl.mj.andersson@gmail.com",
+        );
+        if (result === "gone") this.pushSubscriptions.delete(pid);
+    }
+
     /** Web Push `payload` to every OFFLINE participant with the given role
      *  (a role's online members already got the WebSocket broadcast). The
      *  seeker variant (v935) is what notifies a locked/backgrounded seeker
@@ -1252,6 +1348,20 @@ export class GameRoom {
      */
     private lastPos: Map<string, { lat: number; lng: number; ts: number }> =
         new Map();
+
+    /**
+     * v940: seeker-location freshness escalation. `locLastAt` is the SERVER's
+     * receive time of each seeker's last `loc` (skew-immune); `locReminderSent`
+     * tracks which of the two reminder pushes we've already sent this stale
+     * episode. Once a seeker goes stale (no `loc`), the server pushes a
+     * reminder at 5 min and again at 10 min so a BACKGROUNDED phone actually
+     * gets nudged (the in-app banner can't reach a suspended page). The
+     * eventual PAUSE stays client-authoritative on the hider (15 min). Both
+     * maps are ephemeral (reset on reload / round rotate), like `lastPos`.
+     */
+    private locLastAt: Map<string, number> = new Map();
+    private locReminderSent: Map<string, { r1: boolean; r2: boolean }> =
+        new Map();
     private handleSeekerLocation(
         socket: WebSocket,
         lat: number,
@@ -1281,6 +1391,10 @@ export class GameRoom {
         // Remember the position for the `found` proximity check (the seeker's
         // side of it). Fanned to the hide team below as usual.
         this.lastPos.set(conn.participantId, { lat, lng, ts });
+        // v940: this seeker is fresh again — reset the freshness clock (server
+        // receive time) + clear any reminders sent this stale episode.
+        this.locLastAt.set(conn.participantId, Date.now());
+        this.locReminderSent.delete(conn.participantId);
         const msg: ServerMessage = {
             t: "loc",
             participantId: conn.participantId,
@@ -1369,6 +1483,9 @@ export class GameRoom {
         // GPS broadcast.
         this.lastLocTs.clear();
         this.lastPos.clear();
+        // v940: reset the location-reminder escalation for the new round.
+        this.locLastAt.clear();
+        this.locReminderSent.clear();
         // Announce the new round. Clients apply the roster (role
         // swaps) AND wipe round-scoped local state on this event —
         // see SMsgRoundStarted. A plain snapshot wouldn't do: it also

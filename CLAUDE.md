@@ -428,7 +428,30 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v939`. Use `git log` for the per-version detail;
+build stamp. Current: `v940`. Use `git log` for the per-version detail;
+
+**v940 — lenient seeker-location freshness: reminder pushes at 5 & 10 min,
+pause at 15.** The old rule was a flat 5-min-to-pause off a tight 60 s
+freshness window — too aggressive (and prone to spurious fires under GPS
+jitter / the app being briefly backgrounded). New escalation once a seeker
+goes stale (no fresh `loc`): **90 s freshness** (was 60 s; the heartbeat is
+30 s, so ~2 missed beats + skew are tolerated), a **reminder push at 5 min**
+and **again at 10 min**, then a **visible 5-min countdown** (starting at the
+10-min mark) that **pauses the game at 15 min**. The two reminders are
+SERVER-driven (`GameRoom.checkLocationReminders` → `pushToParticipant`,
+called opportunistically on message activity — the hider's ~25 s ping keeps
+it ticking; gated to the seeking phase; only nudges an OFFLINE seeker, since
+a backgrounded PWA is the case a push must reach and an online seeker sees
+the banner) — the hider's device can't push a pocketed seeker, so this had
+to move server-side. The eventual PAUSE stays client-authoritative on the
+hider (`LocationPauseWatcher`, now 15 min). Constants: client
+`LOCATION_SHARE_FRESH_MS` / `LOCATION_REMINDER_1_MS` / `LOCATION_REMINDER_2_MS`
+/ `LOCATION_PAUSE_AFTER_MS` / `LOCATION_COUNTDOWN_MS` (`gameSetup.ts`), worker
+hand-mirror `LOC_REMINDER_1_MS` / `LOC_REMINDER_2_MS` (keep in sync).
+`LocationPauseBanner` shows a gentle "open the app so your location updates"
+for the first 10 min, then the "game pauses in m:ss" countdown. Server
+reminder state (`locLastAt` / `locReminderSent`) is ephemeral + per-round
+(reset on `loc` + round rotate).
 
 **v939 — Screen Wake Lock during an active round + seeker "keep app open"
 hint.** The web platform has NO background-geolocation API, so a seeker's

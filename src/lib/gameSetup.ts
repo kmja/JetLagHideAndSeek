@@ -789,16 +789,28 @@ export const hiddenDebitMs = persistentAtom<number>(
 
 /**
  * Seekers are required to share their live location during the seeking
- * phase. If the hider's device stops receiving a fresh seeker location,
- * a 5-minute grace timer starts; `locationGraceStartedAt` is the Unix ms
- * it began (null when a fresh location is flowing). When the grace
- * window lapses with still no location, the game pauses
- * (`gamePausedForLocationAt`). Persistent so a reload mid-grace/pause
- * doesn't lose the state. Both reset each new round/game.
+ * phase. `locationGraceStartedAt` is the Unix ms a seeker went STALE (null
+ * when a fresh location is flowing). v940: a much more LENIENT escalation
+ * replaces the old flat 5-min-to-pause — once stale, the seeker is nudged by
+ * a reminder push at 5 min and again at 10 min (server-driven, so it reaches
+ * a backgrounded phone), and only at 15 min — after a visible 5-min
+ * countdown that starts at the 10-min mark — does the game actually pause
+ * (`gamePausedForLocationAt`). Persistent so a reload mid-grace/pause doesn't
+ * lose the state. Both reset each new round/game.
  */
-export const LOCATION_SHARE_GRACE_MS = 5 * 60 * 1000;
-/** A seeker location older than this counts as "not sharing". */
-export const LOCATION_SHARE_FRESH_MS = 60 * 1000;
+/** A seeker location older than this counts as "not sharing". v940: 90s
+ *  (was 60s). The seeker heartbeat is 30s, so this tolerates ~2 missed beats
+ *  + clock skew before a seeker reads as stale — more lenient. */
+export const LOCATION_SHARE_FRESH_MS = 90 * 1000;
+/** First reminder push, measured from when the seeker went stale. */
+export const LOCATION_REMINDER_1_MS = 5 * 60 * 1000;
+/** Second reminder push + the moment the visible pause countdown begins. */
+export const LOCATION_REMINDER_2_MS = 10 * 60 * 1000;
+/** Total stale time before the game pauses. */
+export const LOCATION_PAUSE_AFTER_MS = 15 * 60 * 1000;
+/** Visible countdown window (reminder 2 → pause) = 5 min. */
+export const LOCATION_COUNTDOWN_MS =
+    LOCATION_PAUSE_AFTER_MS - LOCATION_REMINDER_2_MS;
 
 export const locationGraceStartedAt = persistentAtom<number | null>(
     "locationGraceStartedAt",

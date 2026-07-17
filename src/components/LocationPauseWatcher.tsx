@@ -6,8 +6,8 @@ import {
     gamePausedForLocationAt,
     hiddenDebitMs,
     hidingPeriodEndsAt,
+    LOCATION_PAUSE_AFTER_MS,
     LOCATION_SHARE_FRESH_MS,
-    LOCATION_SHARE_GRACE_MS,
     locationGraceStartedAt,
 } from "@/lib/gameSetup";
 import { playerRole, roundFoundAt } from "@/lib/hiderRole";
@@ -109,8 +109,11 @@ export function LocationPauseWatcher() {
             locationGraceStartedAt.set(now);
             return;
         }
-        if (now - graceStart >= LOCATION_SHARE_GRACE_MS) {
-            // Grace expired with no location — pause.
+        if (now - graceStart >= LOCATION_PAUSE_AFTER_MS) {
+            // v940: 15 min stale with no location — pause. The 5- and 10-min
+            // reminder pushes are server-driven (they must reach a
+            // backgrounded seeker); this client authority owns only the
+            // eventual pause + the visible countdown (LocationPauseBanner).
             gamePausedForLocationAt.set(now);
             locationGraceStartedAt.set(null);
         }
