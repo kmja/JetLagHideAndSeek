@@ -428,7 +428,32 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v920`. Use `git log` for the per-version detail;
+build stamp. Current: `v921`. Use `git log` for the per-version detail;
+
+**v921 — hider card icons replaced with the user's authored SVG art
+(`CardTile.tsx`).** The v918/v919 hand-drawn 100×100 icon approximations were
+swapped for the user's Figma-authored icons (design sources in
+`design/card-icons/*.svg`). Each glyph now carries its OWN authored viewBox
+(time-bonus 317×288, veto 297×301, move 327×280, randomize/duplicate 321×319,
+discard/draw + draw+expand 316×307) rendered by `PowerupGlyph`/`ClockHexIcon`.
+**Colours:** veto is brand red (`CARD_RED #DC3D38`, matching the physical card),
+every other powerup + the time-bonus line/fill is navy (`NAVY #1F2F3F`) — no
+pure black. **What stays dynamic:** the time-bonus clock WEDGE (colour + sweep
+per `TIER_METER` tier — red 38° → blue 170°); the fanned-cards draw/keep badge
+NUMBERS (`cardsGlyph(cards, drawLabel, deltaLabel)` renders bold Poppins `<text>`
+over the authored badge circles, so one glyph serves every combo —
+discard1draw2 +2/-1, discard2draw3 +3/-2, draw1expand +1/+1; the design SVGs bake
+these as paths, the app renders them live). `TWO_CARDS`/`ONE_CARD` consts hold the
+two card-art variants. Everything else is fixed authored geometry (the 11
+time-bonus tick rects live in `TB_TICKS`, the omitted 12th is behind the "+"
+badge). Removed the old `knockoutRect`/`pinPath`/`renderPowerupGlyph` helpers.
+Icons still scale with the card via cqw (`ClockHexIcon cqw={52}`,
+`PowerupGlyph cqw={46}`, bumped from 40/36 to compensate for the authored
+viewBoxes' larger padding). Verified against `/debug/cards`. NOTE: the curse
+cards were NOT touched — v920's `CurseBody` typography is already correct on
+master; a report that the live gallery shows old tall variable-height curse
+cards is a STALE PWA cache (a pre-v912 shell), not a code regression (the
+v891 boot watchdog / a hard reload clears it).
 
 **v920 — curse card typography matched to the print.** `CurseBody` fixes: the
 "CURSE OF THE …" name is much bigger/bolder (`cu(4.7)`→`cu(6.3)`), the whole
