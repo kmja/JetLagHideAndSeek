@@ -428,7 +428,15 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v919`. Use `git log` for the per-version detail;
+build stamp. Current: `v920`. Use `git log` for the per-version detail;
+
+**v920 — curse card typography matched to the print.** `CurseBody` fixes: the
+"CURSE OF THE …" name is much bigger/bolder (`cu(4.7)`→`cu(6.3)`), the whole
+**casting-cost line is bold** (was just the "Casting cost:" label) and its
+divider `border-t` was removed, and the description bumped a hair
+(`cu(3.7)`→`cu(4)`). Inline S/M/L values still collapse to the active game size
+via `renderBodyText` (the card shows only the current size's number, e.g.
+"M20 MIN"). Matches the reference deck photo.
 
 **v919 — card art matched to the physical close-ups (second fidelity pass).**
 Rebuilt from five close-up reference photos, correcting everything v918 got

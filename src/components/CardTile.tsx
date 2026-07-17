@@ -279,34 +279,33 @@ function CurseBody({
             style={{ padding: cu(4.7) }}
         >
             <div
-                className="font-inter-tight font-black uppercase tracking-tight leading-[0.95] shrink-0"
-                style={{ color: NAVY, fontSize: cu(4.7) }}
+                className="font-inter-tight font-black uppercase tracking-tight leading-[0.98] shrink-0"
+                style={{ color: NAVY, fontSize: cu(6.3) }}
             >
                 {card.name}
             </div>
             <div
                 className="flex-1 min-h-0 overflow-y-auto"
-                style={{ marginTop: cu(2.7) }}
+                style={{ marginTop: cu(3) }}
             >
                 <p
                     className="leading-snug"
-                    style={{ color: NAVY, fontSize: cu(3.7) }}
+                    style={{ color: NAVY, fontSize: cu(4) }}
                 >
                     {renderBodyText(card.description, gameSize)}
                 </p>
             </div>
             {card.castingCost && (
+                // The whole casting-cost line is bold on the printed card.
                 <p
-                    className="leading-snug border-t border-zinc-200 shrink-0"
+                    className="leading-snug font-bold shrink-0"
                     style={{
                         color: NAVY,
-                        fontSize: cu(3.3),
-                        marginTop: cu(2.7),
-                        paddingTop: cu(2.7),
+                        fontSize: cu(3.7),
+                        marginTop: cu(3),
                     }}
                 >
-                    <span className="font-bold">Casting cost:</span>{" "}
-                    {renderBodyText(card.castingCost, gameSize)}
+                    Casting cost: {renderBodyText(card.castingCost, gameSize)}
                 </p>
             )}
         </div>
