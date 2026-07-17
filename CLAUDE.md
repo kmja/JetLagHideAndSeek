@@ -428,7 +428,30 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v923`. Use `git log` for the per-version detail;
+build stamp. Current: `v924`. Use `git log` for the per-version detail;
+
+**v924 — card icon framing (zero-padding viewBoxes) + title line-breaks +
+thicker curse text (`CardTile.tsx`).** (1) **Icons fill their box with NO
+built-in padding** — the authored SVGs had large empty margins in their
+viewBoxes, so the icon box was much bigger than the visible glyph (throwing off
+the time-bonus title's vertical centering). Each icon's viewBox is now TIGHT =
+its real content bounding box (measured via headless-Chromium `getBBox`) + 5
+units (half the stroke width, so strokes aren't clipped), and the container is
+sized to that box's **aspect ratio** so `meet` never letterboxes. `ClockHexIcon`
++ `PowerupGlyph` now take a single `w` (cqw WIDTH); height = `w * aspect`.
+Current sizes: time-bonus `w=74`, powerups `w=54` — tune freely now that box ===
+glyph. (2) **Powerup titles break like the printed cards** (`powerupTitleLines`):
+comma names break at the comma ("Draw 1, Expand 1" → "DRAW 1," / "EXPAND 1";
+"Discard 2, Draw 3" → "DISCARD 2," / "DRAW 3"), everything else one word per
+line ("Veto Question" → "VETO" / "QUESTION"; "Duplicate Another Card" →
+"DUPLICATE" / "ANOTHER" / "CARD") — instead of width-based auto-wrap. (3) **Curse
+header + casting cost thicker** — both already `font-black` (900, the heaviest
+weight M PLUS Rounded 1c ships), so a same-colour `WebkitTextStroke` (0.022em /
+0.02em) fattens the glyphs past it to match the printed ink weight. (4) **Badge
+numbers stay Poppins Bold** — `ICON_FONT` reverted from M PLUS Rounded 1c (a v923
+regression) back to Poppins, and **Poppins 600/700/800 is now actually loaded**
+via index.html (it was silently falling back to system-ui — the app aliased
+`font-poppins` to Inter Tight and never loaded real Poppins).
 
 **v923 — card typography + framing pass to match the physical cards
 (`CardTile.tsx`).** (1) **Rounded thick header font everywhere** — every card

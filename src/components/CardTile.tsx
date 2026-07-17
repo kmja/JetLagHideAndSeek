@@ -185,6 +185,26 @@ export function CardTile({
 
 /* ────────────────── Per-kind bodies ────────────────── */
 
+/**
+ * Break a powerup title into lines the way the PRINTED cards do, rather
+ * than letting it word-wrap by width (which broke at the wrong places):
+ *   - Comma names break at the comma — "Draw 1, Expand 1" → "DRAW 1," /
+ *     "EXPAND 1"; "Discard 2, Draw 3" → "DISCARD 2," / "DRAW 3".
+ *   - Otherwise every word gets its own line — "Veto Question" → "VETO" /
+ *     "QUESTION"; "Duplicate Another Card" → "DUPLICATE" / "ANOTHER" /
+ *     "CARD"; "Move" → "MOVE".
+ */
+function powerupTitleLines(name: string): string[] {
+    if (name.includes(",")) {
+        const parts = name
+            .split(",")
+            .map((s) => s.trim())
+            .filter(Boolean);
+        return parts.map((p, i) => (i < parts.length - 1 ? `${p},` : p));
+    }
+    return name.split(/\s+/).filter(Boolean);
+}
+
 function TimeBonusBody({
     card,
     gameSize,
@@ -203,7 +223,7 @@ function TimeBonusBody({
             className="flex-1 flex flex-col items-center text-center"
             style={{ padding: cu(4), paddingTop: cu(5) }}
         >
-            <ClockHexIcon largest={card.minutes.large} w={100} h={80} />
+            <ClockHexIcon largest={card.minutes.large} w={74} />
             {/* The title is vertically CENTERED in the gap between the icon
                 and the minute badge (this flex-1 row does the centering). */}
             <div className="flex-1 flex items-center justify-center">
@@ -238,13 +258,15 @@ function PowerupBody({
                 className="flex justify-center shrink-0"
                 style={{ marginTop: cu(2) }}
             >
-                <PowerupGlyph powerup={card.powerup} cqw={66} />
+                <PowerupGlyph powerup={card.powerup} w={54} />
             </div>
             <div
                 className="font-display font-black uppercase tracking-tight leading-[0.98] text-center shrink-0"
                 style={{ color: NAVY, fontSize: cu(9.5), marginTop: cu(4) }}
             >
-                {card.name}
+                {powerupTitleLines(card.name).map((line, i) => (
+                    <div key={i}>{line}</div>
+                ))}
             </div>
             {/* Scroll within the card if the description overflows (v306
                 safety net); short ones just sit under the title. */}
@@ -279,7 +301,14 @@ function CurseBody({
         >
             <div
                 className="font-display font-black uppercase tracking-tight leading-[1.02] shrink-0"
-                style={{ color: NAVY, fontSize: cu(8) }}
+                style={{
+                    color: NAVY,
+                    fontSize: cu(8),
+                    // font-black (900) is already the heaviest weight the
+                    // family ships; a same-colour text-stroke fattens the
+                    // glyphs past it to match the printed card's ink weight.
+                    WebkitTextStroke: `0.022em ${NAVY}`,
+                }}
             >
                 {card.name}
             </div>
@@ -302,6 +331,7 @@ function CurseBody({
                         color: NAVY,
                         fontSize: cu(3.7),
                         marginTop: cu(3),
+                        WebkitTextStroke: `0.02em ${NAVY}`,
                     }}
                 >
                     Casting cost: {renderBodyText(card.castingCost, gameSize)}
@@ -313,9 +343,10 @@ function CurseBody({
 
 /* ────────────────── Card icons (SVG, matched to the physical cards) ────────────────── */
 
-// Rounded geometric heavy face (echoes the rulebook cover + physical cards);
-// already loaded via index.html at weights 700/800/900.
-const ICON_FONT = "'M PLUS Rounded 1c', system-ui, sans-serif";
+// The draw/keep badge numbers are Poppins Bold (matching the authored icon
+// art) — Poppins 700 is loaded via index.html so this resolves to the real
+// face, not a system fallback. Deliberately NOT the rounded display font.
+const ICON_FONT = "'Poppins', system-ui, sans-serif";
 
 function pointOnCircle(
     cx: number,
@@ -438,15 +469,20 @@ const TB_TICKS = (
  * with a white knockout ring. Only the WEDGE is dynamic (tier-driven);
  * everything else is the fixed authored geometry.
  */
+// Tight viewBox = the icon's real content bounding box + 5 units (half the
+// stroke width, so strokes aren't clipped) — NO decorative padding, so the
+// rendered SVG fills its box edge-to-edge. The container is sized to this
+// box's aspect ratio, so `meet` never letterboxes.
+const TB_VIEWBOX = "59 46.16 188 204.84";
+const TB_ASPECT = 204.84 / 188;
+
 function ClockHexIcon({
     largest,
     w = 20,
-    h = 20,
 }: {
     largest: number;
-    /** Icon box width/height as container-query-width units (scale w/ card). */
+    /** Icon WIDTH in cqw; height follows from the glyph's aspect ratio. */
     w?: number;
-    h?: number;
 }) {
     const tier =
         TIER_METER.find((t) => largest >= t.threshold) ??
@@ -454,10 +490,10 @@ function ClockHexIcon({
     return (
         <div
             className="relative inline-flex items-center justify-center shrink-0"
-            style={{ width: cu(w), height: cu(h) }}
+            style={{ width: cu(w), height: cu(w * TB_ASPECT) }}
         >
             <svg
-                viewBox="0 0 317 288"
+                viewBox={TB_VIEWBOX}
                 className="absolute inset-0 w-full h-full"
                 aria-hidden="true"
             >
@@ -593,10 +629,12 @@ function cardsGlyph(
     );
 }
 
-/** Per-powerup authored art — each carries its OWN viewBox (the icons were
- *  drawn at slightly different frames), rendered by `PowerupGlyph`. */
+/** Per-powerup authored art — each carries its OWN TIGHT viewBox (content
+ *  bbox + 5-unit stroke margin, no decorative padding) and aspect ratio
+ *  (h/w), so `PowerupGlyph` fills its box edge-to-edge with no letterbox. */
 function powerupArt(powerup: PowerupKind): {
     viewBox: string;
+    aspect: number;
     body: ReactNode;
 } {
     switch (powerup) {
@@ -604,7 +642,8 @@ function powerupArt(powerup: PowerupKind): {
             // The red "ø card" mark: a prohibition hexagon + a card + the
             // slash cutting through both.
             return {
-                viewBox: "0 0 297 301",
+                viewBox: "61 53.16 176 196.55",
+                aspect: 196.55 / 176,
                 body: (
                     <>
                         <path
@@ -632,7 +671,8 @@ function powerupArt(powerup: PowerupKind): {
             // Two location pins in a hexagon — outline pin behind, solid pin
             // (with a white dot) in front.
             return {
-                viewBox: "0 0 327 280",
+                viewBox: "76 42.16 176 196.55",
+                aspect: 196.55 / 176,
                 body: (
                     <>
                         <path
@@ -659,7 +699,8 @@ function powerupArt(powerup: PowerupKind): {
         case "randomize":
             // Isometric die: "?" + pips on its faces.
             return {
-                viewBox: "0 0 321 319",
+                viewBox: "73 45.72 176 196.55",
+                aspect: 196.55 / 176,
                 body: (
                     <>
                         <path
@@ -721,7 +762,8 @@ function powerupArt(powerup: PowerupKind): {
         case "duplicate":
             // A card copied to a second card (the "+" duplicate glyph).
             return {
-                viewBox: "0 0 321 319",
+                viewBox: "63 51.16 176 196.55",
+                aspect: 196.55 / 176,
                 body: (
                     <>
                         <path
@@ -754,17 +796,20 @@ function powerupArt(powerup: PowerupKind): {
             };
         case "discard1draw2":
             return {
-                viewBox: "0 0 316 307",
+                viewBox: "37 30 217 245",
+                aspect: 245 / 217,
                 body: cardsGlyph(TWO_CARDS, "+2", "-1"),
             };
         case "discard2draw3":
             return {
-                viewBox: "0 0 316 307",
+                viewBox: "37 30 217 245",
+                aspect: 245 / 217,
                 body: cardsGlyph(TWO_CARDS, "+3", "-2"),
             };
         case "draw1expand":
             return {
-                viewBox: "0 0 316 307",
+                viewBox: "37 30 217 245",
+                aspect: 245 / 217,
                 body: cardsGlyph(ONE_CARD, "+1", "+1"),
             };
     }
@@ -778,18 +823,18 @@ function powerupArt(powerup: PowerupKind): {
  */
 function PowerupGlyph({
     powerup,
-    cqw = 20,
+    w = 20,
 }: {
     powerup: PowerupKind;
-    /** Icon size as a container-query-width unit (scales with the card). */
-    cqw?: number;
+    /** Icon WIDTH in cqw; height follows from the glyph's aspect ratio. */
+    w?: number;
 }) {
-    const { viewBox, body } = powerupArt(powerup);
+    const { viewBox, aspect, body } = powerupArt(powerup);
     return (
         <svg
             viewBox={viewBox}
             className="shrink-0"
-            style={{ width: cu(cqw), height: cu(cqw) }}
+            style={{ width: cu(w), height: cu(w * aspect) }}
             aria-hidden="true"
         >
             {body}
