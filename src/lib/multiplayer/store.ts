@@ -1258,6 +1258,16 @@ function handleServerMessage(msg: ServerMessage) {
         case "loc": {
             // Per-seeker GPS update fanned out by the server. Hide
             // team only — the server gates this, so we just trust it.
+            // v936: stamp `ts` with the HIDER's local receive time, NOT the
+            // seeker's `msg.ts`. Everything that reads `ts` is asking "how
+            // recently did we hear from this seeker" (the location-share
+            // freshness rule, live-pin staleness, ETA freshness), and
+            // comparing the seeker's clock to the hider's `now` broke under
+            // cross-device clock skew: a seeker even ~1 min ahead of the
+            // hider made every FRESH broadcast look older than the 60 s
+            // window → the hider got a spurious "seekers need to share their
+            // location" pause countdown while the seeker was actively
+            // sharing (and shown online). Receive-time is skew-immune.
             const curr = seekerLocations.get();
             seekerLocations.set({
                 ...curr,
@@ -1265,7 +1275,7 @@ function handleServerMessage(msg: ServerMessage) {
                     lat: msg.lat,
                     lng: msg.lng,
                     accuracy: msg.accuracy,
-                    ts: msg.ts,
+                    ts: Date.now(),
                 },
             });
             return;

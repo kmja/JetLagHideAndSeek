@@ -799,14 +799,19 @@ export function priorAnsweredCount(key: number, identity: string): number {
  * the answer was late (caller should skip the card draw). Accrues the
  * overtime into `hiddenDebitMs` so scoring excludes the paused span.
  *
- * `arrivedAt` is read from the inbox entry; if the question isn't in
- * the inbox (e.g. a stale share-link), it's treated as on-time.
+ * The window starts at the question's SYNCED `createdAt` (stamped by the
+ * seeker at send) so it agrees with the seeker's deadline and survives a
+ * hider reconnect; `arrivedAt` (local receive time) is only the fallback
+ * when there's no createdAt (e.g. a stale share-link). Using `arrivedAt`
+ * alone reset the window on every reconnect (v936).
  */
 export function settleLateAnswer(key: number, category: string): boolean {
     const entry = hiderInbox.get().find((e) => e.key === key);
     if (!entry) return false;
     const windowMs = answerWindowMs(category, gameSize.get());
-    const overtime = Date.now() - entry.arrivedAt - windowMs;
+    const startMs =
+        (entry.data as { createdAt?: number })?.createdAt ?? entry.arrivedAt;
+    const overtime = Date.now() - startMs - windowMs;
     if (overtime <= 0) return false;
     hiddenDebitMs.set(hiddenDebitMs.get() + overtime);
     return true;

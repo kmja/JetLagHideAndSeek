@@ -428,7 +428,26 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v936`. Use `git log` for the per-version detail;
+build stamp. Current: `v937`. Use `git log` for the per-version detail;
+
+**v937 — two multiplayer clock-skew / reconnect timer bugs.**
+- **Photo answer window desynced (seeker 10 min, hider 5 min) + reset on
+  reconnect.** `HiderUnansweredOverlay` computed the deadline as
+  `arrivedAt + ANSWER_WINDOW_MS` — a FLAT 5 min (so a photo's 10/20 min
+  showed 5) keyed off the hider's LOCAL receive time (so reconnecting, which
+  re-delivers the question, restarted the countdown). Now
+  `createdAt + answerWindowMs(category, size)` — the seeker-stamped, synced
+  `createdAt` gives an absolute deadline both devices agree on that survives
+  reconnect. `settleLateAnswer` (the economy's late-penalty) was fixed the
+  same way (was `arrivedAt`-based → wrong window start after reconnect).
+- **"Seekers need to share their location" nag fired while the seeker was
+  actively sharing (and online).** The hider's freshness check compared the
+  seeker's reported `msg.ts` against the hider's `now` — a seeker even ~1 min
+  ahead of the hider's clock made every fresh broadcast look older than the
+  60 s window → spurious grace/pause. The `loc` handler now stamps `ts` with
+  the HIDER's local receive time (skew-immune); every consumer of that field
+  asks "how recently did we hear from this seeker," which receive-time
+  answers correctly.
 
 **v936 — photo-answer fixes (the "couldn't upload full-size photo"
 regression + seeker photo-card cleanup).**

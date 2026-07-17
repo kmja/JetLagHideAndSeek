@@ -3,8 +3,8 @@ import { ChevronRight } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { useNow } from "@/hooks/useNow";
+import { answerWindowMs, gameSize } from "@/lib/gameSetup";
 import {
-    ANSWER_WINDOW_MS,
     answeringQuestion,
     hiderInbox,
     type InboxEntry,
@@ -56,6 +56,7 @@ export function HiderUnansweredOverlay({
     // burning a setInterval.
     // v905: shared clock — freezes while the game is paused.
     const now = useNow(waiting.length > 0);
+    const $gameSize = useStore(gameSize);
 
     if (waiting.length === 0) return null;
 
@@ -63,10 +64,18 @@ export function HiderUnansweredOverlay({
     const summary = summarizeQuestion(latest);
     const extraCount = waiting.length - 1;
 
-    // Rulebook gives the hider 5 minutes per question. Past that
-    // the seeker can pressure / re-ask; we clamp at 0:00 + flag the
-    // entry as overdue so the countdown switches tone.
-    const deadlineMs = latest.arrivedAt + ANSWER_WINDOW_MS;
+    // v936: the answer deadline is `createdAt + answerWindowMs(category)` —
+    // an ABSOLUTE, seeker-stamped timestamp that BOTH devices agree on and
+    // that survives a hider reconnect. The old `arrivedAt + ANSWER_WINDOW_MS`
+    // was wrong twice over: (1) `ANSWER_WINDOW_MS` is a flat 5 min, so a
+    // PHOTO question (10 min small/medium, 20 large) showed the hider 5 min
+    // while the seeker correctly counted 10; (2) `arrivedAt` is the hider's
+    // LOCAL receive time, so reconnecting (which re-delivers the question)
+    // RESTARTED the countdown from scratch on its own timer. `createdAt` is
+    // stamped by the seeker at send and rides the synced question payload.
+    const createdAt = (latest.data as { createdAt?: number })?.createdAt;
+    const windowMs = answerWindowMs(latest.id, $gameSize);
+    const deadlineMs = (createdAt ?? latest.arrivedAt) + windowMs;
     const remainingMs = Math.max(0, deadlineMs - now);
     const overdue = remainingMs === 0;
     const mins = Math.floor(remainingMs / 60_000);
