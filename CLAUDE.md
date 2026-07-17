@@ -428,7 +428,26 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v935`. Use `git log` for the per-version detail;
+build stamp. Current: `v936`. Use `git log` for the per-version detail;
+
+**v936 — photo-answer fixes (the "couldn't upload full-size photo"
+regression + seeker photo-card cleanup).**
+- **Photo upload 404'd for every 3-letter-code game** — a regression from
+  v932: the worker's `POST /games/:code/photo` (+ the GET) route regex was
+  still `[A-Z0-9]{4,8}`, so a 3-letter code didn't match → the full-res R2
+  upload failed → `preparePhotoForSend` fell back to the tiny inline
+  thumbnail and toasted "Couldn't upload the full-size photo." Widened both
+  photo routes to `{3,8}` (matching the WS route). Photos already compress
+  to ≤2560px/0.85 (~1–2 MB, well under the 8 MB cap), so the cap was never
+  the issue — the route was.
+- **A multiplayer SEEKER could delete a received photo** from the question
+  card (the Remove/trash button rendered for everyone). Gated on
+  `showManualCapture` (hide team / offline) — a seeker now views a received
+  photo read-only.
+- **The seeker's photo ASK dialog showed an empty dashed "placeholder image"
+  box** (the "waiting for the hider" state) while still composing the
+  question. Hidden in the configure dialog (`forceExpanded`); it still shows
+  in the question LOG so the pending/waiting state is visible there.
 
 **v935 — multiplayer reliability batch (live-testing bugs): GO-GO-GO
 replay, no-push-on-answer, zombie reconnect + banner.**

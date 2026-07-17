@@ -281,7 +281,10 @@ export default {
         // return its URL. The image rides HTTP (not the WS), so it can
         // be multiple megabytes; only the URL goes over the socket.
         const photoUploadMatch = url.pathname.match(
-            /^\/games\/([A-Z0-9]{4,8})\/photo$/i,
+            // v935: {3,8} — v932 shortened codes to 3 letters; the {4,8} here
+            // was missed, so a 3-letter game's photo upload 404'd and every
+            // photo answer fell back to the tiny inline thumbnail.
+            /^\/games\/([A-Z0-9]{3,8})\/photo$/i,
         );
         if (request.method === "POST" && photoUploadMatch) {
             return handlePhotoUpload(
@@ -293,7 +296,7 @@ export default {
 
         // GET /games/:code/photo/:id — serve a stored photo answer.
         const photoGetMatch = url.pathname.match(
-            /^\/games\/([A-Z0-9]{4,8})\/photo\/([A-Za-z0-9_-]{1,64})$/i,
+            /^\/games\/([A-Z0-9]{3,8})\/photo\/([A-Za-z0-9_-]{1,64})$/i,
         );
         if (
             (request.method === "GET" || request.method === "HEAD") &&

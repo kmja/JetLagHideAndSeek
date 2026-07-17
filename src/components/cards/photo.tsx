@@ -209,27 +209,35 @@ export const PhotoQuestionComponent = ({
                                 alt={subtypeLabel}
                                 className="w-full rounded-md border border-border max-h-[300px] object-contain bg-black/30"
                             />
-                            <Button
-                                type="button"
-                                variant="destructive"
-                                size="sm"
-                                className="absolute top-1 right-1 h-7 px-2"
-                                onClick={async () => {
-                                    const ok = await appConfirm({
-                                        title: "Remove this photo?",
-                                        confirmLabel: "Remove",
-                                        destructive: true,
-                                    });
-                                    if (!ok) return;
-                                    data.photoUri = undefined;
-                                    data.photoUrl = undefined;
-                                    questionModified();
-                                }}
-                                disabled={$isLoading}
-                                aria-label="Remove photo"
-                            >
-                                <Trash2 className="w-3.5 h-3.5" />
-                            </Button>
+                            {/* v936: only the CAPTURING side (hide team /
+                                offline) may remove/replace a photo. A
+                                multiplayer SEEKER views a received photo
+                                read-only — removing it locally desynced from
+                                the hider and read as "I can delete the
+                                answer," which they shouldn't. */}
+                            {showManualCapture && (
+                                <Button
+                                    type="button"
+                                    variant="destructive"
+                                    size="sm"
+                                    className="absolute top-1 right-1 h-7 px-2"
+                                    onClick={async () => {
+                                        const ok = await appConfirm({
+                                            title: "Remove this photo?",
+                                            confirmLabel: "Remove",
+                                            destructive: true,
+                                        });
+                                        if (!ok) return;
+                                        data.photoUri = undefined;
+                                        data.photoUrl = undefined;
+                                        questionModified();
+                                    }}
+                                    disabled={$isLoading}
+                                    aria-label="Remove photo"
+                                >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                </Button>
+                            )}
                         </div>
                     ) : data.declined ? (
                         <div className="rounded-md border border-yellow-500/50 bg-yellow-500/10 p-3 flex items-start gap-2.5">
@@ -246,7 +254,13 @@ export const PhotoQuestionComponent = ({
                                 </p>
                             </div>
                         </div>
-                    ) : (
+                    ) : forceExpanded ? null : (
+                        // v936: no placeholder image box in the CONFIGURE
+                        // dialog (forceExpanded) — the seeker is still ASKING,
+                        // there's nothing received to preview, and the empty
+                        // dashed box just read as a broken image area. It
+                        // still shows in the question LOG (a pending photo) so
+                        // the waiting state is visible there.
                         <div className="rounded-md border border-dashed border-border bg-secondary/30 p-3 flex flex-col items-center gap-2 text-center">
                             <ImagePlus className="w-7 h-7 text-muted-foreground" />
                             <p className="text-xs text-muted-foreground leading-snug">
