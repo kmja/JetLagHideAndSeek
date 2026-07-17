@@ -67,7 +67,7 @@ export function OnlinePlaySection() {
 
     const trimmedName = name.trim();
     const trimmedCode = code.trim().toUpperCase();
-    const validCode = /^[A-Z]{4,8}$/.test(trimmedCode);
+    const validCode = /^[A-Z]{3,8}$/.test(trimmedCode);
     const canHost = trimmedName.length > 0 && !busyHost;
     const canJoin = trimmedName.length > 0 && validCode;
 
@@ -185,7 +185,7 @@ export function OnlinePlaySection() {
                     <Input
                         value={code}
                         onChange={(e) => setCode(e.target.value)}
-                        placeholder="6 characters"
+                        placeholder="3 letters"
                         maxLength={8}
                         autoCapitalize="characters"
                         spellCheck={false}

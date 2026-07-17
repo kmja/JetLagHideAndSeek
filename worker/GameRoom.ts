@@ -1,15 +1,28 @@
 /**
  * GameRoom — one Durable Object per active multiplayer game.
  *
- * Holds in-memory game state (no durable storage; rooms evict on
- * idle) and fans out WebSocket events to every connected
- * participant. Server-authoritative for transport invariants:
+ * Fans out WebSocket events to every connected participant.
+ * Server-authoritative for transport invariants:
  *
  *   - Max participants (`MAX_PARTICIPANTS`)
  *   - At most one hider per room
  *   - Session-token-based reconnect to recover identity
  *   - Idle-eviction alarm clears the room after `IDLE_EVICTION_MS`
  *     with zero connections
+ *
+ * PERSISTENCE (v932): the room state (game, tokens, device map, hide-team
+ * secrets, push subs) is MIRRORED to Durable Object storage after every
+ * mutation and restored in the constructor via `blockConcurrencyWhile`.
+ * A DO is evicted from memory shortly after its last WebSocket drops — so
+ * without this, a host who merely closed the app for a few seconds lost
+ * the whole room: on reopen, `resume` woke a FRESH isolate with empty
+ * maps → `session_invalid` → the client `leaveGame()`d and the player was
+ * kicked out of their own lobby (the reported "thrown out of the lobby"
+ * bug). With storage backing, a re-instantiated isolate reloads the room
+ * and resume reattaches cleanly. The idle-eviction alarm still deletes the
+ * persisted state after `IDLE_EVICTION_MS`, so a genuinely abandoned room
+ * is reclaimed — the alarm is stored server-side and fires even across an
+ * eviction, so the lifetime cap is unaffected.
  *
  * Game-rule enforcement (radius bounds, question categories, deck
  * limits, etc.) stays on the client — the worker treats question
@@ -89,6 +102,26 @@ function emptySetup(): SetupState {
     };
 }
 
+/* ────────────────── Persistence ────────────────── */
+
+/** Single storage key holding the whole serializable room snapshot. */
+const STATE_STORAGE_KEY = "room:v1";
+
+/**
+ * The room state mirrored to Durable Object storage (v932). Maps are stored
+ * as entry arrays so the blob is plain JSON. Live sockets (`conns`) and
+ * ephemeral proximity data (`lastPos`) are deliberately excluded — they
+ * re-establish when clients reconnect.
+ */
+interface PersistedRoom {
+    game: GameState;
+    tokens: [string, { participantId: string; deviceId: string }][];
+    deviceToParticipant: [string, string][];
+    hidingZone: HidingZoneShare | null;
+    deckState: DeckStateShare | null;
+    pushSubscriptions: [string, PushSubscriptionData][];
+}
+
 /* ────────────────── Connection bookkeeping ────────────────── */
 
 interface ConnInfo {
@@ -154,6 +187,11 @@ export class GameRoom {
     /** Idle-eviction wake handle. */
     private evictionAlarmSet = false;
 
+    /** True once the persisted snapshot has been restored (or confirmed
+     *  absent) — set inside the constructor's blockConcurrencyWhile so no
+     *  request is served against un-hydrated state. */
+    private hydrated = false;
+
     constructor(state: DurableObjectState, env: Env) {
         this.state = state;
         this.env = env;
@@ -167,6 +205,81 @@ export class GameRoom {
             roundFoundAt: null,
             participants: [],
         };
+        // v932: restore the room from Durable Object storage BEFORE any
+        // request runs. `blockConcurrencyWhile` gates the input so a
+        // resume/host/join can't race the load. A DO can be evicted from
+        // memory seconds after its last socket closes; this is what lets a
+        // room survive the host briefly backgrounding/closing the app.
+        this.state.blockConcurrencyWhile(async () => {
+            await this.hydrateFromStorage();
+        });
+    }
+
+    /**
+     * Load the persisted room snapshot into memory. No-op (fresh room) when
+     * nothing is stored yet. Live sockets can't be restored — every
+     * participant is marked offline until it reconnects.
+     */
+    private async hydrateFromStorage() {
+        try {
+            const stored = await this.state.storage.get<PersistedRoom>(
+                STATE_STORAGE_KEY,
+            );
+            if (stored && stored.game) {
+                this.game = stored.game;
+                this.tokens = new Map(stored.tokens ?? []);
+                this.deviceToParticipant = new Map(
+                    stored.deviceToParticipant ?? [],
+                );
+                this.hidingZone = stored.hidingZone ?? null;
+                this.deckState = stored.deckState ?? null;
+                this.pushSubscriptions = new Map(
+                    stored.pushSubscriptions ?? [],
+                );
+                // A cold isolate has no live sockets — everyone is offline
+                // until their client reconnects and re-attaches.
+                for (const p of this.game.participants) p.online = false;
+            }
+        } catch (e) {
+            console.error("[GameRoom] hydrate failed", e);
+        } finally {
+            this.hydrated = true;
+        }
+    }
+
+    /**
+     * Mirror the current room state to Durable Object storage. Fire-and-
+     * forget is safe: the DO output gate keeps the isolate alive until the
+     * write flushes, so a `void this.persist()` after a mutation is durable
+     * even if the socket closes immediately after. Wrapped in try/catch so a
+     * storage hiccup degrades to in-memory-only rather than breaking the
+     * game. `conns`/`lastPos` are intentionally NOT persisted (live sockets
+     * + ephemeral proximity data — both re-establish on reconnect).
+     */
+    private async persist() {
+        if (!this.hydrated) return;
+        try {
+            const snapshot: PersistedRoom = {
+                game: this.game,
+                tokens: [...this.tokens],
+                deviceToParticipant: [...this.deviceToParticipant],
+                hidingZone: this.hidingZone,
+                deckState: this.deckState,
+                pushSubscriptions: [...this.pushSubscriptions],
+            };
+            await this.state.storage.put(STATE_STORAGE_KEY, snapshot);
+        } catch (e) {
+            console.error("[GameRoom] persist failed", e);
+        }
+    }
+
+    /** Wipe the persisted snapshot (room ended / idle-evicted). */
+    private async clearPersisted() {
+        try {
+            await this.state.storage.delete(STATE_STORAGE_KEY);
+        } catch {
+            /* ignore */
+        }
     }
 
     /* ────────────────── Public fetch entry ────────────────── */
@@ -222,11 +335,17 @@ export class GameRoom {
     async alarm() {
         this.evictionAlarmSet = false;
         if (this.conns.size === 0) {
-            // No-op: the DO has no live sockets; Cloudflare will
-            // reclaim the instance when the request queue empties.
+            // Genuinely idle for the full window — tear the room down and
+            // drop its persisted snapshot so it doesn't resurrect on a late
+            // stray connection. Cloudflare reclaims the instance once the
+            // request queue empties.
             this.game.participants = [];
             this.tokens.clear();
             this.deviceToParticipant.clear();
+            this.hidingZone = null;
+            this.deckState = null;
+            this.pushSubscriptions.clear();
+            await this.clearPersisted();
         } else {
             // A new connection arrived in the meantime; re-arm.
             await this.armEviction();
@@ -240,7 +359,11 @@ export class GameRoom {
     }
 
     private async cancelEviction() {
-        if (!this.evictionAlarmSet) return;
+        // Always clear the stored alarm, not just when our in-memory flag
+        // says one is set: after a memory eviction the flag resets to false
+        // while the alarm the previous isolate armed is still scheduled in
+        // storage. Without an unconditional delete, that stale alarm would
+        // later fire and could tear down a room that has since been resumed.
         this.evictionAlarmSet = false;
         await this.state.storage.deleteAlarm();
     }
@@ -329,9 +452,28 @@ export class GameRoom {
         this.deviceToParticipant.clear();
         this.game.participants = [];
         this.game.questions = [];
+        void this.clearPersisted();
     }
 
+    /**
+     * Messages that don't change persisted room state — high-frequency
+     * heartbeats and ephemeral proximity pings. Everything else mutates the
+     * roster / setup / questions / secrets and triggers a storage write.
+     */
+    private static readonly EPHEMERAL_MSG = new Set<ClientMessage["t"]>([
+        "ping",
+        "loc",
+        "hiderLoc",
+    ]);
+
     private dispatch(socket: WebSocket, msg: ClientMessage) {
+        this.dispatchInner(socket, msg);
+        // v932: persist after any state-changing message so the room
+        // survives a memory eviction. Fire-and-forget (output-gate-safe).
+        if (!GameRoom.EPHEMERAL_MSG.has(msg.t)) void this.persist();
+    }
+
+    private dispatchInner(socket: WebSocket, msg: ClientMessage) {
         switch (msg.t) {
             case "host":
                 return this.handleHost(socket, msg.v, msg.deviceId, msg.displayName);

@@ -35,11 +35,13 @@ export { GameRoom } from "./GameRoom";
 // Letters only — typing a code on mobile shouldn't force the user to
 // flip between the letter and number keyboards. Omit ambiguous
 // characters (I/O, lowercase l) so codes are easy to read out loud
-// over voice. 22 chars × 6 positions = ~113M codes; collision risk
-// inside a 30 min idle window is negligible at the scales we care
-// about (small groups of friends).
+// over voice. v932: 3 letters — 24³ = ~13.8k codes. There's no
+// collision check (a code just names the Durable Object lazily), but at
+// the scale we care about (a handful of concurrent small-group games
+// inside the 30 min idle / 18 h lifetime window) a clash is very
+// unlikely, and short codes are far easier to read out / type.
 const CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ";
-const CODE_LENGTH = 6;
+const CODE_LENGTH = 3;
 
 function generateGameCode(): string {
     const bytes = new Uint8Array(CODE_LENGTH);
@@ -238,7 +240,7 @@ export default {
         }
 
         // /games/:code/ws — WebSocket upgrade.
-        const wsMatch = url.pathname.match(/^\/games\/([A-Z0-9]{4,8})\/ws$/i);
+        const wsMatch = url.pathname.match(/^\/games\/([A-Z0-9]{3,8})\/ws$/i);
         if (wsMatch) {
             const ip = clientIp(request);
             if (

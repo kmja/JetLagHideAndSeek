@@ -428,7 +428,49 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v931`. Use `git log` for the per-version detail;
+build stamp. Current: `v932`. Use `git log` for the per-version detail;
+
+**v932 — game/lobby PERSISTENCE fix (the "thrown out of my own lobby"
+bug) + join flow polish + 3-letter codes.**
+- **The `GameRoom` Durable Object now MIRRORS its state to DO storage**
+  (`worker/GameRoom.ts`) and restores it in the constructor via
+  `blockConcurrencyWhile`. Previously the entire room — `game`, `tokens`,
+  `deviceToParticipant`, `hidingZone`, `deckState`, `pushSubscriptions` —
+  lived ONLY in memory (`server.accept()`, not the hibernation API), so a
+  DO evicted from memory seconds after its last WebSocket dropped came back
+  a FRESH isolate with empty maps. On reopen the client's `resume` woke
+  that empty isolate → `participantForDevice` missed → server replied
+  `session_invalid` → the client `leaveGame()`d → the lobby autohost then
+  minted a NEW empty room, dumping the host out of the game they'd set up
+  (the reported "closed the app for a few seconds, reopened, out of the
+  lobby, lost progress"). Fix: a `PersistedRoom` blob (Maps as entry
+  arrays; `conns`/`lastPos` excluded — live sockets + ephemeral proximity
+  re-establish on reconnect) is written after every mutating message
+  (`dispatch` → `void this.persist()`, skipping the high-frequency
+  `ping`/`loc`/`hiderLoc`) and loaded on cold start. Fire-and-forget
+  `storage.put` is output-gate-safe (the isolate isn't evicted mid-write).
+  On load every participant is marked `online:false` until its socket
+  reattaches. The idle-eviction `alarm()` and `forceCloseRoom()` now
+  `clearPersisted()` so a genuinely abandoned room (30-min idle / 18-h
+  lifetime) is still reclaimed; `cancelEviction()` now unconditionally
+  deletes the stored alarm (a stale alarm from a pre-eviction isolate could
+  otherwise fire and tear down a resumed room). `handleResume`'s fast token
+  path also works again post-eviction since the tokens map is restored.
+  **This makes real games survive backgrounding/closing the app — the
+  single most important reliability fix for the app's core promise.**
+- **Join flow = a dialog over the landing page** (`Welcome.tsx`). "Join a
+  game" opens a room-code `Dialog` (dark-scoped to match the always-dark
+  landing) instead of swapping the whole screen; Continue connects as a
+  guest (role null → shared lobby + `RolePicker`, identical to the host).
+  The `?join=CODE` deep link prefills + opens it. Removed the redundant
+  `toast.info("Joining game …")` (and its import) on the join path.
+- **Game codes are now 3 letters** (`worker/index.ts` `CODE_LENGTH=3`, 24³
+  ≈ 13.8k codes over the 24-letter I/O-less alphabet) — far easier to read
+  out / type. WS route regex widened to `{3,8}` and every client validator
+  (`Welcome`, `OnlinePlaySection`, `MultiplayerBoot`) accepts 3–8 so an
+  in-progress game's older 6-char code still joins. No collision check (a
+  code lazily names the DO); a clash inside the small concurrent-game
+  window is improbable and rehost reclaims by device.
 
 **v931 — preload progress + Stop/Resume in the lobby.** Preload already
 STARTED on lobby open (the `GameLobbyDialog` open-effect fires

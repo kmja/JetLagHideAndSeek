@@ -1,9 +1,14 @@
 import { useStore } from "@nanostores/react";
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { toast } from "react-toastify";
 
 import { Button } from "@/components/ui/button";
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { setupCompleted, welcomeSeen } from "@/lib/gameSetup";
 import { playerRole } from "@/lib/hiderRole";
@@ -16,7 +21,7 @@ import { joinAsGuest } from "@/lib/multiplayer/store";
 import { cn } from "@/lib/utils";
 
 import { InstallAppButton } from "./InstallAppButton";
-import { HideSeekMark, HideSeekScene, HideSeekWordmark } from "./JetLagLogo";
+import { HideSeekScene, HideSeekWordmark } from "./JetLagLogo";
 
 /**
  * First-load welcome screen. v267: was a dialog overlaid on the
@@ -30,34 +35,28 @@ import { HideSeekMark, HideSeekScene, HideSeekWordmark } from "./JetLagLogo";
  *
  *  - "Create game" → flips `welcomeSeen=true` and navigates to /setup
  *    so the wizard takes over.
- *  - "Join a game" → inline room-code form; on Continue we connect as a
- *    guest with role STILL NULL, flip `welcomeSeen=true` and
- *    `setupCompleted=true`, then navigate into the game shell. There the
- *    SHARED `GameLobbyDialog` + `RolePicker` open (name + role picker on
- *    top of the lobby) — the EXACT same surface the host lands on
- *    (v925). The old bespoke inline roster/role picker that used to live
- *    in Welcome was removed; hosting and joining now share one flow.
- *
- * Renders as a full-screen panel: no overlay, no escape hatch.
- * First-loaders MUST pick a path.
+ *  - "Join a game" → opens a room-code DIALOG on top of the landing
+ *    page (v932); on Continue we connect as a guest with role STILL
+ *    NULL, flip `welcomeSeen=true` + `setupCompleted=true`, then
+ *    navigate into the game shell. There the SHARED `GameLobbyDialog` +
+ *    `RolePicker` open (name + role picker on top of the lobby) — the
+ *    EXACT same surface the host lands on (v925). Hosting and joining
+ *    share one flow.
  */
 export function Welcome() {
     const $welcomeSeen = useStore(welcomeSeen);
     const navigate = useNavigate();
 
-    // Two-phase intro:
-    //   intro     — pick "Create game" or "Join a game"
-    //   join-form — enter the room code, click Continue → into the shell
-    const [mode, setMode] = useState<"intro" | "join-form">("intro");
+    const [joinOpen, setJoinOpen] = useState(false);
     const [code, setCode] = useState("");
     const [castPlaceholder] = useState(() => pickRandomCastName());
 
     // v267: the welcome screen is its own /welcome route. Redirect a
     // returning user (welcomeSeen=true) away on mount so they don't see
-    // the first-load screen again. v925: also prefill the room code from
-    // a shared `?join=CODE` deep link (the route gate preserves the param
-    // when it bounces a fresh device to /welcome) and jump to the join
-    // form so the user only has to hit Continue.
+    // the first-load screen again. v925/v932: also prefill the room code
+    // from a shared `?join=CODE` deep link (the route gate preserves the
+    // param when it bounces a fresh device to /welcome) and OPEN the join
+    // dialog so the user only has to hit Continue.
     useEffect(() => {
         if ($welcomeSeen) {
             navigate("/", { replace: true });
@@ -66,15 +65,17 @@ export function Welcome() {
         const j = new URLSearchParams(window.location.search).get("join");
         if (j) {
             const up = j.trim().toUpperCase();
-            if (/^[A-Z]{4,8}$/.test(up)) {
+            if (/^[A-Z]{3,8}$/.test(up)) {
                 setCode(up);
-                setMode("join-form");
+                setJoinOpen(true);
             }
         }
     }, [$welcomeSeen, navigate]);
 
     const trimmedCode = code.trim().toUpperCase();
-    const validCode = /^[A-Z]{4,8}$/.test(trimmedCode);
+    // v932: codes are now 3 letters; accept 3–8 so an in-progress game's
+    // older/longer code still joins.
+    const validCode = /^[A-Z]{3,8}$/.test(trimmedCode);
 
     const handleStartNew = () => {
         welcomeSeen.set(true);
@@ -100,7 +101,6 @@ export function Welcome() {
         joinAsGuest(trimmedCode, name);
         welcomeSeen.set(true);
         setupCompleted.set(true);
-        toast.info(`Joining game ${trimmedCode}…`, { autoClose: 2500 });
         navigate("/", { replace: true });
     };
 
@@ -122,25 +122,16 @@ export function Welcome() {
             aria-label="Welcome to Hide+Seek"
         >
             {/* Box-cover backdrop — the sun/mountain scene fixed to the
-                whole viewport (intro only), sized per the box spec: sun Ø
-                = a third of the width, the mountain's apex at the sun's
-                centre, its base the full bottom edge. Sits behind the
-                content; the footer text rides on top of the mountain. */}
-            {mode === "intro" && (
-                <HideSeekScene className="pointer-events-none fixed inset-0 z-0" />
-            )}
+                whole viewport, sized per the box spec: sun Ø = a third of
+                the width, the mountain's apex at the sun's centre, its base
+                the full bottom edge. Sits behind the content; the footer
+                text rides on top of the mountain. */}
+            <HideSeekScene className="pointer-events-none fixed inset-0 z-0" />
             <div className="relative z-10 w-full sm:max-w-md flex flex-col p-0 gap-0">
                 {/* Hero — echoes the box-face cover: the official Jet Lag:
                     The Game lockup with the Hide+Seek wordmark stacked
-                    tightly beneath it (as on the box). In intro mode only
-                    the blurb + buttons drop into the centred band below;
-                    the join form also shows the compact mark here. */}
-                <div
-                    className={cn(
-                        "px-6 pt-8 flex flex-col items-center text-center gap-8 shrink-0",
-                        mode === "intro" ? "pb-0" : "pb-6",
-                    )}
-                >
+                    tightly beneath it (as on the box). */}
+                <div className="px-6 pt-8 pb-0 flex flex-col items-center text-center gap-8 shrink-0">
                     <img
                         src="/jetlag-logo.svg"
                         alt="Jet Lag: The Game"
@@ -151,141 +142,131 @@ export function Welcome() {
                            centred over the Hide+Seek mark below it. */
                         className="h-12 w-auto max-w-[70%] translate-x-[3%]"
                     />
-                    {mode !== "intro" && <HideSeekMark size={64} />}
                     <HideSeekWordmark boxLayout size="2xl" />
                 </div>
 
-                {mode === "intro" ? (
-                    <>
-                        {/* Blurb + CTAs sit just under the wordmark with
-                            reasonable spacing; the sun reserve below uses
-                            mt-auto to stay pinned at the bottom. */}
-                        <div className="px-6 pt-8 flex flex-col items-center text-center gap-6">
-                            <p className="text-sm leading-relaxed text-current/85">
-                                A real-time companion app for playing Jet Lag:
-                                The Game's Hide+Seek in your own city — on your
-                                phones, across your local transit network.
-                            </p>
-                            <div className="w-full flex flex-col gap-2">
-                                <Button
-                                    size="lg"
-                                    className="w-full font-display font-extrabold uppercase tracking-[0.02em]"
-                                    onClick={handleStartNew}
-                                >
-                                    Create game
-                                </Button>
-                                <Button
-                                    size="lg"
-                                    variant="outline"
-                                    className="w-full font-display font-extrabold uppercase tracking-[0.02em]"
-                                    onClick={() => setMode("join-form")}
-                                >
-                                    Join a game
-                                </Button>
-                                {/* Renders only when installable (Android /
-                                    desktop Chrome) or on iOS Safari; hidden
-                                    once installed. */}
-                                <InstallAppButton />
-                            </div>
-                        </div>
-                    </>
-                ) : (
-                    <>
-                        <div className="px-6 pb-5 text-sm leading-relaxed text-current/85 space-y-1">
-                            <p>
-                                Got a code from a friend? Enter the room code
-                                and you'll drop into the lobby, where you pick
-                                your display name and role.
-                            </p>
-                        </div>
+                {/* Blurb + CTAs sit just under the wordmark with reasonable
+                    spacing; the sun reserve below uses mt-auto to stay
+                    pinned at the bottom. */}
+                <div className="px-6 pt-8 flex flex-col items-center text-center gap-6">
+                    <p className="text-sm leading-relaxed text-current/85">
+                        A real-time companion app for playing Jet Lag: The
+                        Game's Hide+Seek in your own city — on your phones,
+                        across your local transit network.
+                    </p>
+                    <div className="w-full flex flex-col gap-2">
+                        <Button
+                            size="lg"
+                            className="w-full font-display font-extrabold uppercase tracking-[0.02em]"
+                            onClick={handleStartNew}
+                        >
+                            Create game
+                        </Button>
+                        <Button
+                            size="lg"
+                            variant="outline"
+                            className="w-full font-display font-extrabold uppercase tracking-[0.02em]"
+                            onClick={() => setJoinOpen(true)}
+                        >
+                            Join a game
+                        </Button>
+                        {/* Renders only when installable (Android / desktop
+                            Chrome) or on iOS Safari; hidden once installed. */}
+                        <InstallAppButton />
+                    </div>
+                </div>
 
-                        <div className="px-6 pb-2 space-y-3">
-                            <div className="space-y-1.5">
-                                <label className="text-[10px] uppercase tracking-[0.16em] font-inter-tight font-bold text-muted-foreground">
-                                    Game code
-                                </label>
-                                <Input
-                                    value={code}
-                                    onChange={(e) => setCode(e.target.value)}
-                                    placeholder="6 characters"
-                                    maxLength={8}
-                                    autoFocus
-                                    autoCapitalize="characters"
-                                    spellCheck={false}
-                                    className="font-mono uppercase tracking-[0.2em]"
-                                    onKeyDown={(e) => {
-                                        if (e.key === "Enter" && validCode) {
-                                            e.preventDefault();
-                                            handleJoin();
-                                        }
-                                    }}
-                                />
-                                <p className="text-[10px] text-muted-foreground">
-                                    Letters and digits only. Case-insensitive.
-                                </p>
-                            </div>
-                        </div>
-
-                        <div className="px-6 pb-7 pt-4 flex gap-2">
-                            <Button
-                                variant="ghost"
-                                className="flex-1"
-                                onClick={() => setMode("intro")}
-                            >
-                                Back
-                            </Button>
-                            <Button
-                                className="flex-1 font-display font-extrabold uppercase tracking-[0.02em]"
-                                onClick={handleJoin}
-                                disabled={!validCode}
-                            >
-                                Continue
-                            </Button>
-                        </div>
-                    </>
-                )}
-
-                {/* Footer — a single link supporting the real game (the
-                    fan-made disclaimer was removed in v560). In intro mode
-                    it sits inside a bottom RESERVE whose height matches the
-                    sun band, so the centred middle above stops exactly at
-                    the sun's top edge and the link rides on the mountain;
-                    the join form keeps the opaque sticky panel so it reads
-                    over scrolling content.
+                {/* Footer — a single link supporting the real game. It sits
+                    inside a bottom RESERVE whose height matches the sun band,
+                    so the centred middle above stops exactly at the sun's top
+                    edge and the link rides on the mountain.
 
                     Reserve height mirrors HideSeekScene's geometry: apex
                     height D = (ew/2)/tan(40°) plus sun radius r =
                     (ew/6)·1.25 ≈ 0.804·ew, ew = min(100vw, 560px). Keep
                     this factor in sync with HideSeekScene. */}
-                {mode === "intro" ? (
-                    <div
-                        className="relative shrink-0 z-10 mt-auto"
-                        style={{ height: "calc(min(100vw, 560px) * 0.804)" }}
-                    >
-                        <div className="absolute inset-x-0 bottom-0 px-6 pt-4 pb-8 text-center">
-                            <a
-                                href="https://store.nebula.tv/products/jet-lag-the-game-hide-and-seek-transit-game"
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="inline-block text-xs font-semibold text-white drop-shadow hover:underline"
-                            >
-                                Buy the official Hide+Seek box from Nebula →
-                            </a>
-                        </div>
-                    </div>
-                ) : (
-                    <div className="mt-auto sticky bottom-0 z-10 px-6 pt-4 pb-8 text-center bg-jetlag border-t border-border/40">
+                <div
+                    className="relative shrink-0 z-10 mt-auto"
+                    style={{ height: "calc(min(100vw, 560px) * 0.804)" }}
+                >
+                    <div className="absolute inset-x-0 bottom-0 px-6 pt-4 pb-8 text-center">
                         <a
                             href="https://store.nebula.tv/products/jet-lag-the-game-hide-and-seek-transit-game"
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="inline-block text-xs font-semibold text-jetlag-yellow hover:underline"
+                            className="inline-block text-xs font-semibold text-white drop-shadow hover:underline"
                         >
                             Buy the official Hide+Seek box from Nebula →
                         </a>
                     </div>
-                )}
+                </div>
             </div>
+
+            {/* Join-a-game code step — a dialog OVER the landing page (v932),
+                so the first step reads as a light modal on the box cover
+                rather than swapping the whole screen. Continue drops the
+                guest into the shared lobby + role picker. */}
+            <Dialog open={joinOpen} onOpenChange={setJoinOpen}>
+                {/* `dark` scopes the dark CSS vars to the dialog subtree so it
+                    matches the always-dark landing (it portals to <body>,
+                    outside the landing's own `dark` wrapper). */}
+                <DialogContent className="dark max-w-sm rounded-2xl bg-[hsl(var(--sidebar-background))] text-[hsl(var(--sidebar-foreground))]">
+                    <DialogTitle className="font-display font-black uppercase tracking-tight text-xl">
+                        Join a game
+                    </DialogTitle>
+                    <DialogDescription className="text-sm text-muted-foreground">
+                        Got a code from a friend? Enter the room code and
+                        you'll drop into the lobby, where you pick your display
+                        name and role.
+                    </DialogDescription>
+
+                    <div className="space-y-1.5 pt-1">
+                        <label
+                            htmlFor="welcome-join-code"
+                            className="text-[10px] uppercase tracking-[0.16em] font-inter-tight font-bold text-muted-foreground"
+                        >
+                            Game code
+                        </label>
+                        <Input
+                            id="welcome-join-code"
+                            value={code}
+                            onChange={(e) => setCode(e.target.value)}
+                            placeholder="3 letters"
+                            maxLength={8}
+                            autoFocus
+                            autoCapitalize="characters"
+                            spellCheck={false}
+                            className="font-mono uppercase tracking-[0.2em]"
+                            onKeyDown={(e) => {
+                                if (e.key === "Enter" && validCode) {
+                                    e.preventDefault();
+                                    handleJoin();
+                                }
+                            }}
+                        />
+                        <p className="text-[10px] text-muted-foreground">
+                            Letters and digits only. Case-insensitive.
+                        </p>
+                    </div>
+
+                    <div className="flex gap-2 pt-2">
+                        <Button
+                            variant="ghost"
+                            className="flex-1"
+                            onClick={() => setJoinOpen(false)}
+                        >
+                            Cancel
+                        </Button>
+                        <Button
+                            className="flex-1 font-display font-extrabold uppercase tracking-[0.02em]"
+                            onClick={handleJoin}
+                            disabled={!validCode}
+                        >
+                            Continue
+                        </Button>
+                    </div>
+                </DialogContent>
+            </Dialog>
         </div>
     );
 }

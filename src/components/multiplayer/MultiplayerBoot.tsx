@@ -63,7 +63,7 @@ function maybeAutoJoinFromUrl() {
     const code = params.get("join");
     if (!code) return;
     const trimmed = code.trim().toUpperCase();
-    if (!/^[A-Z0-9]{4,8}$/.test(trimmed)) return;
+    if (!/^[A-Z0-9]{3,8}$/.test(trimmed)) return;
 
     // If we're already in a game (e.g. resumed from persistent state),
     // don't trample it. The user can leave manually if they want to
