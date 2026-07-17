@@ -63,6 +63,10 @@ import { parseVapidKeys, sendWebPush } from "./webpush";
 const FOUND_PROXIMITY_METERS = 50;
 /** Only trust a position fresher than this for the check (else can't verify). */
 const FOUND_POS_STALE_MS = 3 * 60_000;
+/** v946: slack over the hider's zone radius for the server-authoritative
+ *  endgame "are the seekers at the zone?" check. Urban GPS is noisy and the
+ *  hider can be anywhere IN the zone, so "at the zone" is radius + this. */
+const ENDGAME_ZONE_MARGIN_M = 150;
 
 /**
  * v940: seeker-location reminder thresholds (stale time → push). KEEP IN SYNC
@@ -1336,14 +1340,60 @@ export class GameRoom {
         if (this.game.setup.endgameStartedAt !== null) return;
         if (typeof at !== "number" || !Number.isFinite(at)) return;
         this.game.setup.endgameStartedAt = at;
-        // A fresh claim starts unconfirmed — the hider responds next.
-        this.game.setup.endgameConfirmedAt = null;
+        // v946: the SERVER validates the claim — it knows BOTH the hider's
+        // committed zone AND the claiming seeker's last GPS, so the hider no
+        // longer manually confirms/refutes. Correct → auto-confirm; wrong →
+        // leave unconfirmed (a denial). Can't-verify (no zone / no fix) allows
+        // it (friends game, don't block).
+        const correct = this.seekerIsAtHidingZone(conn.participantId);
+        this.game.setup.endgameConfirmedAt = correct ? Date.now() : null;
         this.broadcast({ t: "setupChanged", setup: this.game.setup });
-        // The hider may be on a train with the app backgrounded — the
-        // socket broadcast alone won't surface anything. Push to any
-        // offline hide-team member so they get the lock-down signal the
-        // instant it's claimed (mirrors the curse push path).
-        this.state.waitUntil(this.pushEndgameToOfflineHideTeam());
+        // The hide team wants to know the endgame was ATTEMPTED (right or
+        // wrong); the seekers want the confirmation/denial. Push both offline
+        // sides (the socket broadcast covers the online ones). The hider may be
+        // on a train with the app backgrounded, so this is the only signal.
+        this.state.waitUntil(
+            this.pushToOfflineRole("hider", {
+                title: correct ? "Seekers reached your zone!" : "Endgame attempted",
+                body: correct
+                    ? "The seekers are in your hiding zone — lock down your final spot."
+                    : "The seekers tried to start the endgame, but they're not at your zone.",
+                tag: "endgame",
+            }),
+        );
+        this.state.waitUntil(
+            this.pushToOfflineRole("seeker", {
+                title: correct ? "You're in the right zone!" : "Not the right spot",
+                body: correct
+                    ? "You've reached the hider's zone — now find them."
+                    : "The hider isn't in this zone. Keep searching.",
+                tag: "endgame",
+            }),
+        );
+    }
+
+    /**
+     * v946: is the given seeker physically at the hider's committed zone?
+     * Server-authoritative endgame validation — the server holds both the
+     * secret `hidingZone` and every seeker's last GPS (`lastPos`). Returns
+     * TRUE (allow) when it can't verify (no committed zone / no fresh fix), so
+     * a data gap never blocks a genuine claim in a friends game.
+     */
+    private seekerIsAtHidingZone(seekerId: string): boolean {
+        const zone = this.hidingZone;
+        if (!zone) return true;
+        const pos = this.lastPos.get(seekerId);
+        if (!pos) return true;
+        const d = haversineMetersServer(
+            pos.lat,
+            pos.lng,
+            zone.stationLat,
+            zone.stationLng,
+        );
+        // Generous margin over the zone radius — urban GPS is noisy, and the
+        // hider can still be anywhere IN the zone, so "at the zone" is radius +
+        // slack, not "at the exact station".
+        return d <= zone.radiusMeters + ENDGAME_ZONE_MARGIN_M;
     }
 
     /**

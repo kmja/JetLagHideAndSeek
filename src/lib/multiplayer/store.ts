@@ -1284,18 +1284,33 @@ function handleServerMessage(msg: ServerMessage) {
                 );
             }
             applyHouseRules(msg.setup.houseRules);
-            // Endgame just got armed (null → number). Hider needs to
-            // know immediately — rulebook p43 says they lock down to
-            // a final spot the instant this fires.
+            // Endgame just got armed (null → number). v946: the SERVER
+            // already validated the claim against the hider's zone, so the
+            // SAME setup carries the verdict in `endgameConfirmedAt` (set =
+            // correct, null = wrong). Notify both roles accordingly — the
+            // hider learns the endgame was ATTEMPTED (right or wrong), the
+            // seeker gets the denial (a CORRECT claim's "you're in the right
+            // zone" comes from the confirmed-branch below).
             if (
                 prevEndgameAt === null &&
                 msg.setup.endgameStartedAt !== null
             ) {
                 const role = playerRole.get();
+                const correct = msg.setup.endgameConfirmedAt != null;
                 if (role === "hider") {
                     notify({
-                        title: "Endgame — lock down",
-                        body: "The seeker says they're in your zone. Commit to a final spot — or refute it if they're wrong.",
+                        title: correct
+                            ? "Seekers reached your zone!"
+                            : "Endgame attempted",
+                        body: correct
+                            ? "The seekers are in your hiding zone — lock down your final spot."
+                            : "The seekers tried to start the endgame, but they're not at your zone yet.",
+                        tag: "endgame",
+                    });
+                } else if (role === "seeker" && !correct) {
+                    notify({
+                        title: "Not the right spot",
+                        body: "The hider isn't in this zone. Keep searching.",
                         tag: "endgame",
                     });
                 }

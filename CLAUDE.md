@@ -428,7 +428,26 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v949`. Use `git log` for the per-version detail;
+build stamp. Current: `v950`. Use `git log` for the per-version detail;
+
+**v950 — server-authoritative endgame validation + push both sides.** The
+endgame claim is now VALIDATED by the server (it holds both the hider's secret
+committed zone AND every seeker's last GPS), so the hider no longer has to
+manually confirm/refute. `handleStartEndgame` computes `seekerIsAtHidingZone`
+(the claiming seeker's `lastPos` within `hidingZone.radiusMeters` +
+`ENDGAME_ZONE_MARGIN_M` 150 m; can't-verify → allow) and stamps
+`endgameConfirmedAt` immediately (correct) or leaves it null (wrong). It then
+Web-Pushes BOTH offline sides: the HIDER learns the endgame was ATTEMPTED
+(right → "Seekers reached your zone!", wrong → "Endgame attempted … not at your
+zone"), and the SEEKER gets the verdict ("You're in the right zone!" /
+"Not the right spot"). The client `setupChanged` handler mirrors it in-app:
+on a fresh claim it reads the same-message `endgameConfirmedAt` to notify the
+hider (attempted, correct-or-not) and the seeker (the denial; a correct claim's
+"you're in the right zone" still comes from the confirmed-branch). The hider's
+manual confirm/refute wire handlers remain as a back-compat fallback. **Remaining
+polish (follow-up):** reword the seeker `HiderTimer` "Awaiting hider" badge to a
+denial state and replace `HiderHome`'s now-redundant confirm/refute banner with
+an informational "endgame attempted" banner.
 
 **v949 — hider POI highlight no longer blinks (accumulate + clip to zone).**
 `HiderPoiOverlay` replaced its whole feature set on every map `idle` from
