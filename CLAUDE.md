@@ -428,7 +428,24 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v955`. Use `git log` for the per-version detail;
+build stamp. Current: `v956`. Use `git log` for the per-version detail;
+
+**v956 — confirm before picking a non-starred (unwarmed) play area.** Picking a
+play area that isn't prewarmed means the map + questions load live off Overpass
+instead of R2 — slower and occasionally buggy — so the wizard now warns before
+committing one. `PlayAreaStep.handlePickResult` (`GameSetupDialog.tsx`) routes a
+NON-warm pick through a `NonWarmAreaConfirm` dialog ("Play <area> anyway?" —
+explains it isn't prewarmed) instead of committing immediately; a warm pick
+(and the case where the warm set hasn't loaded yet — `warmCityIds === null`, so
+warmth is unknown → don't nag) commits straight through. When a STARRED area
+with a **similar name** is present in the current search results
+(`findWarmSuggestion` — normalized same-name or whole-word-prefix match, seed-
+ranked first-hit), the dialog leads with a recommended "Use <warm area>
+instead" button; the footer always offers "Use <area> anyway" + Cancel. The
+dialog is at `z-[1070]` so it clears the lobby "Edit play area" dialog
+(`z-[1060]`). Covers every `PlayAreaStep` surface (first-time wizard, edit-
+settings modal, lobby area editor) since they all pick through `handlePickResult`;
+GPS auto-suggest is exempt (it's an automatic suggestion, not a deliberate pick).
 
 **v955 — stop repeated "Seeking phase started" pushes for an abandoned game.**
 An idle iPhone kept getting "Seeking phase started" notifications (44m/1h/2h

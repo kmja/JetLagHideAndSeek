@@ -833,6 +833,54 @@ const LOCATING_LABEL = "Finding a play area near you…";
 const LOCATING_SUBLABEL =
     "Using your location to suggest a starting area you can tweak.";
 
+/** Normalize a place name for fuzzy comparison (lowercase, strip diacritics
+ *  and punctuation). */
+function normalizeAreaName(s: string): string {
+    return s
+        .toLowerCase()
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .replace(/[^a-z0-9]+/g, " ")
+        .trim();
+}
+
+/**
+ * Among the current search results, find a WARM (prewarmed/"starred") area
+ * whose name is SIMILAR to the picked non-warm one — so we can suggest the
+ * faster alternative (e.g. picking a tiny "Cambridge" village when the warm
+ * "Cambridge" city is right there in the list). Results are already ranked
+ * seed-first, so the first similar warm match is the best suggestion. Returns
+ * null when nothing similar is warm.
+ */
+function findWarmSuggestion(
+    picked: OpenStreetMap,
+    results: OpenStreetMap[],
+    warm: Set<number> | null,
+): OpenStreetMap | null {
+    if (!warm) return null;
+    const pickedName = normalizeAreaName(
+        picked.properties.name ?? determineName(picked).split(",")[0],
+    );
+    if (!pickedName) return null;
+    for (const r of results) {
+        if (r.properties.osm_id === picked.properties.osm_id) continue;
+        if (!warm.has(r.properties.osm_id)) continue;
+        const name = normalizeAreaName(
+            r.properties.name ?? determineName(r).split(",")[0],
+        );
+        if (!name) continue;
+        // Same name, or one is a whole-word prefix of the other ("Cambridge"
+        // vs "Cambridge" city; "York" vs "New York" is deliberately NOT a
+        // match — different first word).
+        const similar =
+            name === pickedName ||
+            name.startsWith(pickedName + " ") ||
+            pickedName.startsWith(name + " ");
+        if (similar) return r;
+    }
+    return null;
+}
+
 export function PlayAreaStep({
     value,
     onChange,
@@ -879,6 +927,12 @@ export function PlayAreaStep({
     const [busy, setBusy] = useState(false);
     const [results, setResults] = useState<OpenStreetMap[]>([]);
     const [searched, setSearched] = useState(false);
+    // A pick of a non-warm (unstarred) area awaiting confirmation, plus any
+    // similar-named warm area we can suggest instead. Null = no pending pick.
+    const [pendingPick, setPendingPick] = useState<{
+        area: OpenStreetMap;
+        suggestion: OpenStreetMap | null;
+    } | null>(null);
     // v503: while the search box is focused the on-screen keyboard eats
     // ~half the viewport, so we shrink the map to keep the input +
     // results in view. Tracks focus as a keyboard-open proxy.
@@ -1070,13 +1124,31 @@ export function PlayAreaStep({
     // the search list. The user came in to change the area; once
     // they've made a choice, they want to see the new selection on
     // the map, not stay in search mode.
-    const handlePickResult = (r: OpenStreetMap) => {
+    const commitPick = (r: OpenStreetMap) => {
         onChange(r);
         setQuery("");
         setResults([]);
         setSearched(false);
         setMode("preview");
         userInitiatedSearch.current = false;
+        setPendingPick(null);
+    };
+
+    const handlePickResult = (r: OpenStreetMap) => {
+        // Warn before committing a NON-prewarmed ("unstarred") area — it can't
+        // play Overpass-free, so it may be slower + occasionally buggy. Only
+        // once the warm set has actually loaded (null = unknown → don't nag),
+        // and only for a genuine non-warm pick. If a similar-named warm area is
+        // in the results, offer it as a faster alternative.
+        const warm = $warmCities;
+        if (warm && !isWarmCity(r.properties.osm_id, warm)) {
+            setPendingPick({
+                area: r,
+                suggestion: findWarmSuggestion(r, results, warm),
+            });
+            return;
+        }
+        commitPick(r);
     };
 
     // v289: dropped the auto-bounce useEffect. The GPS handler now
@@ -1587,7 +1659,103 @@ export function PlayAreaStep({
                 </>
             )}
             </div>
+
+            <NonWarmAreaConfirm
+                pending={pendingPick}
+                onCancel={() => setPendingPick(null)}
+                onUseSuggestion={(r) => commitPick(r)}
+                onUseAnyway={(r) => commitPick(r)}
+            />
         </div>
+    );
+}
+
+/**
+ * Confirmation shown when the user picks a NON-prewarmed ("unstarred") play
+ * area — it can't play Overpass-free, so it may load slower and hit occasional
+ * rough edges. When a similar-named STARRED area is available we recommend it
+ * as the faster alternative.
+ */
+function NonWarmAreaConfirm({
+    pending,
+    onCancel,
+    onUseSuggestion,
+    onUseAnyway,
+}: {
+    pending: { area: OpenStreetMap; suggestion: OpenStreetMap | null } | null;
+    onCancel: () => void;
+    onUseSuggestion: (r: OpenStreetMap) => void;
+    onUseAnyway: (r: OpenStreetMap) => void;
+}) {
+    const areaName = pending
+        ? (pending.area.properties.name ??
+          determineName(pending.area).split(",")[0])
+        : "";
+    const suggestionName = pending?.suggestion
+        ? (pending.suggestion.properties.name ??
+          determineName(pending.suggestion).split(",")[0])
+        : "";
+    return (
+        <Dialog
+            open={pending !== null}
+            onOpenChange={(o) => {
+                if (!o) onCancel();
+            }}
+        >
+            <DialogContent className="z-[1070]" overlayClassName="z-[1070]">
+                <DialogTitle>Play {areaName} anyway?</DialogTitle>
+                <DialogDescription className="space-y-2">
+                    <span className="block">
+                        <span className="font-semibold text-foreground">
+                            {areaName}
+                        </span>{" "}
+                        isn&apos;t prewarmed yet, so the map and questions load
+                        live instead of from our cache. It can be noticeably
+                        slower and hit the occasional rough edge mid-game.
+                    </span>
+                    {pending?.suggestion && (
+                        <span className="block">
+                            A prewarmed area with a similar name is available —
+                            it plays fast and reliably.
+                        </span>
+                    )}
+                </DialogDescription>
+                <DialogFooter className="flex-col gap-2 sm:flex-col">
+                    {pending?.suggestion && (
+                        <Button
+                            className="w-full"
+                            onClick={() =>
+                                pending.suggestion &&
+                                onUseSuggestion(pending.suggestion)
+                            }
+                        >
+                            <Star className="w-4 h-4 mr-1.5 fill-current" />
+                            Use {suggestionName} instead
+                        </Button>
+                    )}
+                    <div className="flex gap-2 w-full">
+                        <Button
+                            variant="outline"
+                            className="flex-1"
+                            onClick={onCancel}
+                        >
+                            Cancel
+                        </Button>
+                        <Button
+                            variant={
+                                pending?.suggestion ? "outline" : "default"
+                            }
+                            className="flex-1"
+                            onClick={() =>
+                                pending && onUseAnyway(pending.area)
+                            }
+                        >
+                            Use {areaName} anyway
+                        </Button>
+                    </div>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
     );
 }
 
