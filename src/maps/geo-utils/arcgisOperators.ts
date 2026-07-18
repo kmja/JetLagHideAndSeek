@@ -21,6 +21,28 @@ import type { Feature, FeatureCollection, MultiPolygon } from "geojson";
 
 const DEFAULT_BUFFER_UNIT = "miles";
 
+/** v972: only features with at least this many vertices are simplified on
+ *  the throw-retry path — smaller features (individual ponds/lakes) are
+ *  left intact so a coarse simplify can't collapse and drop them. */
+const SIMPLIFY_MIN_VERTICES = 40;
+
+/** Rough vertex count of any GeoJSON geometry (for the simplify gate). */
+function countPositions(f: { geometry?: unknown } | null | undefined): number {
+    const g = (f as { geometry?: { coordinates?: unknown } } | null)?.geometry;
+    const coords = (g as { coordinates?: unknown })?.coordinates;
+    let n = 0;
+    const walk = (a: unknown): void => {
+        if (!Array.isArray(a)) return;
+        if (typeof a[0] === "number") {
+            n++;
+            return;
+        }
+        for (const x of a) walk(x);
+    };
+    walk(coords);
+    return n;
+}
+
 export const arcBufferImpl = (
     geometry: FeatureCollection,
     distance: number,
@@ -80,12 +102,22 @@ export const arcBufferToPointImpl = async (
         const feats =
             tolerance > 0
                 ? geometry.features.map((f) => {
+                      // v972: simplify ONLY heavy features (a dense sea/river
+                      // geometry is what makes the buffer throw). Small
+                      // water polygons are left untouched — coarse-simplifying
+                      // a small pond collapses it to a degenerate ring, which
+                      // then drops out of the buffered "closer" region and
+                      // paints real water as "further" (the reported bug).
+                      if (countPositions(f) < SIMPLIFY_MIN_VERTICES) return f;
                       try {
-                          return turf.simplify(f as any, {
+                          const s = turf.simplify(f as any, {
                               tolerance,
                               highQuality: false,
                               mutate: false,
                           });
+                          // A simplify that collapsed the feature below a
+                          // valid ring is worse than the original — keep it.
+                          return countPositions(s) >= 4 ? s : f;
                       } catch {
                           return f;
                       }

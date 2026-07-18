@@ -701,7 +701,29 @@ export const determineMeasuringBoundary = async (
                 }
 
                 if (sea && turf.area(sea as any) > 0) {
-                    out.push(sea);
+                    // v972: the per-city sea polygon carries the FULL detailed
+                    // OSM coastline (tens of thousands of vertices for a
+                    // harbour metro like NYC). Buffering that raw froze the
+                    // main thread AND made the arcgis geodesic buffer throw —
+                    // whose coarse-simplify retry then dropped small water
+                    // polygons, painting real water "further" (the reported
+                    // bug). Simplify the SEA to ~33 m up front (negligible
+                    // against a hundreds-of-metres water buffer) so the buffer
+                    // runs fast and succeeds on the first, un-simplified
+                    // attempt — leaving the small named-water polygons intact.
+                    let seaOut = sea;
+                    try {
+                        seaOut = turf.simplify(sea as any, {
+                            tolerance: 0.0003,
+                            highQuality: false,
+                            mutate: false,
+                        }) as Feature<Polygon | MultiPolygon>;
+                    } catch {
+                        /* keep the un-simplified sea */
+                    }
+                    out.push(
+                        seaOut && turf.area(seaOut as any) > 0 ? seaOut : sea,
+                    );
                 } else {
                     // Last resort (v876): reuse the DETAILED per-city coast
                     // lines if we have them — a seaFromCoastline failure

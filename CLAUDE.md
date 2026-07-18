@@ -428,7 +428,42 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v971`. Use `git log` for the per-version detail;
+build stamp. Current: `v973`. Use `git log` for the per-version detail;
+
+**v973 — body-of-water measuring: fix the freeze + water-marked-"further"
+bug.** The body-of-water elimination pushes the detailed per-city SEA polygon
+(`seaFromCoastline` over the full OSM `natural=coastline` — tens of thousands
+of vertices in a harbour metro like NYC) plus every river + named-water body
+into ONE `arcBufferToPoint` call. Two failure modes, both reported: (1) the
+arcgis geodesic buffer of that raw geometry blocks the main thread for
+seconds (the freeze); (2) on a dense metro the buffer THROWS, and the v965
+throw-retry re-runs with a coarse `turf.simplify` that COLLAPSES small water
+polygons so they drop out of the buffered "closer" region — painting real
+water as "further" (the screenshot). Fixes: **(a)** `measuring.ts` simplifies
+the SEA polygon to ~33 m up front (negligible against a hundreds-of-metres
+water buffer) before it enters the buffer, so the buffer runs fast and
+succeeds on the first, un-simplified attempt — no freeze, no throw. **(b)**
+`arcgisOperators.ts` `arcBufferToPointImpl`'s retry now simplifies ONLY heavy
+features (≥ `SIMPLIFY_MIN_VERTICES` = 40 vertices) and rejects a simplify that
+collapses a feature below a valid ring — so a small pond can never be dropped
+even if the retry path is hit. Both the configure-preview overlay and the real
+elimination cut share `bufferedDeterminer`, so both are fixed.
+
+**v972 — unify the unit system into ONE Settings toggle + curated
+conversions.** There used to be TWO independent unit controls — the Settings
+"Miles / Kilometers" picker (`defaultUnit`, which also sets a question's
+stored radius unit) and a SEPARATE Metric/Imperial toggle in the rulebook
+viewer (`unitPreference`) — which could disagree. Now `resolvedUnits`
+(metric/imperial) DERIVES from `defaultUnit` (miles → imperial, else metric),
+the rulebook's own picker was removed, and `units.ts` is the single source of
+truth. Conversion is CURATED, not raw `× 0.621371`: `GAME_DISTANCE_TABLE`
+(meters → clean imperial) encodes the creators' rounded numbers (160 km =
+100 mi, 80 km = 50 mi, 2 km = 1 mi, 250 km/h = 150 mph, 500 m = 0.25 mi, …),
+so rulebook + card + tile distances read as tidy imperial values.
+`imperialMilesForMeters` exposes the paired value for the question presets.
+**This is slice 1 of the app-wide "distances follow the selected unit system"
+work — the radar/thermometer/tentacle PRESET sizes + card/tile descriptions
+follow in the next slice.**
 
 **v971 — rulebook audit Section D: cosmetic polish.** The low-stakes
 tail of the audit:
