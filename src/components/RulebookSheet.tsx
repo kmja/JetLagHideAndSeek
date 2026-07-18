@@ -5,12 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Drawer as VaulDrawer } from "vaul";
 
 import RULEBOOK_MD from "@/content/rulebook.md?raw";
-import {
-    applyUnitTemplates,
-    resolvedUnits,
-    unitPreference,
-    type UnitPreference,
-} from "@/lib/units";
+import { applyUnitTemplates, resolvedUnits } from "@/lib/units";
 import { cn } from "@/lib/utils";
 
 /**
@@ -153,8 +148,10 @@ export function RulebookSheet({ children, onBeforeOpen }: RulebookSheetProps) {
     const [open, setOpen] = useState(false);
     const [query, setQuery] = useState("");
     const [activeId, setActiveId] = useState<string | null>(null);
+    // v972: units now follow the single Settings toggle (`defaultUnit` →
+    // `resolvedUnits`); the rulebook's own metric/imperial picker was
+    // removed so there's one source of truth.
     const units = useStore(resolvedUnits);
-    const pref = useStore(unitPreference);
     const scrollRef = useRef<HTMLDivElement | null>(null);
 
     // Pre-build the search index once. plainText() runs over ~25 KB
@@ -326,7 +323,6 @@ export function RulebookSheet({ children, onBeforeOpen }: RulebookSheetProps) {
                                         </button>
                                     )}
                                 </div>
-                                <UnitsSelect value={pref} onChange={unitPreference.set} />
                             </div>
                             {q && matchedIds && (
                                 <p className="text-xs text-muted-foreground mt-1">
@@ -431,29 +427,6 @@ function TableOfContents({ sections, activeId, onJump }: TableOfContentsProps) {
                 </li>
             ))}
         </ul>
-    );
-}
-
-interface UnitsSelectProps {
-    value: UnitPreference;
-    onChange: (v: UnitPreference) => void;
-}
-
-function UnitsSelect({ value, onChange }: UnitsSelectProps) {
-    return (
-        <select
-            value={value}
-            onChange={(e) => onChange(e.target.value as UnitPreference)}
-            className={cn(
-                "text-xs py-1.5 px-2 rounded-md border border-border bg-secondary",
-                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-            )}
-            aria-label="Units"
-            title="Distance units used throughout the app"
-        >
-            <option value="metric">Metric (m, km)</option>
-            <option value="imperial">Imperial (ft, mi)</option>
-        </select>
     );
 }
 
