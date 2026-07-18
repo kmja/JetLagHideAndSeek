@@ -1156,7 +1156,7 @@ export function GameLobbyDialog() {
                     {!isMidGame && (
                         <div className="space-y-2">
                             <div className="text-[11px] uppercase tracking-[0.16em] font-poppins font-bold text-muted-foreground px-1">
-                                Preload for offline play
+                                Preload the map
                             </div>
                             {metered && (
                                 <label className="flex items-center gap-3 p-3 rounded-md border border-border bg-secondary/30 cursor-pointer animate-in fade-in duration-200">

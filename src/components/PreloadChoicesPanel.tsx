@@ -485,10 +485,10 @@ function CompactPreloadBar({
                     )}
                     <span className="text-sm font-medium text-foreground flex-1 min-w-0">
                         {allDone
-                            ? "Ready to play offline"
+                            ? "Map ready"
                             : paused
                               ? "Preload paused"
-                              : "Preloading for offline play…"}
+                              : "Preloading the map…"}
                     </span>
                     {!allDone && (
                         <span className="text-xs font-mono tabular-nums text-muted-foreground shrink-0">

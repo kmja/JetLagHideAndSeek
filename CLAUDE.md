@@ -428,7 +428,12 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v953`. Use `git log` for the per-version detail;
+build stamp. Current: `v954`. Use `git log` for the per-version detail;
+
+**v954 — lobby preload copy drops "offline".** The lobby preload section
+header "Preload for offline play" → "Preload the map", and the compact bar's
+"Preloading for offline play…" / "Ready to play offline" → "Preloading the
+map…" / "Map ready" — the offline framing read oddly in the lobby.
 
 **v953 — notification-coverage batch: Move push, smarter closing-in, dead-code
 cleanup.**
