@@ -707,11 +707,15 @@ const bufferedDeterminer = memoize(
 
         if (placeData === false || placeData === undefined) return false;
 
-        return arcBufferToPoint(
+        // arcBufferToPoint returns null when the geometry is degenerate or the
+        // geodesic buffer failed even after simplification — normalise to the
+        // `false` failure contract so the self-evicting wrapper retries.
+        const buffered = await arcBufferToPoint(
             turf.featureCollection(placeData as any),
             question.lat,
             question.lng,
         );
+        return buffered ?? false;
     },
     bufferedDeterminerKey,
 );

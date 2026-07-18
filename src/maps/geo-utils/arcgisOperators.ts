@@ -67,23 +67,66 @@ export const arcBufferToPointImpl = async (
     geometry: FeatureCollection,
     lat: number,
     lng: number,
-) => {
-    const point = new Point({
-        latitude: lat,
-        longitude: lng,
-    });
-
-    const arcgisGeometry = geometry.features.map((x) =>
-        geometryJsonUtils.fromJSON(geojsonToArcGIS(x.geometry)),
-    ) as unionTypes.GeometryUnion[];
-
+): Promise<Feature<MultiPolygon> | null> => {
+    const point = new Point({ latitude: lat, longitude: lng });
     await geodeticDistanceOperator.load();
 
-    const distances = arcgisGeometry.map((x) =>
-        geodeticDistanceOperator.execute(x, point, {
-            unit: DEFAULT_BUFFER_UNIT,
-        }),
-    );
+    // Build the arcgis geometry + buffer distance at a given simplification
+    // tolerance. Returns null when the input is degenerate (no finite
+    // distance to any feature — e.g. an empty multipolygon sentinel).
+    const attempt = async (
+        tolerance: number,
+    ): Promise<Feature<MultiPolygon> | null> => {
+        const feats =
+            tolerance > 0
+                ? geometry.features.map((f) => {
+                      try {
+                          return turf.simplify(f as any, {
+                              tolerance,
+                              highQuality: false,
+                              mutate: false,
+                          });
+                      } catch {
+                          return f;
+                      }
+                  })
+                : geometry.features;
+        const arc = feats.map((x) =>
+            geometryJsonUtils.fromJSON(geojsonToArcGIS(x.geometry)),
+        ) as unionTypes.GeometryUnion[];
+        const distances = arc
+            .map((x) =>
+                geodeticDistanceOperator.execute(x, point, {
+                    unit: DEFAULT_BUFFER_UNIT,
+                }),
+            )
+            .filter((d): d is number => Number.isFinite(d));
+        // Degenerate input (no measurable geometry) — nothing to buffer.
+        if (distances.length === 0) return null;
+        return innateArcBuffer(arc, Math.min(...distances));
+    };
 
-    return innateArcBuffer(arcgisGeometry, Math.min(...distances));
+    // A pathologically DENSE geometry (a dense metro's full OSM coastline +
+    // every river + the sea-as-area polygon for body-of-water) can make the
+    // arcgis geodesic buffer THROW — and since v933 no longer caches that
+    // failure, it just retried and the overlay/elimination never appeared
+    // (the reported "body of water shows no overlay"). Retry with
+    // progressively coarser turf.simplify (≈33 m / ≈110 m at these
+    // tolerances — negligible against a hundreds-of-metres buffer) so a
+    // dense metro still yields a region instead of nothing; give up (null)
+    // only if even the coarse attempt throws.
+    for (const tolerance of [0, 0.0003, 0.001]) {
+        try {
+            return await attempt(tolerance);
+        } catch (e) {
+            if (tolerance === 0.001) {
+                console.warn(
+                    "[arcBufferToPoint] geodesic buffer failed after simplify:",
+                    e,
+                );
+                return null;
+            }
+        }
+    }
+    return null;
 };

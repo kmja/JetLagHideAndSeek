@@ -428,7 +428,27 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v964`. Use `git log` for the per-version detail;
+build stamp. Current: `v965`. Use `git log` for the per-version detail;
+
+**v965 — body-of-water measuring shows NO overlay (arcgis buffer throwing on
+dense coast) — harden `arcBufferToPoint`.** In a dense coastal metro (NYC) the
+body-of-water closer/further overlay drew nothing at all. Root cause: the
+body-of-water buffer input is the heaviest possible geometry (all named water +
+every river/canal line + the sea-as-AREA polygon from `seaFromCoastline`), and
+the @arcgis `geodesicBufferOperator` THROWS on geometry that dense. v933 stopped
+CACHING that failure (evict + rethrow) so it would retry — but the throw is
+deterministic, so it retried forever and the overlay (and the real elimination,
+same path) never appeared. `arcBufferToPointImpl` (`arcgisOperators.ts`) now (a)
+filters non-finite feature distances and returns null on a fully-degenerate
+input instead of buffering by `Math.min()` of an empty/NaN set, and (b) wraps
+the geodesic buffer in a retry that turf-`simplify`s the input at progressively
+coarser tolerances (0 → ≈33 m → ≈110 m, negligible against a hundreds-of-metres
+buffer) so a dense metro still yields a region instead of throwing; only a throw
+even at the coarse tolerance returns null. `bufferedDeterminer` (`measuring.ts`)
+normalises that null to the existing `false` failure contract. This fixes both
+the configure preview AND the elimination cut for body-of-water/coastline in
+dense metros. NOTE: hardening targets the v933-documented throw; verify on the
+live NYC state.
 
 **v964 — "Retry now" held back until the first auto-reconnect fails.** The
 Reconnecting banner (`ReconnectingBanner`) always showed "Retry now"; offering
