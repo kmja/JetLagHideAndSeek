@@ -31,6 +31,7 @@ import {
     OVERPASS_API_FALLBACK,
     OVERPASS_API_QUATERNARY,
     OVERPASS_API_TERTIARY,
+    TRANSIT_ROUTES_BY_RELATION_BASE,
 } from "./constants";
 import {
     isAbortedOverpassJson,
@@ -945,11 +946,113 @@ export interface TransitRouteDetail {
 }
 
 /**
- * v966: list the transit ROUTES with a member within `radiusMeters` of the
- * given point — the routes the seeker could currently be riding, for the
+ * v968: the play-area's prewarmed transit-route set — served Overpass-free
+ * from `GET /api/transit-routes/<relationId>` (R2) for a warm city, the SAME
+ * per-city set the laptop/cron warm. Contains ALL rail transit routes in the
+ * play area with geometry + member stop nodes. Both the route picker (list
+ * near GPS) and the route-detail extractor read this, so a starred city never
+ * hits live Overpass. `null` when the play area isn't a single OSM relation or
+ * the entry is cold (→ callers fall back to a live query + fire `?warm=1`).
+ * Memoised per relation id so the list + detail share one fetch.
+ */
+const transitRoutesCache = new Map<number, any>();
+const transitRoutesWarmRequested = new Set<number>();
+async function fetchPrewarmedTransitRoutes(): Promise<any> {
+    const primary = mapGeoLocation.get();
+    const props = primary?.properties as
+        | { osm_id?: number; osm_type?: string }
+        | undefined;
+    const extrasAdded = additionalMapGeoLocations.get().some((e) => e.added);
+    if (
+        extrasAdded ||
+        props?.osm_type !== "R" ||
+        typeof props?.osm_id !== "number" ||
+        props.osm_id <= 0
+    ) {
+        return null;
+    }
+    const relId = props.osm_id;
+    if (transitRoutesCache.has(relId)) return transitRoutesCache.get(relId);
+    try {
+        const resp = await fetch(`${TRANSIT_ROUTES_BY_RELATION_BASE}/${relId}`);
+        if (resp.ok) {
+            const json = (await resp.json()) as { elements?: unknown[] };
+            if (Array.isArray(json?.elements) && json.elements.length > 0) {
+                transitRoutesCache.set(relId, json);
+                return json;
+            }
+        }
+    } catch {
+        /* network issue → cold fallback */
+    }
+    // Cold (miss / no-boundary) — warm in the background so the NEXT game is
+    // served from R2; this game falls to the live query per-function.
+    if (!transitRoutesWarmRequested.has(relId)) {
+        transitRoutesWarmRequested.add(relId);
+        fetch(`${TRANSIT_ROUTES_BY_RELATION_BASE}/${relId}?warm=1`, {
+            method: "GET",
+        }).catch(() => transitRoutesWarmRequested.delete(relId));
+    }
+    return null;
+}
+
+/** Summarise a route relation Overpass element. */
+function routeSummaryFromEl(el: any): TransitRouteSummary | null {
+    if (el?.type !== "relation" || !el.tags) return null;
+    const tags = el.tags as Record<string, string>;
+    const mode = tags.route ?? "";
+    const ref = tags.ref;
+    const name =
+        tags["name:en"] ??
+        tags.name ??
+        (ref ? `${mode} ${ref}` : `${mode} route`);
+    return { id: `relation/${el.id}`, name, ref, mode };
+}
+
+/** All [lng,lat] vertices of a route relation's member ways. */
+function routeMemberCoords(el: any): [number, number][] {
+    const coords: [number, number][] = [];
+    for (const m of el?.members ?? []) {
+        if (m.type === "way" && Array.isArray(m.geometry)) {
+            for (const p of m.geometry) {
+                if (
+                    typeof p.lat === "number" &&
+                    typeof p.lon === "number"
+                )
+                    coords.push([p.lon, p.lat]);
+            }
+        } else if (
+            m.type === "node" &&
+            typeof m.lat === "number" &&
+            typeof m.lon === "number"
+        ) {
+            coords.push([m.lon, m.lat]);
+        }
+    }
+    return coords;
+}
+
+function dedupeRoutes(routes: TransitRouteSummary[]): TransitRouteSummary[] {
+    const seen = new Set<string>();
+    const out: TransitRouteSummary[] = [];
+    for (const r of routes) {
+        const key = `${r.mode}|${r.name}|${r.ref ?? ""}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        out.push(r);
+    }
+    out.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+    return out;
+}
+
+/**
+ * v966/v968: list the transit ROUTES with a member within `radiusMeters` of
+ * the given point — the routes the seeker could currently be riding, for the
  * `same-train-line` question's route picker. `modes` are OSM `route` tag
- * values (subway/train/light_rail/tram/monorail/ferry/bus); defaults to the
- * rail-based set. Returns a de-duplicated, name-sorted summary list.
+ * values (subway/train/light_rail/tram/monorail/ferry/bus). Prefers the
+ * prewarmed per-city set (Overpass-free for a warm city), filtering it to the
+ * allowed modes + near the point; falls back to a live `around:` query on a
+ * cold / non-relation play area.
  */
 export const findTransitRoutesNear = async (
     lat: number,
@@ -957,40 +1060,63 @@ export const findTransitRoutesNear = async (
     modes: string[] = ["subway", "train", "light_rail", "tram", "monorail"],
     radiusMeters = 500,
 ): Promise<TransitRouteSummary[]> => {
+    const allowed = new Set(modes);
+    // Prewarmed play-area set first — filter to allowed modes + near the point.
+    const prewarmed = await fetchPrewarmedTransitRoutes();
+    if (prewarmed) {
+        const near: TransitRouteSummary[] = [];
+        for (const el of prewarmed.elements ?? []) {
+            const summary = routeSummaryFromEl(el);
+            if (!summary || !allowed.has(summary.mode)) continue;
+            const coords = routeMemberCoords(el);
+            const isNear = coords.some(
+                (c) =>
+                    turf.distance(
+                        turf.point([lng, lat]),
+                        turf.point(c),
+                        { units: "meters" },
+                    ) <= radiusMeters,
+            );
+            if (isNear) near.push(summary);
+        }
+        // The prewarmed set covers rail modes only; if the game additionally
+        // allows bus/ferry, supplement with a live around-query for those.
+        const missing = modes.filter(
+            (m) => m === "bus" || m === "ferry",
+        );
+        if (missing.length > 0) {
+            near.push(...(await liveRoutesNear(lat, lng, missing, radiusMeters)));
+        }
+        return dedupeRoutes(near);
+    }
+    return dedupeRoutes(await liveRoutesNear(lat, lng, modes, radiusMeters));
+};
+
+/** Live `around:` route-listing query (cold-city / bus-ferry fallback). */
+async function liveRoutesNear(
+    lat: number,
+    lng: number,
+    modes: string[],
+    radiusMeters: number,
+): Promise<TransitRouteSummary[]> {
     const modeRe = modes.map((m) => m.replace(/[^a-z_]/gi, "")).join("|");
     if (!modeRe) return [];
     const query = `[out:json];
 relation(around:${radiusMeters},${lat},${lng})["type"="route"]["route"~"^(${modeRe})$"];
 out tags;`;
     const data = await getOverpassData(query);
-    const seen = new Set<string>();
     const routes: TransitRouteSummary[] = [];
     for (const el of data.elements ?? []) {
-        if (el.type !== "relation" || !el.tags) continue;
-        const tags = el.tags as Record<string, string>;
-        const mode = tags.route ?? "";
-        const ref = tags.ref;
-        const name =
-            tags["name:en"] ??
-            tags.name ??
-            (ref ? `${mode} ${ref}` : `${mode} route`);
-        // De-dupe a route mapped as separate directional relations (same
-        // name+ref → one entry; keep the first).
-        const dedupeKey = `${mode}|${name}|${ref ?? ""}`;
-        if (seen.has(dedupeKey)) continue;
-        seen.add(dedupeKey);
-        routes.push({ id: `relation/${el.id}`, name, ref, mode });
+        const s = routeSummaryFromEl(el);
+        if (s) routes.push(s);
     }
-    routes.sort((a, b) =>
-        a.name.localeCompare(b.name, undefined, { numeric: true }),
-    );
     return routes;
-};
+}
 
 /**
- * v966: fetch one transit route's ordered STOPS + line geometry (for the
- * picked route). Reads the relation with member geometry (`out geom`) plus
- * the recursed member nodes (for their names), then extracts:
+ * v966/v968: fetch one transit route's STOPS + line geometry (for the picked
+ * route). Prefers the prewarmed per-city set (Overpass-free); falls back to a
+ * live `relation(ID)` query on a cold / non-relation play area. Extracts:
  *   - stops: member nodes whose role is a stop/platform role OR whose tags
  *     mark them a station/halt/stop/platform — de-duplicated by nearness so a
  *     PTv2 stop-position + platform pair collapses to one stop.
@@ -1000,11 +1126,23 @@ export const fetchTransitRouteDetail = async (
     routeId: string,
 ): Promise<TransitRouteDetail> => {
     const relId = routeId.split("/")[1];
-    const query = `[out:json];relation(${relId});(._;>;);out geom;`;
-    const data = await getOverpassData(query);
-    const rel = (data.elements ?? []).find(
-        (e: any) => e.type === "relation" && String(e.id) === String(relId),
-    );
+    let data: any;
+    let rel: any;
+    const prewarmed = await fetchPrewarmedTransitRoutes();
+    if (prewarmed) {
+        rel = (prewarmed.elements ?? []).find(
+            (e: any) =>
+                e.type === "relation" && String(e.id) === String(relId),
+        );
+        if (rel) data = prewarmed;
+    }
+    if (!rel) {
+        const query = `[out:json];relation(${relId});(._;>;);out geom;`;
+        data = await getOverpassData(query);
+        rel = (data.elements ?? []).find(
+            (e: any) => e.type === "relation" && String(e.id) === String(relId),
+        );
+    }
     const nodeById = new Map<number, any>();
     for (const e of data.elements ?? []) {
         if (e.type === "node") nodeById.set(e.id, e);

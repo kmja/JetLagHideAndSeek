@@ -2266,6 +2266,13 @@ async function processCity(city) {
         // v357: boundary-geometry extent (matches client's
         // `referenceExtent` in src/maps/api/playAreaPrefetch.ts).
         await processMetroRoutes(city, boundaryExtent ?? effectiveExtent);
+        // v968: all rail transit routes (for the "Transit line" question's
+        // route picker). Rides the same DO_TRANSIT gate as metro.
+        if (!args["skip-transit-routes"])
+            await processTransitRoutes(
+                city,
+                boundaryExtent ?? effectiveExtent,
+            );
     }
 
     // v440: warm the wizard's "extend play area" adjacent-search queries
@@ -2518,6 +2525,49 @@ async function processMetroRoutes(city, extent) {
         );
     } catch (e) {
         console.warn(`  ✗ metro routes upload: ${e.message}`);
+    }
+    await sleep(DELAY_MS);
+}
+
+/**
+ * v968: prewarm the play-area's TRANSIT ROUTES (all rail modes, with geometry
+ * + member stop nodes) for the "Transit line" matching question's route
+ * picker. MUST match `transitRoutesQuery` in overpass-cache/src/index.ts
+ * byte-for-byte (served by /api/transit-routes/<id>). `--skip-transit-routes`
+ * to drop.
+ */
+function transitRoutesQuery(extent) {
+    const tuple = transitBboxTuple(extent);
+    return `\n[out:json][timeout:180][bbox:${tuple}];\nrelation["type"="route"]["route"~"^(subway|train|light_rail|tram|monorail)$"];\nout tags geom;\n>;\nout tags;\n`;
+}
+
+async function processTransitRoutes(city, extent) {
+    if (!extent) return;
+    const q = transitRoutesQuery(extent);
+    if (await isFresh(q, "transit-routes")) {
+        console.log(`  ⤼ transit routes already cached — skipping`);
+        return;
+    }
+    const res = await fetchOverpass(q, "transit routes");
+    if (!res) return;
+    const sizeBytes = Buffer.byteLength(res.text, "utf8");
+    if (sizeBytes > MAX_UPLOAD_BYTES) {
+        console.log(`  ⤼ transit routes ${sizeBytes} B over cap — skipping`);
+        return;
+    }
+    try {
+        const r = await uploadToWorker({
+            query: q,
+            bodyText: res.text,
+            kind: "transit-routes",
+            sourceName: `${city.name} (transit-routes)`,
+            sourceRelationId: String(city.relationId),
+        });
+        console.log(
+            `  ✓ transit routes stored (${sizeBytes} B → gz ${r.gzipBytes} B in ${res.ms} ms)`,
+        );
+    } catch (e) {
+        console.warn(`  ✗ transit routes upload: ${e.message}`);
     }
     await sleep(DELAY_MS);
 }

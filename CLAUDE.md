@@ -428,7 +428,27 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v967`. Use `git log` for the per-version detail;
+build stamp. Current: `v968`. Use `git log` for the per-version detail;
+
+**v968 — Transit Line route picker is PREWARMED (Overpass-free for warm
+cities).** v966's route picker made two LIVE Overpass queries — a position-keyed
+`rel(around:GPS)[type=route]…` listing (the uncacheable v640/v750 anti-pattern)
+and a per-route detail fetch — so a starred city still hit live Overpass. Now
+it's prewarmed by the SAME relation-id pattern as `/api/metro` (v701): **`GET
+/api/transit-routes/<relationId>`** (`handleTransitRoutesByRelation`) derives the
+boundary extent server-side and rebuilds `transitRoutesQuery` — all rail routes
+(`relation[type=route][route~subway|train|light_rail|tram|monorail]; out tags
+geom; >; out tags;`, member geometry + stop-node names) — served from R2.
+Warmed by the laptop (`processTransitRoutes`, byte-identical builder, rides the
+`DO_TRANSIT` gate, `--skip-transit-routes` to drop) and on-demand `?warm=1`
+(`warmRelationTransitRoutes`). Client (`overpass.ts`): `fetchPrewarmedTransitRoutes`
+reads the endpoint FIRST (memoised per relation id); `findTransitRoutesNear`
+filters that set to the allowed modes + near the GPS, `fetchTransitRouteDetail`
+extracts the picked route's stops+geometry from it — both fall back to the live
+query on a cold / non-relation area (firing `?warm=1`). The prewarm covers RAIL
+modes only; a bus/ferry-allowed game supplements the listing with a live
+`around:` query for just those (bus routes are too heavy to bundle, same lesson
+as `body-of-water`/`area-stations`). NOT in the star gate yet (like water/coast).
 
 **v967 — Transit Line grades against the committed HIDING ZONE.** Follow-up to
 v966: `hiderifyMatching` (same-train-line) now checks whether the hider's

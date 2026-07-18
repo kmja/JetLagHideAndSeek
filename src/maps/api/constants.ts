@@ -160,6 +160,13 @@ export const TRANSIT_BY_RELATION_BASE = `${JLHS_WORKER_BASE}/api/transit`;
  *  land-clip drift that left it unused). `?warm=1` triggers a background
  *  warm. See handleMetroByRelation in overpass-cache/src/index.ts. */
 export const METRO_BY_RELATION_BASE = `${JLHS_WORKER_BASE}/api/metro`;
+/** Base URL for the relation-id-keyed prewarmed TRANSIT-ROUTE set (v968) —
+ *  all rail transit routes (subway/train/light_rail/tram/monorail) in the
+ *  play area, with geometry + member stop nodes, for the "Transit line"
+ *  matching question's route picker. Mirrors METRO_BY_RELATION_BASE; the
+ *  worker derives the bbox from the boundary in R2. `?warm=1` warms it. See
+ *  handleTransitRoutesByRelation in overpass-cache/src/index.ts. */
+export const TRANSIT_ROUTES_BY_RELATION_BASE = `${JLHS_WORKER_BASE}/api/transit-routes`;
 /** Base URL for the relation-id-keyed prewarmed hiding-zone STATION
  *  field (v668). Mirrors REFS_BY_RELATION_BASE: the client fetches
  *  `${AREA_STATIONS_BY_RELATION_BASE}/<relationId>` and the worker

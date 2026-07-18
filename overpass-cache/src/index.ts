@@ -1382,6 +1382,36 @@ async function handleRequest(
             }
             return handleMetroByRelation(request, env, cors, relId);
         }
+        if (url.pathname.startsWith("/api/transit-routes/")) {
+            // /api/transit-routes/<relationId>[?warm=1] (v968)
+            const relStr = url.pathname
+                .slice("/api/transit-routes/".length)
+                .split("/")
+                .filter(Boolean)[0];
+            const relId = parseInt(relStr ?? "", 10);
+            if (!Number.isFinite(relId) || relId <= 0) {
+                return new Response("bad relation id", {
+                    status: 400,
+                    headers: cors,
+                });
+            }
+            if (url.searchParams.get("warm") === "1") {
+                ctx.waitUntil(
+                    warmRelationTransitRoutes(env, relId).catch((e) =>
+                        console.warn(
+                            `warm transit-routes r${relId} threw:`,
+                            e,
+                        ),
+                    ),
+                );
+                return jsonResponse(
+                    { status: "warming", relationId: relId },
+                    202,
+                    cors,
+                );
+            }
+            return handleTransitRoutesByRelation(request, env, cors, relId);
+        }
         if (url.pathname.startsWith("/api/elevation/")) {
             return handleElevationTile(request, env, ctx, cors);
         }
@@ -3831,6 +3861,131 @@ async function warmRelationMetro(
 }
 
 /**
+ * GET /api/transit-routes/<relationId> (v968) — the relation-id-keyed read for
+ * the "Transit line" matching question's route picker. Mirrors
+ * `handleMetroByRelation`: derives the bbox SERVER-SIDE from the boundary in R2
+ * and rebuilds the identical `transitRoutesQuery` the laptop stored under.
+ * Read-only: a miss returns `{ elements: [] }` so the client falls back to its
+ * live query (warming stays the laptop's / ?warm=1's job).
+ */
+async function handleTransitRoutesByRelation(
+    request: Request,
+    env: Env,
+    cors: HeadersInit,
+    relationId: number,
+): Promise<Response> {
+    if (request.method !== "GET") {
+        return new Response("Method not allowed", { status: 405, headers: cors });
+    }
+    const ext = await canonicalReferenceExtent(env, {
+        relationId,
+        name: "",
+    } as CityEntry);
+    if (!ext) {
+        return jsonResponse({ elements: [], cache: "no-boundary" }, 200, cors);
+    }
+    const query = transitRoutesQuery(ext);
+    const cacheKey = await r2KeyForQuery(query);
+    const cacheApiKey = new Request(
+        `${new URL(request.url).origin}/api/interpreter?data=${encodeURIComponent(query)}`,
+        { method: "GET" },
+    );
+    const edgeCache = caches.default;
+    const edgeHit = await edgeCache.match(cacheApiKey);
+    if (edgeHit)
+        return serveEdgeHitNormalized(edgeHit, cors, "EDGE_HIT_RELATION");
+    let r2Hit: R2ObjectBody | null = null;
+    try {
+        r2Hit = await env.CACHE.get(`overpass/${cacheKey}`);
+    } catch (e) {
+        console.warn("transit-routes-by-relation: R2 get failed:", e);
+    }
+    if (r2Hit) {
+        const served = await serveRelationR2HitHealed(
+            env,
+            cacheKey,
+            r2Hit,
+            cors,
+        );
+        if (served) return served;
+    }
+    return jsonResponse({ elements: [], cache: "miss" }, 200, cors);
+}
+
+/** Background warm of one relation's transit-routes entry, keyed canonically
+ *  so a later GET /api/transit-routes/<id> hits it. Mirrors warmRelationMetro. */
+async function warmRelationTransitRoutes(
+    env: Env,
+    relationId: number,
+): Promise<void> {
+    const ttlMs =
+        (parseInt(env.CACHE_TTL_DAYS, 10) || 30) * 24 * 60 * 60 * 1000;
+    const boundaryQuery = singleRelationQuery(relationId);
+    const boundaryKey = await r2KeyForQuery(boundaryQuery);
+    let boundaryObj: R2ObjectBody | null = null;
+    try {
+        boundaryObj = await env.CACHE.get(`overpass/${boundaryKey}`);
+    } catch {
+        /* miss */
+    }
+    if (!boundaryObj) {
+        if (!(await waitForOverpassSlot(`warm-boundary r${relationId}`))) return;
+        const up = await upstreamSemaphore.run(() =>
+            fetchFromMirrorChainWithRetry(boundaryQuery),
+        );
+        if (!up) return;
+        const ok = await streamStoreNoTee(env, `overpass/${boundaryKey}`, up, {
+            kind: "boundary",
+            warmedBy: "on-add-transit-routes",
+            sourceRelationId: String(relationId),
+        });
+        if (!ok) return;
+        try {
+            boundaryObj = await env.CACHE.get(`overpass/${boundaryKey}`);
+        } catch {
+            return;
+        }
+        if (!boundaryObj) return;
+    }
+    let ext: [number, number, number, number] | null = null;
+    try {
+        const text = await readR2Text(boundaryObj);
+        if (text) ext = extentFromBoundaryJson(JSON.parse(text));
+    } catch {
+        /* unparseable boundary — give up */
+    }
+    if (!ext) return;
+    const tQuery = transitRoutesQuery(ext);
+    const tKey = await r2KeyForQuery(tQuery);
+    try {
+        const head = await env.CACHE.head(`overpass/${tKey}`);
+        if (head) {
+            const cachedAt = parseInt(head.customMetadata?.cachedAt ?? "0", 10);
+            if (cachedAt && Date.now() - cachedAt < ttlMs) return; // fresh
+        }
+    } catch {
+        /* head miss — warm below */
+    }
+    if (!(await waitForOverpassSlot(`warm-transit-routes r${relationId}`)))
+        return;
+    const up = await upstreamSemaphore.run(() =>
+        fetchFromMirrorChainWithRetry(tQuery),
+    );
+    if (!up) return;
+    const body = await up.text();
+    if (isAbortedOverpassText(body)) return;
+    try {
+        await compressAndStoreString(env, tKey, body, {
+            kind: "transit-routes",
+            warmedBy: "on-add-transit-routes",
+            sourceRelationId: String(relationId),
+        });
+    } catch (e) {
+        console.warn(`warm transit-routes r${relationId} store failed:`, e);
+    }
+}
+
+/**
  * Compute the [south, west, north, east] tuple for a city's bbox
  * with a given pad. Same arithmetic as `buildBboxFilter`, just
  * returning the numeric corners instead of an Overpass filter
@@ -4284,6 +4439,19 @@ function metroRoutesQuery(
 ): string {
     const tuple = transitBboxTuple(extent);
     return `\n[out:json][timeout:180][bbox:${tuple}];\nrelation["route"="subway"]["name"];\nout tags geom;\n`;
+}
+
+/** Byte-identical to `transitRoutesQuery` in laptop-prewarm.mjs. The
+ *  "Transit line" matching question's route picker (v968) reads ALL rail
+ *  transit routes in the play area with member geometry (`out tags geom`)
+ *  PLUS the recursed member nodes (`>; out tags;`) so the stop names come
+ *  through. Served by `/api/transit-routes/<id>`. Newline framing is
+ *  load-bearing to the R2 key — keep in lockstep with the laptop copy. */
+function transitRoutesQuery(
+    extent: [number, number, number, number],
+): string {
+    const tuple = transitBboxTuple(extent);
+    return `\n[out:json][timeout:180][bbox:${tuple}];\nrelation["type"="route"]["route"~"^(subway|train|light_rail|tram|monorail)$"];\nout tags geom;\n>;\nout tags;\n`;
 }
 
 /** Cron-side shard query. Same template as `transitRouteQuery`, with
@@ -7533,6 +7701,7 @@ async function handleAdminInspectEncoding(
     else if (kind === "water") query = buildWaterBboxQuery(ext);
     else if (kind === "coast") query = buildCoastBboxQuery(ext);
     else if (kind === "metro") query = metroRoutesQuery(ext);
+    else if (kind === "transit-routes") query = transitRoutesQuery(ext);
     else if (kind.startsWith("transit-"))
         query = transitRouteQuery(ext, kind.slice("transit-".length));
     else return jsonResponse({ error: `unknown kind '${kind}'` }, 400, cors);
