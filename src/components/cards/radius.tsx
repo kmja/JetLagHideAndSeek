@@ -133,30 +133,35 @@ export const RadiusQuestionComponent = ({
 
                     // Game rule: each preset (or Custom slot) can only be used
                     // once. Disable presets used by OTHER radius questions.
-                    const usedSigs = new Set(
-                        $questions
-                            .filter(
-                                (q) =>
-                                    q.id === "radius" &&
-                                    q.key !== questionKey &&
-                                    // v673: a randomized-away radar is NOT
-                                    // considered asked (rulebook p376), so
-                                    // its preset stays re-selectable.
-                                    (q.data as { randomizedAway?: boolean })
-                                        .randomizedAway !== true,
-                            )
-                            .map((q) => {
-                                const d = q.data as RadiusQuestion;
-                                if (d.useCustom) return "custom";
-                                return (
-                                    RADIUS_PRESETS.find(
-                                        (p) =>
-                                            p.radius === d.radius &&
-                                            p.unit === d.unit,
-                                    )?.sig ?? "custom"
-                                );
-                            }),
-                    );
+                    // v970 (rulebook audit D): also count how many times each
+                    // size was asked, so the carousel can show a "Repeat · N×"
+                    // badge in rulebook-repeat mode (matching thermometer).
+                    const usedSigCounts = new Map<string, number>();
+                    for (const q of $questions) {
+                        if (
+                            q.id !== "radius" ||
+                            q.key === questionKey ||
+                            // v673: a randomized-away radar is NOT considered
+                            // asked (rulebook p376), so its preset stays
+                            // re-selectable at its original cost.
+                            (q.data as { randomizedAway?: boolean })
+                                .randomizedAway === true
+                        ) {
+                            continue;
+                        }
+                        const d = q.data as RadiusQuestion;
+                        const sig = d.useCustom
+                            ? "custom"
+                            : RADIUS_PRESETS.find(
+                                  (p) =>
+                                      p.radius === d.radius && p.unit === d.unit,
+                              )?.sig ?? "custom";
+                        usedSigCounts.set(
+                            sig,
+                            (usedSigCounts.get(sig) ?? 0) + 1,
+                        );
+                    }
+                    const usedSigs = new Set(usedSigCounts.keys());
 
                     // Range for the custom slider, unit-dependent. The
                     // slider itself runs on a 0..1000 integer track and
@@ -260,6 +265,15 @@ export const RadiusQuestionComponent = ({
                                 );
                                 const canCycle =
                                     data.drag && selectable.length > 0;
+                                // v970: in rulebook-repeat mode a used size
+                                // stays selectable at N× cost — show the same
+                                // "N×" badge the thermometer picker uses.
+                                const repeatMult =
+                                    (usedSigCounts.get(currentSig) ?? 0) + 1;
+                                const showRepeat =
+                                    !$askOnce &&
+                                    !data.useCustom &&
+                                    repeatMult > 1;
                                 return (
                                     <div className="flex items-center gap-2">
                                         <button
@@ -273,10 +287,18 @@ export const RadiusQuestionComponent = ({
                                         </button>
                                         <div
                                             className={cn(
-                                                "flex-1 h-20 flex flex-col items-center justify-center rounded-md px-4 py-3",
+                                                "relative flex-1 h-20 flex flex-col items-center justify-center rounded-md px-4 py-3",
                                                 "ring-2 ring-primary bg-primary/15",
                                             )}
                                         >
+                                            {showRepeat && (
+                                                <span
+                                                    title={`Repeat: hider runs the draw-keep cycle ${repeatMult}× (rulebook p65)`}
+                                                    className="absolute top-1.5 right-1.5 inline-flex items-center justify-center px-1.5 h-4 rounded-sm bg-yellow-500/90 text-black text-[10px] font-poppins font-bold leading-none"
+                                                >
+                                                    {repeatMult}×
+                                                </span>
+                                            )}
                                             <span className="text-3xl font-poppins font-bold text-primary tabular-nums leading-none">
                                                 {data.useCustom
                                                     ? "Custom"

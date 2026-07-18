@@ -9,7 +9,7 @@ import {
 } from "lucide-react";
 
 /**
- * Visual identity for the five question categories.
+ * Visual identity for the six question categories.
  *
  * Colors are sampled from the official Hide + Seek physical game cards.
  * Icons are from lucide-react.

@@ -133,15 +133,15 @@ export const SUBTYPES: Record<
         { value: "park-full", label: "Park", icon: Trees, description: "Closer or further to a park (measured to the icon)?", validSizes: ALL },
         // Places of Interest
         { value: "theme_park-full", label: "Amusement park", icon: FerrisWheel, description: "Closer or further to an amusement park?", validSizes: ALL },
-        { value: "zoo-full", label: "Zoo", icon: PawPrint, description: "Closer to a zoo?", validSizes: ALL },
-        { value: "aquarium-full", label: "Aquarium", icon: Fish, description: "Closer to an aquarium?", validSizes: ALL },
-        { value: "golf_course-full", label: "Golf course", icon: Flag, description: "Closer to an outdoor golf course?", validSizes: ALL },
-        { value: "museum-full", label: "Museum", icon: Landmark, description: "Closer to a museum?", validSizes: ALL },
-        { value: "cinema-full", label: "Movie theater", icon: Film, description: "Closer to a movie theater?", validSizes: ALL },
+        { value: "zoo-full", label: "Zoo", icon: PawPrint, description: "Closer or further to a zoo?", validSizes: ALL },
+        { value: "aquarium-full", label: "Aquarium", icon: Fish, description: "Closer or further to an aquarium?", validSizes: ALL },
+        { value: "golf_course-full", label: "Golf course", icon: Flag, description: "Closer or further to an outdoor golf course?", validSizes: ALL },
+        { value: "museum-full", label: "Museum", icon: Landmark, description: "Closer or further to a museum?", validSizes: ALL },
+        { value: "cinema-full", label: "Movie theater", icon: Film, description: "Closer or further to a movie theater?", validSizes: ALL },
         // Public Utilities
-        { value: "hospital-full", label: "Hospital", icon: Hospital, description: "Closer to a hospital?", validSizes: ALL },
-        { value: "library-full", label: "Library", icon: Library, description: "Closer to a library?", validSizes: ALL },
-        { value: "consulate-full", label: "Foreign consulate", icon: BookOpen, description: "Closer to a foreign consulate (excludes honorary)?", validSizes: ALL },
+        { value: "hospital-full", label: "Hospital", icon: Hospital, description: "Closer or further to a hospital?", validSizes: ALL },
+        { value: "library-full", label: "Library", icon: Library, description: "Closer or further to a library?", validSizes: ALL },
+        { value: "consulate-full", label: "Foreign consulate", icon: BookOpen, description: "Closer or further to a foreign consulate (excludes honorary)?", validSizes: ALL },
     ],
     /* Tentacles — rulebook p37-38. Cannot be used in Small games (per
      * SubtypeMeta.validSizes). Medium = 2 km presets, Large adds the

@@ -428,7 +428,31 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v970`. Use `git log` for the per-version detail;
+build stamp. Current: `v971`. Use `git log` for the per-version detail;
+
+**v971 — rulebook audit Section D: cosmetic polish.** The low-stakes
+tail of the audit:
+- **Measuring tile copy** — 8 `-full` measuring subtypes read "Closer to
+  a zoo?" etc.; now "Closer or further to …?" (matching the rest), since a
+  measuring answer is always closer/further (`subtypes.ts`).
+- **Radar repeat badge** — in rulebook-repeat mode (`askOncePerQuestion`
+  off) a radar size can be re-asked at N× cost; the size carousel now shows
+  the same yellow "N×" badge the thermometer picker uses
+  (`cards/radius.tsx`).
+- **RotateHiderDialog copy** — surfaces the two rulebook facts the app was
+  silent on: the next round starts from the last hider's spot, and the new
+  hider gets up to 10 min to plan (rulebook p81; the v970 planning-window
+  countdown makes the latter live in the lobby too).
+- **Stale comments fixed** — "16 curses transcribed" → all 24
+  (`hiderDeck.ts`); "five question categories" → six (`categories.ts`).
+- Deliberately NOT changed: the radar preset labels stay metric (they ARE
+  the rulebook's canonical sizes — the custom slider already honours the
+  unit preference); round order stays deterministic-round-robin (a house
+  rule, and RotateHiderDialog lets you pick anyone); the late-answer stall
+  isn't frozen live (the SCORE is already correct); deck 55/21/24 is the
+  real rulebook deck (the 50/25/25 "suggested" ratio is a design note);
+  `natural=peak` includes hills (no better OSM tag); manual pause stays
+  device-local (documented).
 
 **v970 — rulebook audit Section B: eleven missing mechanics.** The follow-up
 to v969's Section A — every rulebook rule the audit found unimplemented:

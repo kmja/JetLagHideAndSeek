@@ -139,7 +139,9 @@ export function RotateHiderDialog({
                         Pick who hides next — select one or more. Everyone you
                         pick hides together; everyone else becomes a seeker.
                         Question log, hand and zone all reset; play area,
-                        transit and game size stay the same.
+                        transit and game size stay the same. The next round
+                        begins from the last hider&apos;s hiding spot, and the
+                        new hider gets up to 10 minutes to plan (rulebook p81).
                     </DialogDescription>
                 </DialogHeader>
 

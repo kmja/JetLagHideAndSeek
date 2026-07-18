@@ -503,9 +503,8 @@ function makeDeck(): Card[] {
         }
     }
 
-    // Curses — by the slot's `copies` count. So far we've transcribed
-    // 16 curses at 1 copy each; future batches will extend this list
-    // and/or bump some counts.
+    // Curses — by the slot's `copies` count. All 24 rulebook curses are
+    // transcribed at 1 copy each (`CURSE_SLOTS`).
     for (const slot of CURSE_SLOTS) {
         for (let j = 0; j < slot.copies; j++) {
             out.push({ ...slot.template, id: makeId() });
