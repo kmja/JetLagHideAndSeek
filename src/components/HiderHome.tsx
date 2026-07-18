@@ -22,7 +22,6 @@ import { confirmAndCommitZone } from "@/lib/hiderZoneCommit";
 import {
     allowedTransit,
     effectiveHiddenDebitMs,
-    endgameConfirmedAt,
     endgameStartedAt,
     formatTimeRemaining,
     gamePausedForLocationAt,
@@ -78,8 +77,6 @@ import {
     participants,
 } from "@/lib/multiplayer/session";
 import {
-    hiderCancelEndgame,
-    hiderConfirmEndgame,
     seekerMarkFound,
     seekerRotateHider,
 } from "@/lib/multiplayer/store";
@@ -153,7 +150,6 @@ export function HiderHomeContent() {
     const $hand = useStore(hiderHand);
     const $foundAt = useStore(roundFoundAt);
     const $endgameStartedAt = useStore(endgameStartedAt);
-    const $endgameConfirmedAt = useStore(endgameConfirmedAt);
     const $forfeited = useStore(hiderForfeited);
 
     // 1-Hz tick — drives the countdown / elapsed timers.
@@ -348,86 +344,30 @@ export function HiderHomeContent() {
                 whatever the hider is doing — rulebook p43 says they
                 need to lock to a final stationary spot the instant
                 this hits, no negotiation. */}
+            {/* v950: the server now VALIDATES the endgame claim against your
+                zone, so there's no manual confirm/refute — an armed endgame
+                means the seekers genuinely reached your zone. This banner is
+                informational: lock down to a final spot below. (A wrong claim
+                never arms this; it shows the transient EndgameDeniedBanner on
+                the map instead.) */}
             {$endgameStartedAt !== null && phase !== "over" && (
                 <section
                     className={cn(
                         "rounded-md border-2 border-yellow-500 bg-yellow-500/15",
-                        "px-4 py-3 mb-4 flex flex-col gap-3",
+                        "px-4 py-3 mb-4 flex items-start gap-3",
                     )}
                 >
-                    <div
-                        className={cn(
-                            "flex items-start gap-3",
-                            // Stop the urgent pulse once the hider has
-                            // resolved the claim by confirming.
-                            $endgameConfirmedAt == null && "animate-pulse",
-                        )}
-                    >
-                        <Flag className="w-5 h-5 shrink-0 text-yellow-400 mt-0.5" />
-                        <div className="flex-1 space-y-1">
-                            <div className="text-[10px] uppercase tracking-[0.18em] font-poppins font-bold text-yellow-400">
-                                {$endgameConfirmedAt != null
-                                    ? "Endgame — locked down"
-                                    : "Endgame — they say they're here"}
-                            </div>
-                            <p className="text-sm text-foreground leading-snug">
-                                {$endgameConfirmedAt != null
-                                    ? "You've confirmed the seekers are in your zone. Stay put at your final spot until they find you."
-                                    : "The seeker says they've reached your zone. If they're right, confirm and lock to a single spot — once you do, you can't move until the round ends. If they're at the wrong place, refute it and keep moving."}
-                            </p>
+                    <Flag className="w-5 h-5 shrink-0 text-yellow-400 mt-0.5" />
+                    <div className="flex-1 space-y-1">
+                        <div className="text-[10px] uppercase tracking-[0.18em] font-poppins font-bold text-yellow-400">
+                            Endgame — they reached your zone
                         </div>
+                        <p className="text-sm text-foreground leading-snug">
+                            The seekers are in your zone. Lock down to a single
+                            hiding spot below — once you commit you can&apos;t
+                            move until the round ends.
+                        </p>
                     </div>
-                    {/* Before the hider resolves the claim: confirm (the
-                        seekers really are here — the positive signal the
-                        tabletop rules leave implicit) or refute (wrong
-                        zone; rulebook p43 — the hider is the authority on
-                        their own zone, so a wrong claim doesn't bind
-                        them). Once confirmed, the choice is spent. */}
-                    {$endgameConfirmedAt == null && (
-                        <div className="flex flex-col sm:flex-row flex-wrap gap-2">
-                            <Button
-                                className="flex-1 bg-yellow-500 text-black hover:bg-yellow-400"
-                                onClick={async () => {
-                                    const ok = await appConfirm({
-                                        title: "They're in your zone?",
-                                        description:
-                                            "Confirms to the seekers that they've reached your zone, so they switch to hunting your final spot. Commit to a single hiding spot below — once the endgame is confirmed you can't move until the round ends.",
-                                        confirmLabel: "Confirm — lock down",
-                                    });
-                                    if (!ok) return;
-                                    hiderConfirmEndgame();
-                                    toast.success(
-                                        "Endgame confirmed — seekers notified.",
-                                        { autoClose: 2500 },
-                                    );
-                                }}
-                            >
-                                <Lock className="w-4 h-4 mr-1.5" />
-                                They&apos;re here — lock down
-                            </Button>
-                            <Button
-                                variant="outline"
-                                className="flex-1 border-yellow-500/60 text-yellow-700 dark:text-yellow-300 hover:bg-yellow-500/15"
-                                onClick={async () => {
-                                    const ok = await appConfirm({
-                                        title: "They're not in your zone?",
-                                        description:
-                                            "Tells the seekers they haven't reached your zone yet, so they keep searching — and you keep your freedom to move. Only do this if they're genuinely at the wrong place.",
-                                        confirmLabel: "Refute endgame",
-                                    });
-                                    if (!ok) return;
-                                    hiderCancelEndgame();
-                                    toast.info(
-                                        "Endgame refuted — seekers notified.",
-                                        { autoClose: 2500 },
-                                    );
-                                }}
-                            >
-                                <LockOpen className="w-4 h-4 mr-1.5" />
-                                They&apos;re not in my zone
-                            </Button>
-                        </div>
-                    )}
                 </section>
             )}
 

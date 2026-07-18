@@ -67,7 +67,7 @@ export function OnlinePlaySection() {
 
     const trimmedName = name.trim();
     const trimmedCode = code.trim().toUpperCase();
-    const validCode = /^[A-Z]{3,8}$/.test(trimmedCode);
+    const validCode = /^[A-Z0-9]{3,8}$/.test(trimmedCode);
     const canHost = trimmedName.length > 0 && !busyHost;
     const canJoin = trimmedName.length > 0 && validCode;
 

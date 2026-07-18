@@ -1339,34 +1339,61 @@ export class GameRoom {
         if (!conn) return;
         if (this.game.setup.endgameStartedAt !== null) return;
         if (typeof at !== "number" || !Number.isFinite(at)) return;
-        this.game.setup.endgameStartedAt = at;
-        // v946: the SERVER validates the claim — it knows BOTH the hider's
+        // v950: the SERVER validates the claim — it knows BOTH the hider's
         // committed zone AND the claiming seeker's last GPS, so the hider no
-        // longer manually confirms/refutes. Correct → auto-confirm; wrong →
-        // leave unconfirmed (a denial). Can't-verify (no zone / no fix) allows
-        // it (friends game, don't block).
+        // longer manually confirms/refutes. Can't-verify (no zone / no fix)
+        // allows it (friends game, don't block).
         const correct = this.seekerIsAtHidingZone(conn.participantId);
-        this.game.setup.endgameConfirmedAt = correct ? Date.now() : null;
-        this.broadcast({ t: "setupChanged", setup: this.game.setup });
-        // The hide team wants to know the endgame was ATTEMPTED (right or
-        // wrong); the seekers want the confirmation/denial. Push both offline
-        // sides (the socket broadcast covers the online ones). The hider may be
-        // on a train with the app backgrounded, so this is the only signal.
+        if (correct) {
+            // Endgame BEGINS: arm it (persistent) + confirm, so the seekers
+            // proceed to "find them" and the hider locks down. `at` is the
+            // seeker's claim time.
+            this.game.setup.endgameStartedAt = at;
+            this.game.setup.endgameConfirmedAt = at;
+            this.broadcast({ t: "setupChanged", setup: this.game.setup });
+            this.state.waitUntil(
+                this.pushToOfflineRole("hider", {
+                    title: "Seekers reached your zone!",
+                    body: "The seekers are in your hiding zone — lock down your final spot.",
+                    tag: "endgame",
+                }),
+            );
+            this.state.waitUntil(
+                this.pushToOfflineRole("seeker", {
+                    title: "You're in the right zone!",
+                    body: "You've reached the hider's zone — now find them.",
+                    tag: "endgame",
+                }),
+            );
+            return;
+        }
+        // WRONG place: DON'T arm the endgame (so the seekers can re-try at the
+        // right station). Fire the transient "denied" signal so both sides
+        // KNOW it was attempted — online via `endgameDenied`, offline via push.
+        const denied: ServerMessage = { t: "endgameDenied" };
+        const deniedPayload = JSON.stringify(denied);
+        for (const [pid, c] of this.conns.entries()) {
+            if (pid !== conn.participantId) {
+                const cp = this.game.participants.find((q) => q.id === pid);
+                if (cp?.role !== "hider") continue; // hide team + the claimer
+            }
+            try {
+                c.socket.send(deniedPayload);
+            } catch {
+                /* ignore */
+            }
+        }
         this.state.waitUntil(
             this.pushToOfflineRole("hider", {
-                title: correct ? "Seekers reached your zone!" : "Endgame attempted",
-                body: correct
-                    ? "The seekers are in your hiding zone — lock down your final spot."
-                    : "The seekers tried to start the endgame, but they're not at your zone.",
+                title: "Endgame attempted",
+                body: "The seekers tried to start the endgame, but they're not at your zone.",
                 tag: "endgame",
             }),
         );
         this.state.waitUntil(
             this.pushToOfflineRole("seeker", {
-                title: correct ? "You're in the right zone!" : "Not the right spot",
-                body: correct
-                    ? "You've reached the hider's zone — now find them."
-                    : "The hider isn't in this zone. Keep searching.",
+                title: "Not the right spot",
+                body: "The hider isn't in this zone. Keep searching.",
                 tag: "endgame",
             }),
         );

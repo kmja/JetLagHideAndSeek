@@ -571,6 +571,20 @@ export interface SMsgCurseBacklog {
     curses: CursePayload[];
 }
 
+/**
+ * v950: the server VALIDATED an endgame claim and found the claiming seeker is
+ * NOT at the hider's committed zone. A wrong claim does NOT arm the endgame
+ * (so the seekers can re-try at the right station); instead this transient
+ * message fires so both sides KNOW it was attempted — the seeker sees a "not
+ * the right spot" banner, the hide team a "seekers tried the endgame at the
+ * wrong place" banner. Sent to the claiming seeker + the whole hide team; the
+ * offline sides get a Web Push instead. A CORRECT claim arms the endgame via
+ * `setupChanged` (persistent state) and needs no separate message.
+ */
+export interface SMsgEndgameDenied {
+    t: "endgameDenied";
+}
+
 export type ServerMessage =
     | SMsgWelcome
     | SMsgSnapshot
@@ -591,7 +605,8 @@ export type ServerMessage =
     | SMsgError
     | SMsgPong
     | SMsgCurseReceived
-    | SMsgCurseBacklog;
+    | SMsgCurseBacklog
+    | SMsgEndgameDenied;
 
 /* ────────────────── Shared payload types ────────────────── */
 

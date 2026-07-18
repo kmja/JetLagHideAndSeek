@@ -65,7 +65,7 @@ export function Welcome() {
         const j = new URLSearchParams(window.location.search).get("join");
         if (j) {
             const up = j.trim().toUpperCase();
-            if (/^[A-Z]{3,8}$/.test(up)) {
+            if (/^[A-Z0-9]{3,8}$/.test(up)) {
                 setCode(up);
                 setJoinOpen(true);
             }
@@ -75,7 +75,7 @@ export function Welcome() {
     const trimmedCode = code.trim().toUpperCase();
     // v932: codes are now 3 letters; accept 3–8 so an in-progress game's
     // older/longer code still joins.
-    const validCode = /^[A-Z]{3,8}$/.test(trimmedCode);
+    const validCode = /^[A-Z0-9]{3,8}$/.test(trimmedCode);
 
     const handleStartNew = () => {
         welcomeSeen.set(true);

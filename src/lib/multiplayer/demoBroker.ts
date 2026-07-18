@@ -375,9 +375,13 @@ function handleClientMessage(msg: ClientMessage) {
         }
 
         case "startEndgame": {
+            // v950: the real server validates the seeker's position against the
+            // hider's zone; the single-device demo has no separate seeker to
+            // validate, so it auto-CONFIRMS (arms the endgame) — matching the
+            // solo path.
             if (s.state.setup.endgameStartedAt === null) {
                 s.state.setup.endgameStartedAt = msg.at;
-                s.state.setup.endgameConfirmedAt = null;
+                s.state.setup.endgameConfirmedAt = msg.at;
                 inject({ t: "setupChanged", setup: s.state.setup });
             }
             return;

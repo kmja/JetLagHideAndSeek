@@ -428,7 +428,33 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v950`. Use `git log` for the per-version detail;
+build stamp. Current: `v951`. Use `git log` for the per-version detail;
+
+**v951 — endgame model finished (deny-not-arm + transient banner) + fun room
+codes.**
+- **Endgame is fully server-authoritative now.** A CORRECT claim arms the
+  endgame (`endgameStartedAt` + `endgameConfirmedAt` via `setupChanged`) and the
+  hider locks down; a WRONG claim **arms nothing** (so the seekers can re-try at
+  the right station) and instead fires a transient **`endgameDenied`** message
+  (`protocol/messages.ts`) to the claiming seeker + the hide team, plus a Web
+  Push to the offline sides. Client: `seekerStartEndgame` no longer
+  optimistically arms in multiplayer (it waits for the server's verdict — kills
+  the false-"denied" flash); a new volatile `endgameDeniedAt` atom drives the
+  transient **`EndgameDeniedBanner`** (mounted on both maps, role-specific copy,
+  auto-clears ~9 s, reset per round). Because an armed endgame now always means
+  "correct", the seeker `HiderTimer` badge is always the green "In the zone"
+  (the "Awaiting hider" state is gone) and the hider's `HiderHome` banner is
+  informational ("they reached your zone — lock down"), with the manual
+  confirm/refute buttons REMOVED (the wire handlers + demo cases stay as
+  back-compat; the demo broker auto-confirms since it's single-device).
+- **Fun on-brand room codes** (`worker/index.ts`). Replaced the 3-letter code
+  with a travel / hide-and-seek **WORD + 2 digits** (e.g. `FERRY73`,
+  `TUNNEL08`, `JETLAG42`) — deliberately NOT a real place name. ~90 curated
+  words (≤6 letters) × 100 ≈ 9k codes, comparable to the old space; still no
+  collision check (a code lazily names the DO). Words are ≤6 letters so the
+  code stays ≤8 chars, preserving the `[A-Z0-9]{3,8}` route/validator contract
+  — the WS + photo routes already allowed digits; the two letters-only client
+  validators (`Welcome`, `OnlinePlaySection`) were widened `[A-Z]`→`[A-Z0-9]`.
 
 **v950 — server-authoritative endgame validation + push both sides.** The
 endgame claim is now VALIDATED by the server (it holds both the hider's secret

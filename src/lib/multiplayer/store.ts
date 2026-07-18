@@ -46,6 +46,7 @@ import {
     gameStartOverLobby,
     seekingStartFiredFor,
     endgameConfirmedAt,
+    endgameDeniedAt,
     endgameStartedAt,
     endOfRoundDialogOpen,
     hiddenCreditMs,
@@ -522,10 +523,18 @@ export function setLocationTrackingExternal(external: boolean) {
 export function seekerStartEndgame() {
     if (endgameStartedAt.get() !== null) return;
     const at = Date.now();
-    endgameStartedAt.set(at);
-    // A fresh claim starts unconfirmed — the hider responds next.
-    endgameConfirmedAt.set(null);
-    if (!multiplayerEnabled.get()) return;
+    if (!multiplayerEnabled.get()) {
+        // Solo / offline: no server to validate the claim, so arm + confirm
+        // locally (the seeker IS the whole team).
+        endgameStartedAt.set(at);
+        endgameConfirmedAt.set(at);
+        return;
+    }
+    // v950: DON'T optimistically arm in multiplayer — the server validates the
+    // claim against the hider's zone and either arms it (correct, via
+    // `setupChanged`) or replies `endgameDenied` (wrong). Setting it locally
+    // first would flash a false "in the zone" / "denied" state before the
+    // authoritative verdict arrives.
     getTransport().send({ t: "startEndgame", at });
 }
 
@@ -1284,33 +1293,20 @@ function handleServerMessage(msg: ServerMessage) {
                 );
             }
             applyHouseRules(msg.setup.houseRules);
-            // Endgame just got armed (null → number). v946: the SERVER
-            // already validated the claim against the hider's zone, so the
-            // SAME setup carries the verdict in `endgameConfirmedAt` (set =
-            // correct, null = wrong). Notify both roles accordingly — the
-            // hider learns the endgame was ATTEMPTED (right or wrong), the
-            // seeker gets the denial (a CORRECT claim's "you're in the right
-            // zone" comes from the confirmed-branch below).
+            // Endgame just got armed (null → number). v950: the server only
+            // arms the endgame for a CORRECT claim (a wrong one fires the
+            // transient `endgameDenied` instead, never touching this state), so
+            // this always means "the seekers reached your zone." Tell the
+            // hider to lock down (the seeker's "you're in the right zone" comes
+            // from the confirmed-branch below).
             if (
                 prevEndgameAt === null &&
                 msg.setup.endgameStartedAt !== null
             ) {
-                const role = playerRole.get();
-                const correct = msg.setup.endgameConfirmedAt != null;
-                if (role === "hider") {
+                if (playerRole.get() === "hider") {
                     notify({
-                        title: correct
-                            ? "Seekers reached your zone!"
-                            : "Endgame attempted",
-                        body: correct
-                            ? "The seekers are in your hiding zone — lock down your final spot."
-                            : "The seekers tried to start the endgame, but they're not at your zone yet.",
-                        tag: "endgame",
-                    });
-                } else if (role === "seeker" && !correct) {
-                    notify({
-                        title: "Not the right spot",
-                        body: "The hider isn't in this zone. Keep searching.",
+                        title: "Seekers reached your zone!",
+                        body: "The seekers are in your hiding zone — lock down your final spot.",
                         tag: "endgame",
                     });
                 }
@@ -1460,6 +1456,28 @@ function handleServerMessage(msg: ServerMessage) {
             );
             if (fresh.length === 0) return;
             receivedCurses.set([...existing, ...fresh.map(curseToReceived)]);
+            return;
+        }
+        case "endgameDenied": {
+            // v950: the server validated a seeker's endgame claim as NOT at
+            // the hider's zone. It armed nothing (the seekers can re-try at the
+            // right station) — this is the transient "wrong place" signal.
+            // Notify by role + raise the on-map banner (auto-clears).
+            const role = playerRole.get();
+            if (role === "hider") {
+                notify({
+                    title: "Endgame attempted",
+                    body: "The seekers tried to start the endgame, but they're not at your zone.",
+                    tag: "endgame",
+                });
+            } else if (role === "seeker") {
+                notify({
+                    title: "Not the right spot",
+                    body: "The hider isn't in this zone. Keep searching.",
+                    tag: "endgame",
+                });
+            }
+            endgameDeniedAt.set(Date.now());
             return;
         }
         case "pong":

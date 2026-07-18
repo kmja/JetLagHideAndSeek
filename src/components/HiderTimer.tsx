@@ -254,30 +254,22 @@ export function HiderTimer({ preview }: { preview?: HiderTimerPreview } = {}) {
                 hider is found (the FoundSummary lives in the lobby). */}
             {!inHidingPeriod && !$foundAt && $endgameStartedAt !== null && (
                 <div className="flex flex-col items-end gap-1.5 animate-in fade-in slide-in-from-bottom-2 duration-300">
-                    {/* Provisional until the hider responds. Once they
-                        confirm, flip to a green "in the zone" badge so the
-                        seekers know they've got the right place (the
-                        positive signal the tabletop rules leave implicit). */}
+                    {/* v950: the server only arms the endgame for a CORRECT
+                        claim (a wrong one is denied outright + never arms this),
+                        so once it's armed the seekers ARE in the right zone —
+                        always the green "in the zone" badge. */}
                     <div
                         className={cn(
                             "flex items-center gap-1.5",
                             "px-2.5 py-1.5 rounded-md border-2",
                             "animate-in fade-in duration-200",
-                            $endgameConfirmedAt != null
-                                ? "bg-success/15 border-success/70 text-success"
-                                : "bg-yellow-500/15 border-yellow-500/70 text-yellow-300",
+                            "bg-success/15 border-success/70 text-success",
                         )}
-                        title={
-                            $endgameConfirmedAt != null
-                                ? "Hider confirmed — you're in the right zone. Find them!"
-                                : "Waiting for the hider to confirm you've reached their zone."
-                        }
+                        title="You're in the hider's zone. Find them!"
                     >
                         <Flag className="w-3.5 h-3.5" strokeWidth={2.5} />
                         <span className="text-[10px] font-poppins font-bold uppercase tracking-[0.15em]">
-                            {$endgameConfirmedAt != null
-                                ? "In the zone"
-                                : "Awaiting hider"}
+                            In the zone
                         </span>
                     </div>
                     <button

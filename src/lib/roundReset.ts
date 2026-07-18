@@ -32,6 +32,7 @@ import {
 import {
     closingInWarningLevel,
     endgameConfirmedAt,
+    endgameDeniedAt,
     endgameStartedAt,
     endOfRoundDialogOpen,
     gamePausedForLocationAt,
@@ -137,6 +138,7 @@ export function resetSharedRoundState(): void {
     // the hider's confirmation so the new round can't open mid-endgame.
     endgameStartedAt.set(null);
     endgameConfirmedAt.set(null);
+    endgameDeniedAt.set(null);
 
     // Close the end-of-round celebration if it was up, and clear the
     // synced round-summary (v851 — the hider's authoritative base+bonus,

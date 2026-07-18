@@ -30,6 +30,7 @@ import { MapLoadingOverlay } from "@/components/MapLoadingOverlay";
 import { MultiplayerBoot } from "@/components/multiplayer/MultiplayerBoot";
 import { OptionDrawers } from "@/components/OptionDrawers";
 import { MapOverlayLoadingToasts } from "@/components/MapOverlayLoadingToasts";
+import { EndgameDeniedBanner } from "@/components/EndgameDeniedBanner";
 import { PendingAnswerOverlay } from "@/components/PendingAnswerOverlay";
 import { QuestionSidebar } from "@/components/QuestionSidebar";
 import { SeekerFrozenBanner } from "@/components/SeekerFrozenBanner";
@@ -293,6 +294,7 @@ export function SeekerPage() {
                         </div>
                         <ThermometerOverlay />
                         <PendingAnswerOverlay />
+                        <EndgameDeniedBanner />
                         <MapOverlayLoadingToasts />
                         {/* Error boundary catches any render-time error the
                             map might raise (style parse, WebGL init, etc.)

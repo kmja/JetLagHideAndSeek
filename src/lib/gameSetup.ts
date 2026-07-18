@@ -569,6 +569,15 @@ export const endgameConfirmedAt = persistentAtom<number | null>(
 );
 
 /**
+ * v950 volatile — unix ms of the last DENIED endgame attempt (the server
+ * validated a seeker's claim as NOT at the hider's zone). Drives a transient
+ * on-map banner for BOTH roles (seeker: "not the right spot"; hider: "seekers
+ * tried the endgame at the wrong place"); the `EndgameDeniedBanner` auto-clears
+ * it after a few seconds. Not persisted — a denial is a fleeting moment.
+ */
+export const endgameDeniedAt = atom<number | null>(null);
+
+/**
  * Volatile celebration trigger — unix ms set the moment the hiding
  * period actually starts (after the boundary load completes). The
  * GoGoGoOverlay component watches this and shows the catchphrase
