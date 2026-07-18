@@ -34,37 +34,22 @@ export { GameRoom } from "./GameRoom";
 
 // Letters only — typing a code on mobile shouldn't force the user to
 // flip between the letter and number keyboards. Omit ambiguous
-// characters (I/O, lowercase l) so codes are easy to read out loud
-// over voice. v951: an on-brand travel / hide-and-seek WORD + 2 digits
-// (e.g. FERRY73, TUNNEL08, JETLAG42) — fun and memorable, deliberately NOT a
-// real place name (which would be confusing). ~90 words × 100 = ~9k codes,
-// comparable to the old 3-letter space; there's still no collision check (a
-// code just lazily names the Durable Object), fine at our concurrent-game
-// scale. Words are ≤6 letters so `word + 2 digits` ≤ 8 chars, keeping the
-// `[A-Z0-9]{3,8}` route/validator contract. Uppercase, no place names.
-const CODE_WORDS = [
-    // Transit / travel
-    "METRO", "TRAM", "FERRY", "TRAIN", "TUBE", "RAIL", "TAXI", "JETLAG",
-    "ROUTE", "TICKET", "CABIN", "PILOT", "VOYAGE", "DEPART", "ARRIVE",
-    "BRIDGE", "TUNNEL", "SUBWAY", "CANAL", "HARBOR", "DOCK", "PORT", "CABLE",
-    "PEDAL", "CYCLE", "TRACK", "SIGNAL", "DETOUR", "GATE", "AISLE", "WINDOW",
-    "STAMP", "VISA", "RELAY", "ROVER", "JAUNT", "TREK", "HIKE", "DEPOT",
-    "LOUNGE", "LOCAL", "WAGON", "COACH",
-    // Hide & seek
-    "HIDE", "SEEK", "HIDDEN", "SEEKER", "ESCAPE", "WANDER", "ROAM", "NOMAD",
-    "SHADOW", "SLEUTH", "CHASE", "DASH", "SPRINT", "LURK", "COVERT", "VANISH",
-    "ELUDE", "DODGE", "SCOUT", "TRACE", "PURSUE", "QUARRY", "DECOY", "CLOAK",
-    "CIPHER", "RADAR", "BEACON", "VECTOR", "MAZE", "CACHE", "CLUE", "HUNT",
-    "PROWL", "STALK", "SNEAK", "GHOST", "GADGET", "PUZZLE", "RIDDLE", "WAGER",
-    "GAMBIT", "ATLAS", "GLOBE", "SWIFT", "RAPID", "BORDER", "GLOBAL",
-];
+// characters (I/O) so codes are easy to read out loud over voice.
+// v952: 4 random letters — 24⁴ ≈ 332k codes. There's no collision check
+// (a code just names the Durable Object lazily), but at the scale we care
+// about (a handful of concurrent small-group games inside the 30 min idle /
+// 18 h lifetime window) a clash is very unlikely.
+const CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ";
+const CODE_LENGTH = 4;
 
 function generateGameCode(): string {
-    const bytes = new Uint8Array(3);
+    const bytes = new Uint8Array(CODE_LENGTH);
     crypto.getRandomValues(bytes);
-    const word = CODE_WORDS[bytes[0] % CODE_WORDS.length];
-    const digits = (bytes[1] % 10).toString() + (bytes[2] % 10).toString();
-    return word + digits;
+    let out = "";
+    for (let i = 0; i < CODE_LENGTH; i++) {
+        out += CODE_ALPHABET[bytes[i] % CODE_ALPHABET.length];
+    }
+    return out;
 }
 
 /* ────────────────── Per-IP rate limiting ────────────────── */

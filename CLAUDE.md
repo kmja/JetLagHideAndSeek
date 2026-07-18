@@ -428,7 +428,12 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v951`. Use `git log` for the per-version detail;
+build stamp. Current: `v952`. Use `git log` for the per-version detail;
+
+**v952 — room codes back to 4 random letters.** Reverted the v951 word+digits
+code to a simple 4-letter code (24⁴ ≈ 332k over the I/O-less alphabet). The
+client validators stay `[A-Z0-9]{3,8}` (accept the 4 letters + any lingering
+in-flight digit codes).
 
 **v951 — endgame model finished (deny-not-arm + transient banner) + fun room
 codes.**
