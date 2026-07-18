@@ -442,13 +442,39 @@ export class MultiplayerTransport {
     private startPings() {
         this.clearPings();
         this.pingTimer = window.setInterval(() => {
+            const now = Date.now();
             try {
                 this.socket?.send(
-                    JSON.stringify({ t: "ping", ts: Date.now() } as ClientMessage),
+                    JSON.stringify({ t: "ping", ts: now } as ClientMessage),
                 );
             } catch {
-                /* ignore — close handler will retry */
+                // Send threw → socket is dead. Force a fresh connect rather
+                // than waiting for a `close` event that may never fire.
+                this.forceReconnect();
+                return;
             }
+            // HEARTBEAT liveness (not just on resume): the server pongs every
+            // ping, so if NO inbound arrives within the probe window the
+            // socket is a ZOMBIE — reads OPEN but was silently killed (an iOS
+            // background kill, or the DO evicted+reloaded and severed us
+            // without firing `close`). Without this, a socket that dies while
+            // the app stays FOREGROUNDED is never noticed (visibility/online
+            // events don't fire), so we miss every broadcast — presence
+            // updates AND questions — the reported "peer reconnected but this
+            // device never sees it" desync. `ensureLive` covers the resume
+            // case; this covers the always-foreground case.
+            if (this.livenessProbePending) return;
+            this.livenessProbePending = true;
+            window.setTimeout(() => {
+                this.livenessProbePending = false;
+                if (this.closedByUser) return;
+                if (
+                    !this.socket ||
+                    this.socket.readyState !== WebSocket.OPEN
+                )
+                    return;
+                if (this.lastInboundAt < now) this.forceReconnect();
+            }, LIVENESS_PROBE_MS);
         }, PING_INTERVAL_MS);
     }
 

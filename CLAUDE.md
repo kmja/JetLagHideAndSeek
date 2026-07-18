@@ -428,7 +428,24 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v961`. Use `git log` for the per-version detail;
+build stamp. Current: `v962`. Use `git log` for the per-version detail;
+
+**v962 — heartbeat zombie-socket detection (fixes "peer reconnected but this
+device never sees it").** A seeker Android reconnected and sent a question, but
+the hider iPhone still showed it offline and never got the question. Root cause:
+the transport's 25 s ping loop (`transport.ts startPings`) SENT pings but never
+checked that a pong came back, so a socket that died while the app stayed
+FOREGROUNDED (an iOS background kill that fired no `close` event, or the DO
+evicting+reloading and severing the socket) was never detected — the client held
+a zombie that reads `readyState===OPEN`, so it never reconnected and missed every
+server broadcast (presence updates AND questions). `ensureLive` only probed on
+visibility/online/pageshow, which never fire for an app that stays open. Now each
+ping cycle schedules the same liveness probe: if NO inbound (the server pongs
+every ping) arrives within `LIVENESS_PROBE_MS` (4 s), the socket is treated as
+dead and `forceReconnect()` fires — so a foregrounded zombie is caught within
+~one ping interval and the reconnect's welcome snapshot resyncs the missed
+roster + questions. (A ping `send()` that throws also forces the reconnect
+immediately instead of waiting for a `close` that may never come.)
 
 **v961 — iOS safe-area fixes: top banner under the status bar + footer gap.**
 Two `viewport-fit=cover` safe-area bugs on the HIDER view: (1) the
