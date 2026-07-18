@@ -22,29 +22,61 @@ import {
 } from "@/lib/context";
 import { askOncePerQuestion } from "@/lib/houseRules";
 import { fitMapToRadius } from "@/lib/mapFit";
+import {
+    formatMeters,
+    gameRadius,
+    resolvedUnits,
+    type UnitSystem,
+} from "@/lib/units";
 import { cn } from "@/lib/utils";
 import type { RadiusQuestion, Units } from "@/maps/schema";
 
 import { ManualAnswerDisclosure,QuestionCard } from "./base";
 
-/** Rulebook radius presets, in display order. */
-const RADIUS_PRESETS: {
+/** Rulebook radar size tiers, in display order — the METRIC distance
+ *  (in meters) + a stable, unit-independent `sig` used for uniqueness
+ *  tracking. The actual value + unit shown/stored is derived per the
+ *  selected unit system (v972), so an imperial player picks 0.25/0.5/1/
+ *  3/6/10/25/50/100 mi and a metric player picks the km sizes. */
+const RADIUS_TIERS: { sig: string; meters: number }[] = [
+    { sig: "500m", meters: 500 },
+    { sig: "1km", meters: 1000 },
+    { sig: "2km", meters: 2000 },
+    { sig: "5km", meters: 5000 },
+    { sig: "10km", meters: 10000 },
+    { sig: "15km", meters: 15000 },
+    { sig: "40km", meters: 40000 },
+    { sig: "80km", meters: 80000 },
+    { sig: "160km", meters: 160000 },
+];
+
+interface RadiusPreset {
     label: string;
     radius: number;
     unit: Units;
-    /** Stable signature for uniqueness tracking */
     sig: string;
-}[] = [
-    { label: "500m", radius: 500, unit: "meters", sig: "500m" },
-    { label: "1km", radius: 1, unit: "kilometers", sig: "1km" },
-    { label: "2km", radius: 2, unit: "kilometers", sig: "2km" },
-    { label: "5km", radius: 5, unit: "kilometers", sig: "5km" },
-    { label: "10km", radius: 10, unit: "kilometers", sig: "10km" },
-    { label: "15 km", radius: 15, unit: "kilometers", sig: "15km" },
-    { label: "40 km", radius: 40, unit: "kilometers", sig: "40km" },
-    { label: "80 km", radius: 80, unit: "kilometers", sig: "80km" },
-    { label: "160 km", radius: 160, unit: "kilometers", sig: "160km" },
-];
+}
+
+/** Build the radar presets for a unit system, sharing the tier sigs. */
+function radiusPresetsFor(system: UnitSystem): RadiusPreset[] {
+    return RADIUS_TIERS.map((t) => {
+        const { radius, unit } = gameRadius(t.meters, system);
+        return { sig: t.sig, radius, unit, label: formatMeters(t.meters, system) };
+    });
+}
+
+/** Identify the tier `sig` a stored (radius, unit) belongs to — matching
+ *  EITHER system's form, so a unit switch mid-game still recognises an
+ *  already-asked size for the one-per-game rule. "custom" otherwise. */
+function sigForRadius(radius: number, unit: Units): string {
+    for (const t of RADIUS_TIERS) {
+        for (const system of ["metric", "imperial"] as const) {
+            const f = gameRadius(t.meters, system);
+            if (radius === f.radius && unit === f.unit) return t.sig;
+        }
+    }
+    return "custom";
+}
 
 /**
  * Pick a "nice" step for snapping the logarithmic slider's output:
@@ -85,6 +117,8 @@ export const RadiusQuestionComponent = ({
     const $questions = useStore(questions);
     const $isLoading = useStore(isLoading);
     const $askOnce = useStore(askOncePerQuestion);
+    const $units = useStore(resolvedUnits);
+    const presets = radiusPresetsFor($units);
     const label = `Radar
     ${
         $questions
@@ -121,15 +155,11 @@ export const RadiusQuestionComponent = ({
         >
             <SidebarMenuItem>
                 {(() => {
-                    // Compute current preset signature (which preset matches data values).
-                    // Compare to RADIUS_PRESETS by radius + unit.
+                    // Compute current preset signature (which tier matches the
+                    // stored radius+unit — in EITHER unit system, v972).
                     const currentSig = data.useCustom
                         ? "custom"
-                        : RADIUS_PRESETS.find(
-                              (p) =>
-                                  p.radius === data.radius &&
-                                  p.unit === data.unit,
-                          )?.sig ?? "custom";
+                        : sigForRadius(data.radius, data.unit);
 
                     // Game rule: each preset (or Custom slot) can only be used
                     // once. Disable presets used by OTHER radius questions.
@@ -152,10 +182,7 @@ export const RadiusQuestionComponent = ({
                         const d = q.data as RadiusQuestion;
                         const sig = d.useCustom
                             ? "custom"
-                            : RADIUS_PRESETS.find(
-                                  (p) =>
-                                      p.radius === d.radius && p.unit === d.unit,
-                              )?.sig ?? "custom";
+                            : sigForRadius(d.radius, d.unit);
                         usedSigCounts.set(
                             sig,
                             (usedSigCounts.get(sig) ?? 0) + 1,
@@ -199,7 +226,7 @@ export const RadiusQuestionComponent = ({
                         );
                     };
 
-                    const pickPreset = (preset: typeof RADIUS_PRESETS[0]) => {
+                    const pickPreset = (preset: RadiusPreset) => {
                         data.radius = preset.radius;
                         data.unit = preset.unit;
                         data.useCustom = false;
@@ -238,14 +265,14 @@ export const RadiusQuestionComponent = ({
                                 the carousel only lands on selectable sizes. */}
                             {(() => {
                                 const selectable = $askOnce
-                                    ? RADIUS_PRESETS.filter(
+                                    ? presets.filter(
                                           (p) => !usedSigs.has(p.sig),
                                       )
-                                    : RADIUS_PRESETS;
+                                    : presets;
                                 const idx = selectable.findIndex(
                                     (p) => p.sig === currentSig,
                                 );
-                                const currentPreset = RADIUS_PRESETS.find(
+                                const currentPreset = presets.find(
                                     (p) => p.sig === currentSig,
                                 );
                                 const cycle = (dir: 1 | -1) => {

@@ -17,47 +17,18 @@ import {
     questions,
     triggerLocalRefresh,
 } from "@/lib/context";
-import { type GameSize, gameSize } from "@/lib/gameSetup";
+import { gameSize } from "@/lib/gameSetup";
 import { multiplayerEnabled } from "@/lib/multiplayer/session";
 import { seekerResendQuestion } from "@/lib/multiplayer/store";
+import {
+    thermometerPresetsForSize,
+    thermometerSigLabel,
+} from "@/lib/thermometerPresets";
+import { resolvedUnits } from "@/lib/units";
 import { cn } from "@/lib/utils";
 import type { ThermometerQuestion } from "@/maps/schema";
 
 import { ManualAnswerDisclosure, QuestionCard } from "./base";
-
-/**
- * Thermometer presets. Per the rulebook (p30):
- *   - Small games: 1 km, 5 km
- *   - Medium + Large: +15 km
- *   - Large only: +75 km
- *
- * v969 (rulebook audit A6): the old 500m / 2km / 10km "house presets" are no
- * longer SELECTABLE anywhere (empty validSizes) — they are not rulebook
- * distances (the official set is strictly 1/5/15/75 by size). The entries
- * are retained only so a legacy saved game whose question carries one of
- * those sigs still resolves a label.
- *
- * Each preset is committed at most once per game; `sig` is the signature
- * stored on the question's `distance` field for uniqueness checks.
- */
-const ALL_SIZES: GameSize[] = ["small", "medium", "large"];
-const THERMOMETER_PRESETS: {
-    km: number;
-    label: string;
-    sig: string;
-    /** Game sizes this preset is legal in (rulebook p30). Empty = legacy
-     *  entry kept only for sig→label resolution, never selectable. */
-    validSizes: GameSize[];
-}[] = [
-    { km: 0.5, label: "500m", sig: "500m", validSizes: [] },
-    { km: 1, label: "1km", sig: "1km", validSizes: ALL_SIZES },
-    { km: 2, label: "2km", sig: "2km", validSizes: [] },
-    { km: 5, label: "5km", sig: "5km", validSizes: ALL_SIZES },
-    { km: 10, label: "10km", sig: "10km", validSizes: [] },
-    // Official: 15km is Medium+Large only; 75km is Large only.
-    { km: 15, label: "15km", sig: "15km", validSizes: ["medium", "large"] },
-    { km: 75, label: "75km", sig: "75km", validSizes: ["large"] },
-];
 
 export const ThermometerQuestionComponent = ({
     data,
@@ -81,6 +52,7 @@ export const ThermometerQuestionComponent = ({
 
     const $defaultUnit = useStore(defaultUnit);
     const DISTANCE_UNIT = $defaultUnit ?? "miles";
+    const $units = useStore(resolvedUnits);
 
     const status = data.status ?? "finished";
     const isStarted = status === "started";
@@ -190,10 +162,13 @@ export const ThermometerQuestionComponent = ({
               ? "KM"
               : "Miles";
 
+    // v972: show the target distance in the selected units, not the raw
+    // stored sig ("1km" → "0.5 mi" for an imperial player).
+    const distanceLabel = thermometerSigLabel(data.distance, $units);
     const summary = data.distance
         ? data.drag
-            ? `${data.distance} · awaiting answer`
-            : `${data.distance} · ${data.warmer ? "Warmer" : "Colder"}`
+            ? `${distanceLabel} · awaiting answer`
+            : `${distanceLabel} · ${data.warmer ? "Warmer" : "Colder"}`
         : data.drag
           ? "awaiting answer after move"
           : `${data.warmer ? "Warmer" : "Colder"} after move`;
@@ -202,7 +177,7 @@ export const ThermometerQuestionComponent = ({
         <QuestionCard
             questionKey={questionKey}
             label={label}
-            sub={sub ?? data.distance}
+            sub={sub ?? distanceLabel}
             category="thermometer"
             summary={summary}
             createdAt={data.createdAt}
@@ -360,9 +335,9 @@ function StartedBody({
     // Only presets legal for the current game size are offered
     // (rulebook p30: 15km is Medium+Large, 75km is Large only).
     const $gameSize = useStore(gameSize);
-    const sizePresets = THERMOMETER_PRESETS.filter((p) =>
-        p.validSizes.includes($gameSize),
-    );
+    const $units = useStore(resolvedUnits);
+    // v972: unit-aware presets from the shared source.
+    const sizePresets = thermometerPresetsForSize($gameSize, $units);
 
     // Live seeker position. Falls back to map center if geolocation is
     // unavailable or denied — the seeker can still finish manually that

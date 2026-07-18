@@ -91,6 +91,40 @@ export function imperialMilesForMeters(meters: number): number {
     return Math.round(mi * 2) / 2;
 }
 
+/**
+ * A question radius (value + unit) for the given metric distance in the
+ * SELECTED system, using the curated table. Metric keeps km (or m under
+ * 1 km); imperial converts to the creators' nice miles. Used by the
+ * radar / thermometer / tentacle presets so an imperial player picks
+ * imperial sizes and a metric player picks metric ones — the value is
+ * stored on the question, so it displays consistently for every viewer
+ * regardless of their own preference.
+ */
+export function gameRadius(
+    meters: number,
+    system: UnitSystem,
+): { radius: number; unit: "meters" | "kilometers" | "miles" } {
+    if (system === "imperial") {
+        return { radius: imperialMilesForMeters(meters), unit: "miles" };
+    }
+    if (meters < 1000) return { radius: meters, unit: "meters" };
+    return { radius: meters / 1000, unit: "kilometers" };
+}
+
+/**
+ * The tracker THRESHOLD in kilometres for a metric distance in the
+ * selected system — the thermometer measures displacement in km and
+ * compares against this. Imperial uses the curated nice miles (0.5 mi =
+ * 0.804 km), so the live tracker matches the imperial label the player
+ * sees. Metric returns the plain km value.
+ */
+export function gameDistanceKm(meters: number, system: UnitSystem): number {
+    const { radius, unit } = gameRadius(meters, system);
+    if (unit === "miles") return radius * 1.609344;
+    if (unit === "kilometers") return radius;
+    return radius / 1000;
+}
+
 /** Format meters in the chosen system, using the curated table. */
 export function formatMeters(meters: number, system: UnitSystem): string {
     if (system === "metric") {

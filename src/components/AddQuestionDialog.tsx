@@ -59,6 +59,7 @@ import {
 import { encodeQuestionForHider } from "@/lib/shareLinks";
 import { useSubtypeAvailability } from "@/lib/subtypeAvailability";
 import { getSubtypes, type SubtypeMeta } from "@/lib/subtypes";
+import { gameRadius, resolvedUnits } from "@/lib/units";
 import { cn } from "@/lib/utils";
 import {
     cacheableFamilyForType,
@@ -653,25 +654,24 @@ export const AddQuestionDialog = ({
         const center = resolveSeekerCenter();
         if (!center) return false;
         const map = mapContext.get();
+        // Default to the 5 km tier — the previous 10 km starting point
+        // tended to swallow most cities at typical zoom levels. v972:
+        // seed in the SELECTED unit system (5 km → 3 mi imperial) so the
+        // carousel opens on the matching size rather than a mismatched
+        // km value.
+        const seed = gameRadius(5000, resolvedUnits.get());
         addQuestion({
             id: "radius",
             data: {
                 lat: center.lat,
                 lng: center.lng,
-                // Default to 5 km — the previous 10 km starting point
-                // tended to swallow most cities at typical zoom levels,
-                // making the dragged-pin preview hard to read. 5 km is
-                // a more common opening radar guess in actual play.
-                radius: 5,
-                unit: "kilometers",
+                radius: seed.radius,
+                unit: seed.unit,
             },
         });
-        // Fit the map to the new radius so the entire circle is
-        // visible — otherwise opening the configure dialog can show
-        // the seeker a radius that extends off-screen, which is
-        // confusing when picking a different preset.
+        // Fit the map to the new radius so the entire circle is visible.
         if (map) {
-            fitMapToRadius(map, center.lat, center.lng, 5, "kilometers");
+            fitMapToRadius(map, center.lat, center.lng, seed.radius, seed.unit);
         }
         return true;
     };
@@ -698,9 +698,13 @@ export const AddQuestionDialog = ({
         const radiusKm = subtype
             ? TENTACLE_RADIUS_KM[subtype]
             : undefined;
+        // v972: stamp the tentacle radius in the SELECTED unit system —
+        // 2 km → 1 mi, 25 km → 15 mi for an imperial player. The value +
+        // unit are stored on the question, so it grades + displays in
+        // that unit for everyone.
         const radiusFields =
             radiusKm !== undefined
-                ? { radius: radiusKm, unit: "kilometers" as const }
+                ? gameRadius(radiusKm * 1000, resolvedUnits.get())
                 : {};
         // Cast to never on each branch — the schema-side discriminated
         // union is too narrow for TS to verify the dynamic subtype

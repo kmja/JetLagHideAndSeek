@@ -17,6 +17,8 @@ import {
     questions,
 } from "@/lib/context";
 import { gameSize } from "@/lib/gameSetup";
+import { thermometerPresetsForSize } from "@/lib/thermometerPresets";
+import { resolvedUnits } from "@/lib/units";
 import { askOncePerQuestion } from "@/lib/houseRules";
 import { multiplayerEnabled } from "@/lib/multiplayer/session";
 import { seekerResendQuestion } from "@/lib/multiplayer/store";
@@ -51,30 +53,6 @@ import type { Question, ThermometerQuestion } from "@/maps/schema";
  * card, both updated to track against targetSig.
  */
 
-const THERMOMETER_PRESETS: { km: number; label: string; sig: string }[] = [
-    // Small games: 1km, 5km
-    { km: 1, label: "1 km", sig: "1km" },
-    { km: 5, label: "5 km", sig: "5km" },
-    // Medium adds 15km
-    { km: 15, label: "15 km", sig: "15km" },
-    // Large adds 75km
-    { km: 75, label: "75 km", sig: "75km" },
-];
-
-function presetsForGameSize(size: ReturnType<typeof gameSize.get>) {
-    if (size === "small") {
-        return THERMOMETER_PRESETS.filter((p) =>
-            ["1km", "5km"].includes(p.sig),
-        );
-    }
-    if (size === "medium") {
-        return THERMOMETER_PRESETS.filter((p) =>
-            ["1km", "5km", "15km"].includes(p.sig),
-        );
-    }
-    return THERMOMETER_PRESETS; // large — all four
-}
-
 export interface ThermometerConfigureDialogProps {
     open: boolean;
     onOpenChange: (open: boolean) => void;
@@ -91,7 +69,10 @@ export function ThermometerConfigureDialog({
     const $size = useStore(gameSize);
     const $questions = useStore(questions);
     const $askOnce = useStore(askOncePerQuestion);
-    const presets = presetsForGameSize($size);
+    const $units = useStore(resolvedUnits);
+    // v972: unit-aware presets (imperial → 0.5/3/10/45 mi) from the one
+    // shared source; sigs stay stable so uniqueness + stored questions work.
+    const presets = thermometerPresetsForSize($size, $units);
 
     // Per-preset repeat count among finished thermometers. The rulebook
     // (p65) allows the same question again at N× cost, so by default

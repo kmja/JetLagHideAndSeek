@@ -12,6 +12,8 @@ import {
     topOverlayTall,
     triggerLocalRefresh,
 } from "@/lib/context";
+import { thermometerPresets } from "@/lib/thermometerPresets";
+import { formatMeters, resolvedUnits, type UnitSystem } from "@/lib/units";
 import { multiplayerEnabled } from "@/lib/multiplayer/session";
 import { seekerResendQuestion } from "@/lib/multiplayer/store";
 import { cn } from "@/lib/utils";
@@ -38,16 +40,6 @@ const THERM_COLOR = CATEGORIES.thermometer?.color ?? "#f5d268";
  * map controls own that corner; putting the pill at the bottom keeps it
  * out of the way of the map-display controls and the wizard.
  */
-const THERMOMETER_PRESETS: { km: number; label: string; sig: string }[] = [
-    { km: 0.5, label: "500m", sig: "500m" },
-    { km: 1, label: "1km", sig: "1km" },
-    { km: 2, label: "2km", sig: "2km" },
-    { km: 5, label: "5km", sig: "5km" },
-    { km: 10, label: "10km", sig: "10km" },
-    { km: 15, label: "15km", sig: "15km" },
-    { km: 75, label: "75km", sig: "75km" },
-];
-
 /** Override the questions list to preview the running pill in the
  *  /debug/overlays gallery without touching global state. */
 export interface ThermometerPreview {
@@ -58,6 +50,7 @@ export function ThermometerOverlay({
     preview,
 }: { preview?: ThermometerPreview } = {}) {
     useStore(triggerLocalRefresh);
+    const $units = useStore(resolvedUnits);
     let $questions = useStore(questions);
     if (preview) $questions = preview.questions;
 
@@ -128,7 +121,7 @@ export function ThermometerOverlay({
     // they don't lose UX entirely — but they can't be ended from the
     // overlay (use the card's preset picker instead).
     const target = data.targetSig
-        ? THERMOMETER_PRESETS.find((p) => p.sig === data.targetSig)
+        ? thermometerPresets($units).find((p) => p.sig === data.targetSig)
         : undefined;
     const reachedTarget = target !== undefined && travelKm !== null && travelKm >= target.km;
 
@@ -176,7 +169,7 @@ export function ThermometerOverlay({
             ? gpsError
                 ? "No GPS"
                 : "Locating…"
-            : formatTravel(travelKm);
+            : formatTravel(travelKm, $units);
     const eyebrow = (
         <span className="text-[color:var(--cat-label)]">
             Thermometer{target ? ` · target ${target.label}` : ""}
@@ -189,7 +182,7 @@ export function ThermometerOverlay({
               ? "Distance from where you started"
               : reachedTarget
                 ? "Target reached — end below"
-                : `${formatRemaining(target.km - travelKm)} to go`;
+                : `${formatRemaining(target.km - travelKm, $units)} to go`;
 
     return (
         <div
@@ -256,6 +249,7 @@ export function ThermometerOverlay({
                                       ? `End thermometer at ${target.label} and send to the hider`
                                       : `Move ${formatRemaining(
                                             target.km - (travelKm ?? 0),
+                                            $units,
                                         )} more to enable`
                             }
                             className={cn(
@@ -300,13 +294,13 @@ function findStartedThermometer(qs: Question[]): Question | null {
     return candidates[0];
 }
 
-function formatTravel(km: number): string {
-    if (km < 1) return `${Math.round(km * 1000)} m`;
-    return `${km.toFixed(2)} km`;
+// v972: both format in the SELECTED unit system (imperial shows ft/mi) so
+// the live tracker doesn't mix a metric readout with an imperial target.
+function formatTravel(km: number, system: UnitSystem): string {
+    return formatMeters(Math.round(km * 1000), system);
 }
 
-function formatRemaining(km: number): string {
+function formatRemaining(km: number, system: UnitSystem): string {
     if (km <= 0) return "0";
-    if (km < 1) return `${Math.ceil(km * 1000)} m`;
-    return `${km.toFixed(1)} km`;
+    return formatMeters(Math.round(km * 1000), system);
 }
