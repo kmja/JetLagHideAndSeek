@@ -119,18 +119,18 @@ export function EndgameOverlay() {
         setBeat(null);
     };
 
-    const eyebrow = success ? "Endgame" : "Wrong zone";
+    const eyebrow = success ? "Endgame started" : "Wrong zone";
     const headline = success
         ? isHider
-            ? "THEY FOUND YOUR ZONE"
-            : "YOU FOUND THE ZONE"
+            ? "THE ENDGAME BEGINS"
+            : "YOU'RE IN THE ENDGAME"
         : isHider
           ? "ENDGAME ATTEMPTED"
           : "NOT THE RIGHT ZONE";
     const body = success
         ? isHider
-            ? "The seekers reached your hiding zone. Lock down your final spot — you can't move now."
-            : "You're inside the hider's zone. This is the endgame — close in and find them on foot."
+            ? "The seekers reached your zone and the endgame has started. Lock down your final spot — you can't move now."
+            : "You've reached the hider's zone — the endgame is on. Get off transit and search on foot to find them."
         : isHider
           ? "The seekers guessed the wrong zone. Nothing's locked in — stay hidden and keep your lead."
           : "The hider isn't in this zone. Nothing's locked in — keep searching and try again once you're in the right place.";

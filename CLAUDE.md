@@ -428,7 +428,13 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v959`. Use `git log` for the per-version detail;
+build stamp. Current: `v960`. Use `git log` for the per-version detail;
+
+**v960 — endgame success card uses game terminology.** The `EndgameOverlay`
+success headline was "YOU FOUND THE ZONE" / "THEY FOUND YOUR ZONE"; changed to
+the rulebook's own "endgame" language — eyebrow "Endgame started", headline
+"YOU'RE IN THE ENDGAME" (seeker) / "THE ENDGAME BEGINS" (hider), with body copy
+to match.
 
 **v959 — endgame declaration is a MILESTONE: big success/fail animations, map
 cuts to the final zone, no more toaster.** Reaching the endgame is a major game
