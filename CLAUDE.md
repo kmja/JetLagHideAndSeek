@@ -428,7 +428,16 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v966`. Use `git log` for the per-version detail;
+build stamp. Current: `v967`. Use `git log` for the per-version detail;
+
+**v967 — Transit Line grades against the committed HIDING ZONE.** Follow-up to
+v966: `hiderifyMatching` (same-train-line) now checks whether the hider's
+COMMITTED `hidingZone` station is one of the route's stops (via the shared
+`coordIsRouteStop`, 150 m) instead of re-deriving the hider's nearest station
+from GPS — that's the station the hider actually declared, so it's what the
+answer should key on. Falls back to the nearest-station check only when no zone
+is committed (solo pre-commit). Same 150 m predicate as the seeker elimination,
+so the map cut and the answer agree.
 
 **v966 — Transit Line matching question rebuilt to the rulebook (seeker picks
 the route they're riding).** The rulebook (`src/content/rulebook.md`, the

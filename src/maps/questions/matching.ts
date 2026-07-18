@@ -27,6 +27,7 @@ import {
     prettifyLocation,
     trainLineNodeFinder,
 } from "@/maps/api";
+import { hidingZone } from "@/lib/hiderRole";
 import { fetchAreaLandPolygons } from "@/maps/api/coast";
 import { majorCityPoints } from "@/maps/data/majorCities";
 import { holedMask, modifyMapData, safeUnion } from "@/maps/geo-utils";
@@ -163,21 +164,32 @@ function stationName(f: Feature<Point>): string | null {
  *  nodes that sit a little off the `railway=station` node. */
 const STATION_STOP_MATCH_M = 150;
 
-/** True if `station` is one of the route's stops (within
- *  STATION_STOP_MATCH_M of any stop point). */
-function stationIsRouteStop(
-    station: Feature<Point>,
+/** True if a coordinate coincides with one of the route's stops (within
+ *  STATION_STOP_MATCH_M). Shared by the seeker elimination and the hider
+ *  grade so the map cut agrees with the answer. */
+function coordIsRouteStop(
+    lng: number,
+    lat: number,
     stops: { lat: number; lng: number }[],
 ): boolean {
-    const c = station.geometry?.coordinates;
-    if (!c) return false;
-    const pt = turf.point([c[0], c[1]]);
+    if (!Number.isFinite(lng) || !Number.isFinite(lat)) return false;
+    const pt = turf.point([lng, lat]);
     return stops.some(
         (s) =>
             turf.distance(pt, turf.point([s.lng, s.lat]), {
                 units: "meters",
             }) <= STATION_STOP_MATCH_M,
     );
+}
+
+/** True if `station` is one of the route's stops. */
+function stationIsRouteStop(
+    station: Feature<Point>,
+    stops: { lat: number; lng: number }[],
+): boolean {
+    const c = station.geometry?.coordinates;
+    if (!c) return false;
+    return coordIsRouteStop(c[0], c[1], stops);
 }
 
 /**
@@ -835,15 +847,26 @@ export const hiderifyMatching = async (question: MatchingQuestion) => {
         );
 
         if (question.type === "same-train-line") {
-            // v966: "yes" iff the hider's nearest station is a STOP on the
-            // route the seekers are riding (baked onto the question by the
-            // seeker's route picker). No route → leave the manual answer.
+            // v966: "yes" iff the hider's COMMITTED hiding-zone station is a
+            // STOP on the route the seekers are riding (baked onto the
+            // question by the seeker's route picker). Grading against the
+            // committed zone — not a re-derived nearest station — matches what
+            // the hider actually declared. Falls back to the nearest station
+            // when no zone is committed (e.g. solo testing pre-commit). No
+            // route → leave the manual answer.
             const stops = question.transitRoute?.stops ?? [];
             if (stops.length > 0) {
-                question.same = stationIsRouteStop(
-                    nearestHiderTrainStation as Feature<Point>,
-                    stops,
-                );
+                const zone = hidingZone.get();
+                question.same = zone
+                    ? coordIsRouteStop(
+                          zone.stationLng,
+                          zone.stationLat,
+                          stops,
+                      )
+                    : stationIsRouteStop(
+                          nearestHiderTrainStation as Feature<Point>,
+                          stops,
+                      );
             }
         }
 
