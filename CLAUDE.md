@@ -428,7 +428,27 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v954`. Use `git log` for the per-version detail;
+build stamp. Current: `v955`. Use `git log` for the per-version detail;
+
+**v955 — stop repeated "Seeking phase started" pushes for an abandoned game.**
+An idle iPhone kept getting "Seeking phase started" notifications (44m/1h/2h
+apart) for a game that was long over. Two compounding worker bugs in the
+`GameRoom` DO, both fixed: (1) **the room never idle-evicted.** `fetch()`
+clears `idleSince` to null when a socket connects; if the DO was then evicted
+from memory while that socket was still in-memory (no `handleSocketClose` ran),
+the reloaded cold isolate saw `conns.size===0` but `idleSince===null`, so the
+eviction check (`now - (idleSince ?? now) >= IDLE_EVICTION_MS`) was always 0 and
+the zombie room kept alarm-ticking (and re-pushing) forever. `alarm()` now
+stamps `idleSince = now` when it wakes idle with a null marker, so a stranded
+room starts its 30-min eviction countdown. (2) **the seeking-start dedupe flag
+was ephemeral.** `seekingStartPushedFor` (the `hidingPeriodEndsAt` value already
+pushed for) reset to null on every DO eviction+reload, so the next alarm
+re-fired the same transition's push. It's now PERSISTED (added to
+`PersistedRoom` + hydrate + persist) AND `checkSeekingStartPush` gained a
+**time-window guard** (`SEEKING_PUSH_WINDOW_MS`=5 min) — it only fires within
+5 min of the actual hiding→seeking transition and otherwise marks the value
+handled without pushing, so a stale room reloaded hours later can never push a
+nonsensical "seeking started" long after the fact.
 
 **v954 — lobby preload copy drops "offline".** The lobby preload section
 header "Preload for offline play" → "Preload the map", and the compact bar's

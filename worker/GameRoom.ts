@@ -82,6 +82,12 @@ const LOC_REMINDER_2_MS = 10 * 60_000;
  *  backgrounded/closed (no message activity to piggyback on). v940. */
 const ALARM_TICK_MS = 60_000;
 
+/** The seeking-start push is only meaningful right at the hiding→seeking
+ *  transition. If the alarm somehow re-evaluates it long after (e.g. a DO
+ *  reload of a not-yet-evicted stale room), don't fire — a "seeking started"
+ *  push hours later is nonsense (v955). */
+const SEEKING_PUSH_WINDOW_MS = 5 * 60_000;
+
 /** Great-circle distance in metres (server-side; no turf dependency). */
 function haversineMetersServer(
     lat1: number,
@@ -148,6 +154,9 @@ interface PersistedRoom {
     /** When the room last went idle (0 conns) — persisted so eviction timing
      *  survives a DO memory eviction between alarm ticks. */
     idleSince?: number | null;
+    /** v955: the `hidingPeriodEndsAt` we've already fired the seeking-start
+     *  push for — persisted so a DO eviction+reload can't re-push it. */
+    seekingStartPushedFor?: number | null;
 }
 
 /* ────────────────── Connection bookkeeping ────────────────── */
@@ -299,6 +308,8 @@ export class GameRoom {
                     stored.pushSubscriptions ?? [],
                 );
                 this.idleSince = stored.idleSince ?? null;
+                this.seekingStartPushedFor =
+                    stored.seekingStartPushedFor ?? null;
                 // A cold isolate has no live sockets — everyone is offline
                 // until their client reconnects and re-attaches.
                 for (const p of this.game.participants) p.online = false;
@@ -334,6 +345,7 @@ export class GameRoom {
                 curseCastSeq: this.curseCastSeq,
                 pushSubscriptions: [...this.pushSubscriptions],
                 idleSince: this.idleSince,
+                seekingStartPushedFor: this.seekingStartPushedFor,
             };
             await this.state.storage.put(STATE_STORAGE_KEY, snapshot);
         } catch (e) {
@@ -435,6 +447,15 @@ export class GameRoom {
 
     async alarm() {
         const now = Date.now();
+        // v955: a cold isolate has no live sockets. If the DO was evicted from
+        // memory while a socket was still connected, the persisted `idleSince`
+        // was null (cleared in fetch()), so the reloaded room would never
+        // start its eviction countdown and would keep alarm-ticking (and
+        // re-pushing) forever. Stamp the idle marker now so eviction proceeds.
+        if (this.conns.size === 0 && this.idleSince === null) {
+            this.idleSince = now;
+            void this.persist();
+        }
         // v946: push offline players the moment the hiding period ends. The
         // alarm is scheduled to fire AT hidingPeriodEndsAt, so this is the
         // transition beat for a backgrounded device.
@@ -1760,8 +1781,9 @@ export class GameRoom {
     /**
      * v946: the `hidingPeriodEndsAt` value we've already fired the
      * seeking-start push for (keyed on the value so a new round's fresh
-     * timestamp fires cleanly and a reload can't double-fire). Ephemeral —
-     * a rare double-push after a DO eviction is harmless.
+     * timestamp fires cleanly and a reload can't double-fire). PERSISTED
+     * (v955) so a DO eviction+reload can't reset it and re-push the same
+     * transition on the next alarm tick.
      */
     private seekingStartPushedFor: number | null = null;
 
@@ -1778,9 +1800,17 @@ export class GameRoom {
         const endsAt = this.game.setup.hidingPeriodEndsAt;
         if (endsAt == null || !Number.isFinite(endsAt)) return;
         if (this.game.roundFoundAt != null) return; // round already over
-        if (Date.now() < endsAt) return; // still hiding
+        const now = Date.now();
+        if (now < endsAt) return; // still hiding
+        // Only fire near the actual transition — never hours later (a stale
+        // room reloaded well past its transition would otherwise re-push).
+        if (now - endsAt > SEEKING_PUSH_WINDOW_MS) {
+            this.seekingStartPushedFor = endsAt; // mark so we never revisit it
+            return;
+        }
         if (this.seekingStartPushedFor === endsAt) return; // already pushed
         this.seekingStartPushedFor = endsAt;
+        void this.persist(); // durable dedupe across DO eviction/reload
         this.state.waitUntil(
             this.pushToOfflineRole("seeker", {
                 title: "Seeking phase started",
