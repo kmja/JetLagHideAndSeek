@@ -443,6 +443,8 @@ export class GameRoom {
         // the whole point of the alarm-driven check: it fires even when every
         // player is offline, so a pocketed seeker still gets pushed.
         this.checkLocationReminders();
+        // v953: "seekers closing in fast" push to a backgrounded hider.
+        this.checkClosingInPush();
         // Idle for the full window with nobody connected → tear the room down
         // and drop its persisted snapshot so a late stray connection can't
         // resurrect a dead room.
@@ -459,6 +461,8 @@ export class GameRoom {
             this.scoutedSpots = null;
             this.castCurses = [];
             this.curseCastSeq = 0;
+            this.closingSample.clear();
+            this.closingPushed = false;
             this.pushSubscriptions.clear();
             this.locLastAt.clear();
             this.teamLocReminder = { r1: false, r2: false };
@@ -1070,8 +1074,25 @@ export class GameRoom {
     private handleStart(socket: WebSocket, setup: SetupState) {
         const conn = this.lookupConn(socket);
         if (!conn) return;
+        const prevRevealed = this.game.setup.revealedStation ?? null;
         this.game.setup = setup;
         this.broadcastSetupChanged();
+        // v953: Move powerup — the hider just revealed their transit station
+        // (null → set). The setupChanged broadcast only reaches ONLINE seekers;
+        // push the offline ones so a backgrounded seeker learns the hider is on
+        // the move.
+        const nowRevealed = setup.revealedStation ?? null;
+        if (prevRevealed == null && nowRevealed != null) {
+            this.state.waitUntil(
+                this.pushToOfflineRole("seeker", {
+                    title: "Hider is on the move",
+                    body: nowRevealed.name
+                        ? `The hider revealed their station — ${nowRevealed.name} — and is relocating now.`
+                        : "The hider played Move: they revealed their station and are relocating.",
+                    tag: "move",
+                }),
+            );
+        }
     }
 
     private handleAddQuestion(socket: WebSocket, question: unknown) {
@@ -1463,14 +1484,6 @@ export class GameRoom {
         this.broadcast({ t: "setupChanged", setup: this.game.setup });
     }
 
-    private async pushEndgameToOfflineHideTeam() {
-        return this.pushToOfflineHideTeam({
-            title: "Endgame — lock down",
-            body: "The seeker says they're in your zone. Commit to a final spot, or open the app to refute it.",
-            tag: "endgame",
-        });
-    }
-
     /** Web Push `payload` to every OFFLINE hide-team member with a stored
      *  subscription (an online client gets the WebSocket broadcast — the
      *  push is only for the backgrounded phone on a train). Shared by the
@@ -1565,6 +1578,82 @@ export class GameRoom {
             this.teamLocReminder.r1 = true;
             nudge(
                 "The hider can't see the team's location — someone open the app to keep sharing.",
+            );
+        }
+    }
+
+    /**
+     * v953: per-round state for the "seekers closing in fast" push to a
+     * BACKGROUNDED hider (an online hider sees the in-app ClosingInWatcher).
+     * `closingSample` is each seeker's last distance-to-zone + server time, so
+     * we can measure a real CLOSING SPEED across alarm ticks; `closingPushed`
+     * fires the urgent band once per round. Reset per round + on eviction.
+     */
+    private closingSample: Map<string, { distKm: number; ts: number }> =
+        new Map();
+    private closingPushed = false;
+
+    private checkClosingInPush() {
+        const zone = this.hidingZone;
+        if (!zone) return;
+        const endsAt = this.game.setup.hidingPeriodEndsAt;
+        if (endsAt == null || Date.now() < endsAt) return; // seeking only
+        if (this.game.roundFoundAt != null) return;
+        if (this.closingPushed) return;
+        // Only worth pushing a hider who's OFFLINE with a subscription (an
+        // online one already sees the in-app warning).
+        const offlineHider = this.game.participants.some(
+            (p) =>
+                p.role === "hider" &&
+                !p.online &&
+                this.pushSubscriptions.has(p.id),
+        );
+        if (!offlineHider) return;
+
+        const now = Date.now();
+        let nearestKm = Infinity;
+        let nearestClosingKmh = 0;
+        for (const p of this.game.participants) {
+            if (p.role !== "seeker") continue;
+            const pos = this.lastPos.get(p.id);
+            const heard = this.locLastAt.get(p.id) ?? 0;
+            if (!pos || now - heard > 120_000) continue; // stale
+            const distKm =
+                haversineMetersServer(
+                    pos.lat,
+                    pos.lng,
+                    zone.stationLat,
+                    zone.stationLng,
+                ) / 1000;
+            const prev = this.closingSample.get(p.id);
+            this.closingSample.set(p.id, { distKm, ts: now });
+            if (prev && now - prev.ts >= 20_000) {
+                const dtH = (now - prev.ts) / 3_600_000;
+                const closingKmh = (prev.distKm - distKm) / dtH;
+                if (distKm < nearestKm) {
+                    nearestKm = distKm;
+                    nearestClosingKmh = closingKmh;
+                }
+            }
+        }
+        if (!Number.isFinite(nearestKm)) return;
+        // Urgent "very close" band, scaled by game size (a coarser proxy than
+        // the client's play-area-relative threshold — fine for a backstop
+        // push), gated on a genuinely fast approach.
+        const urgentKm =
+            this.game.setup.gameSize === "small"
+                ? 0.8
+                : this.game.setup.gameSize === "large"
+                  ? 4
+                  : 2;
+        if (nearestKm <= urgentKm && nearestClosingKmh >= 12) {
+            this.closingPushed = true;
+            this.state.waitUntil(
+                this.pushToOfflineRole("hider", {
+                    title: "Seekers very close",
+                    body: `The seekers are closing in fast — within ${nearestKm.toFixed(1)} km of your zone. Commit to your final spot.`,
+                    tag: "closing-in",
+                }),
             );
         }
     }
@@ -1835,6 +1924,8 @@ export class GameRoom {
         // seeker doesn't recover last round's curses on reconnect.
         this.castCurses = [];
         this.curseCastSeq = 0;
+        this.closingSample.clear();
+        this.closingPushed = false;
         // Per-participant location-update timestamps are per-round
         // (the next round's clocks restart). Without clearing, a
         // stale prev > new ts could swallow the new round's first

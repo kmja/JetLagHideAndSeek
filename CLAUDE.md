@@ -428,7 +428,29 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v952`. Use `git log` for the per-version detail;
+build stamp. Current: `v953`. Use `git log` for the per-version detail;
+
+**v953 — notification-coverage batch: Move push, smarter closing-in, dead-code
+cleanup.**
+- **Move powerup now pushes offline seekers.** `handleStart` (worker) detects
+  `revealedStation` going null→set and Web-Pushes offline seekers ("Hider is on
+  the move — …station"). The `setupChanged` broadcast only reached ONLINE
+  seekers, so a backgrounded seeker missed the Move reveal.
+- **"Seekers closing in" is now well-timed + velocity-gated.**
+  `ClosingInWatcher` (client, foreground hider) replaced its fixed
+  per-game-size thresholds with DYNAMIC ones: a fraction of the seekers'
+  distance at seeking-START (the baseline — so a warning means "they've closed
+  most of the gap" whether they started 2 km or 30 km out), floored to the
+  PLAY-AREA scale (bbox diagonal). And it only fires when the nearest seeker's
+  CLOSING SPEED toward the zone exceeds `FAST_CLOSING_KMH` (12) — a slow
+  wanderer drifting across the threshold no longer trips it; a train/car
+  bearing down does (GPS jitter filtered by a ≥15 s speed-sample window). A
+  BACKGROUNDED hider is covered by a new server push — `checkClosingInPush`
+  (alarm-driven) measures each seeker's closing speed across ticks and pushes
+  the urgent band once/round to an offline hider when a seeker is close
+  (game-size-scaled) AND closing ≥12 km/h.
+- **Removed dead `pushEndgameToOfflineHideTeam`** (worker) — orphaned by the
+  v950/v951 endgame rewrite.
 
 **v952 — room codes back to 4 random letters.** Reverted the v951 word+digits
 code to a simple 4-letter code (24⁴ ≈ 332k over the I/O-less alphabet). The
