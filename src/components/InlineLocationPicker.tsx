@@ -280,6 +280,11 @@ export function InlineLocationPicker({
     const visibleCandidates = useMemo(() => {
         if (!candidatePoints || candidatePoints.length === 0)
             return candidatePoints;
+        // same-train-line: the question is about the nearest LINE, which is
+        // drawn on its own (trainLineFC) — plotting the nearest STATION dot
+        // reads as "a station on a line" and confuses the answer. Show no
+        // candidate dots; the highlighted line IS the reference.
+        if (impactType === "same-train-line") return null;
         // v864: matching → show ONLY the pin's nearest reference + the ones
         // whose Voronoi cells border it (the same/different boundary). The
         // whole park/POI field is otherwise plotted for a question whose
@@ -380,7 +385,7 @@ export function InlineLocationPicker({
         }
 
         return candidatePoints.filter((_, i) => keep.has(i));
-    }, [candidatePoints, $maskData, impactMode, referencePoint]);
+    }, [candidatePoints, $maskData, impactMode, impactType, referencePoint]);
 
     const [gpsState, setGpsState] = useState<"unknown" | "granted" | "denied">(
         "unknown",
@@ -1279,8 +1284,12 @@ export function InlineLocationPicker({
                             )}
                         </Marker>
                     )}
-                    {/* Reference marker + permanent popup label. */}
+                    {/* Reference marker + permanent popup label. Suppressed for
+                        same-train-line: the reference is the LINE (drawn above),
+                        so a nearest-STATION teardrop reads as the wrong answer.
+                        `referencePoint` is still used to frame the map. */}
                     {referencePoint &&
+                        impactType !== "same-train-line" &&
                         Number.isFinite(referencePoint.lat) &&
                         Number.isFinite(referencePoint.lng) && (
                             <>

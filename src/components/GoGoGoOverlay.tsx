@@ -178,7 +178,7 @@ export function GoGoGoOverlay({ preview }: { preview?: GoGoGoPreview } = {}) {
     // stacking context as the drawer so it wins.
     const overlay = (
         <div
-            className="fixed inset-0 z-[1070] flex items-center justify-center px-6"
+            className="pointer-events-auto fixed inset-0 z-[1070] flex items-center justify-center px-6"
             role="dialog"
             aria-modal="true"
             aria-live="assertive"

@@ -117,6 +117,14 @@ export function SeekingStartOverlay() {
         <div
             className={cn(
                 "fixed inset-0 z-[1070]",
+                // pointer-events-auto: this is a PLAIN div (not a Radix modal),
+                // so when the contextual notification prompt (a Radix Dialog)
+                // opens ~simultaneously at seeking-start and sets
+                // body{pointer-events:none}, this overlay would otherwise
+                // INHERIT none and go inert — "Got it" stops working and clicks
+                // pass through to the Radix layer beneath. Forcing auto keeps
+                // it interactive + captures its own clicks. (v958)
+                "pointer-events-auto",
                 "flex items-center justify-center px-6",
                 "bg-background/90 backdrop-blur-sm",
                 "animate-in fade-in duration-200",

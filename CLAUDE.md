@@ -428,7 +428,29 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v957`. Use `git log` for the per-version detail;
+build stamp. Current: `v958`. Use `git log` for the per-version detail;
+
+**v958 — SEEK/GO overlay stuck-inert fix + train-line preview shows the LINE.**
+- **The "ON THE HUNT!" (seeking-start) overlay was un-dismissable on the
+  hider.** At the hiding→seeking transition `SeekingStartWatcher` fires BOTH the
+  `SeekingStartOverlay` (a PLAIN div at `z-[1070]`) AND, for the hider,
+  `maybePromptForNotifications` — which ~600 ms later opens the contextual
+  `NotificationPrompt`, a Radix Dialog that sets `body{pointer-events:none}`.
+  The plain SEEK overlay INHERITED `none` and went inert: "Got it" stopped
+  working and clicks passed through to the Radix layer beneath ("things happen
+  underneath"). Fix: both celebration overlays (`SeekingStartOverlay` + its
+  sister `GoGoGoOverlay`) now force `pointer-events-auto` on their root, so a
+  co-open Radix modal's body lock can't make them inert (same guard
+  `NotificationPrompt` already applies to itself). The SEEK overlay sits above
+  the prompt (1070 > 1060), so dismissing it reveals the prompt cleanly.
+- **matching "train line" configure preview showed a station, not the line.**
+  For `same-train-line` the preview plotted the nearest STATION as a candidate
+  dot AND a reference teardrop (its `resolveFamily` kind is `rail-station`),
+  reading as "a station on a line" even though v877 already draws the actual
+  rail line (`trainLineFC`). Now `InlineLocationPicker` suppresses BOTH the
+  candidate dots (`visibleCandidates` returns null for `same-train-line`) and
+  the reference marker/label (still keeping `referencePoint` only to frame the
+  map), so the highlighted LINE is the sole reference shown.
 
 **v957 — GPS play-area auto-suggest prefers a starred area.** Follow-up to
 v956: the wizard's GPS suggestion (`tryGpsSuggest`, `GameSetupDialog.tsx`) took
