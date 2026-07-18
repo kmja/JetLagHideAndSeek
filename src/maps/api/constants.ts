@@ -296,6 +296,29 @@ export function apiLocationFilter(loc: APILocations): string {
     );
 }
 
+/**
+ * v970 (rulebook audit B): golf DRIVING RANGES and mini golf don't count as
+ * a golf course (rulebook p182: "Miniature golf does not count. Driving
+ * ranges do not count."). OSM tags a standalone driving range as
+ * `leisure=golf_course` + `golf=driving_range` often enough that the exact
+ * `leisure=golf_course` filter wrongly includes them; some are only
+ * identifiable by NAME. Excluded CLIENT-SIDE (like the v933 fountain rule)
+ * so the Overpass filter string — and every city's refs cache key — stays
+ * untouched. Applied in `apiLocationMatches` (the cached-partition paths:
+ * nearest-reference preview, availability counts, impact overlay) AND in
+ * the matching/measuring `*-full` eliminations' live-query results, so the
+ * label and the map cut agree.
+ */
+export function isExcludedGolfFeature(tags: Record<string, string>): boolean {
+    const golf = tags["golf"] ?? "";
+    if (golf === "driving_range" || golf === "miniature") return true;
+    const name = tags["name:en"] ?? tags["name"] ?? "";
+    return (
+        /\bdriving\s+range\b/i.test(name) ||
+        /\bmini(ature)?[\s-]?golf\b/i.test(name)
+    );
+}
+
 /** Whether an element's tags match an API location — mirrors
  *  `apiLocationFilter` for client-side partitioning of a combined query. */
 export function apiLocationMatches(
@@ -305,6 +328,7 @@ export function apiLocationMatches(
     if (loc === "consulate") {
         return /^consulate/.test(tags["diplomatic"] ?? "");
     }
+    if (loc === "golf_course" && isExcludedGolfFeature(tags)) return false;
     return tags[LOCATION_FIRST_TAG[loc]] === loc;
 }
 

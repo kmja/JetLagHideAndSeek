@@ -23,6 +23,7 @@ import {
     findPlacesInZone,
     findTrainLineGeometry,
     apiLocationFilter,
+    apiLocationMatches,
     nearestToQuestion,
     prettifyLocation,
     trainLineNodeFinder,
@@ -126,12 +127,21 @@ export const findMatchingPlaces = async (question: MatchingQuestion) => {
             // abandoned elimination entirely on dense areas like Ottawa
             // (1103 parks).
             const seeker = turf.point([question.lng, question.lat]);
-            const allPoints: Feature<Point>[] = data.elements.map((x: any) =>
-                turf.point([
-                    x.center ? x.center.lon : x.lon,
-                    x.center ? x.center.lat : x.lat,
-                ]),
-            );
+            // v970 (rulebook audit B): re-check tags client-side so the
+            // exclusions the cached paths apply (golf driving ranges /
+            // mini golf) also apply to this LIVE query's results — the
+            // label and the cut must agree. Tagless elements pass (the
+            // server filter already matched them).
+            const allPoints: Feature<Point>[] = data.elements
+                .filter(
+                    (x: any) => !x.tags || apiLocationMatches(location, x.tags),
+                )
+                .map((x: any) =>
+                    turf.point([
+                        x.center ? x.center.lon : x.lon,
+                        x.center ? x.center.lat : x.lat,
+                    ]),
+                );
             if (allPoints.length <= MATCHING_KNN) return allPoints;
             return allPoints
                 .map((p: Feature<Point>) => ({
@@ -152,6 +162,85 @@ export const findMatchingPlaces = async (question: MatchingQuestion) => {
     // not a crash. Implementing them in turn is a follow-up.
     return [];
 };
+
+/** A nearby highway way from the street-question step-1 fetch — geometry
+ *  latlons + the parallel OSM node-id array (`out geom` returns both). */
+interface NearbyWay {
+    id: number;
+    geom: Array<{ lat: number; lon: number }>;
+    nodes: number[];
+}
+
+/**
+ * v970 (rulebook audit B): the UNNAMED street/path case — "If the street or
+ * path is unnamed, it is considered to start or end wherever it has an
+ * intersection" (rulebook p162). The matching region is the segment of the
+ * seeker's nearest (unnamed) way between the two intersections bracketing
+ * their nearest point on it; the way's own endpoints always count as
+ * boundaries. Intersections = the way's nodes shared with any OTHER highway
+ * way (OSM ways share nodes where they physically cross), fetched with a
+ * targeted `way(id) → node(w) → way(bn)` query. Returns the 25 m-buffered
+ * segment polygon, or null on any failure (the caller errors out like the
+ * old behaviour). Approximation: a same-road continuation split into a
+ * different OSM way at a non-intersection also terminates the segment —
+ * conservative, and rare for the short unnamed service ways this covers.
+ */
+async function unnamedStreetSegmentBoundary(
+    way: NearbyWay,
+    seekerPt: Feature<Point>,
+): Promise<Feature<any> | null> {
+    try {
+        if (way.geom.length < 2 || way.nodes.length !== way.geom.length) {
+            return null;
+        }
+        const q = `
+[out:json][timeout:30];
+way(${way.id});
+node(w);
+way(bn)["highway"];
+out body;
+`;
+        const data = await (
+            await import("@/maps/api/overpass")
+        ).getOverpassData(q);
+        const otherNodeIds = new Set<number>();
+        for (const el of (data as { elements?: any[] }).elements ?? []) {
+            if (el?.type !== "way" || el.id === way.id) continue;
+            for (const n of (el.nodes as number[]) ?? []) otherNodeIds.add(n);
+        }
+        // Boundary vertex indices: the endpoints + every shared node.
+        const boundaryIdx: number[] = [];
+        for (let i = 0; i < way.nodes.length; i++) {
+            if (
+                i === 0 ||
+                i === way.nodes.length - 1 ||
+                otherNodeIds.has(way.nodes[i])
+            ) {
+                boundaryIdx.push(i);
+            }
+        }
+        const line = turf.lineString(way.geom.map((p) => [p.lon, p.lat]));
+        const snapped = turf.nearestPointOnLine(line, seekerPt);
+        const segIdx = (snapped.properties?.index as number) ?? 0;
+        // The segment spans from the last boundary at-or-before the
+        // seeker's nearest way segment to the first boundary after it.
+        let lo = 0;
+        let hi = way.geom.length - 1;
+        for (const b of boundaryIdx) {
+            if (b <= segIdx && b > lo) lo = b;
+            if (b >= segIdx + 1 && b < hi) hi = b;
+        }
+        if (hi <= lo) return null;
+        const seg = way.geom.slice(lo, hi + 1).map((p) => [p.lon, p.lat]);
+        if (seg.length < 2) return null;
+        const buffered = turf.buffer(turf.lineString(seg), 25, {
+            units: "meters",
+        });
+        return (buffered as Feature<any>) ?? null;
+    } catch {
+        return null;
+    }
+}
 
 /** English-preferred station name (matches the hider-grading logic). */
 function stationName(f: Feature<Point>): string | null {
@@ -548,25 +637,25 @@ export const determineMatchingBoundary = memoize(
                 // The matching boundary is the geometry of every OSM
                 // way sharing the seeker's nearest-street name.
                 //
-                // Two-step Overpass: (1) find the nearest named highway
-                // way to the seeker via a small around: query, read
-                // its name; (2) fetch every way with that exact name
-                // inside the play area + 50 km pad, union, return as
-                // the matching polygon. Unnamed streets fall back to
-                // intersection-bounded segments per rulebook, which is
-                // hard to compute automatically — those return a
-                // "couldn't determine" error so the seeker falls back
-                // to manual map work.
+                // Two-step Overpass: (1) find the nearest highway way to
+                // the seeker via a small around: query; (2) NAMED way →
+                // fetch every way with that exact name inside the play
+                // area + 50 km pad, union, return as the matching
+                // polygon. v970 (rulebook audit B): an UNNAMED way is
+                // "considered to start or end wherever it has an
+                // intersection" (rulebook p162) — computed for real now
+                // (`unnamedStreetSegmentBoundary`), instead of the old
+                // "couldn't determine" error.
                 const seekerLat = question.lat;
                 const seekerLng = question.lng;
-                // Step 1: nearest named highway. v342: fetch GEOMETRY
-                // (out geom, not out tags) so we can compute the TRUE
-                // nearest by point-to-line distance rather than trusting
-                // Overpass's element order — which isn't distance-sorted
-                // and was the fragile bit flagged in v340.
+                // Step 1: nearest highway (named or not). v342: fetch
+                // GEOMETRY (out geom, not out tags) so we can compute the
+                // TRUE nearest by point-to-line distance rather than
+                // trusting Overpass's element order — which isn't
+                // distance-sorted and was the fragile bit flagged in v340.
                 const nearbyQuery = `
 [out:json][timeout:30];
-way["highway"]["name"](around:500,${seekerLat},${seekerLng});
+way["highway"](around:500,${seekerLat},${seekerLng});
 out geom;
 `;
                 const nearbyData = await (
@@ -574,14 +663,14 @@ out geom;
                 ).getOverpassData(nearbyQuery);
                 const seekerPt = turf.point([seekerLng, seekerLat]);
                 let streetName: string | null = null;
+                let nearestWay: NearbyWay | null = null;
                 let bestDist = Infinity;
                 for (const el of (nearbyData as { elements?: any[] })
                     .elements ?? []) {
-                    const name = el?.tags?.name;
                     const geom = el?.geometry as
                         | Array<{ lat: number; lon: number }>
                         | undefined;
-                    if (!name || !geom || geom.length < 2) continue;
+                    if (!geom || geom.length < 2) continue;
                     try {
                         const line = turf.lineString(
                             geom.map((p) => [p.lon, p.lat]),
@@ -591,18 +680,42 @@ out geom;
                         });
                         if (d < bestDist) {
                             bestDist = d;
-                            streetName = name;
+                            streetName = el?.tags?.name ?? null;
+                            nearestWay = {
+                                id: el.id as number,
+                                geom,
+                                nodes: (el.nodes as number[]) ?? [],
+                            };
                         }
                     } catch {
                         /* skip malformed way */
                     }
                 }
-                if (!streetName) {
+                if (!nearestWay) {
                     if (silent) return undefined;
                     toast.error(
-                        "No named street within 500 m of your location.",
+                        "No street or path within 500 m of your location.",
                     );
-                    throw new Error("No nearby street name");
+                    throw new Error("No nearby street");
+                }
+                if (!streetName) {
+                    // Unnamed way: the matching region is the segment of
+                    // THIS way between the intersections bracketing the
+                    // seeker's nearest point (way endpoints count as
+                    // boundaries too), buffered like the named case.
+                    const segBoundary = await unnamedStreetSegmentBoundary(
+                        nearestWay,
+                        seekerPt,
+                    );
+                    if (!segBoundary) {
+                        if (silent) return undefined;
+                        toast.error(
+                            "Couldn't determine the unnamed street's intersection-to-intersection segment.",
+                        );
+                        throw new Error("Unnamed street segment failed");
+                    }
+                    boundary = segBoundary;
+                    break;
                 }
                 // Step 2: all matching ways inside the play area.
                 const wayFeatures = osmtogeojson(

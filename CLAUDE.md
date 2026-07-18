@@ -428,7 +428,81 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v969`. Use `git log` for the per-version detail;
+build stamp. Current: `v970`. Use `git log` for the per-version detail;
+
+**v970 — rulebook audit Section B: eleven missing mechanics.** The follow-up
+to v969's Section A — every rulebook rule the audit found unimplemented:
+- **Golf driving ranges / mini golf excluded** (rulebook p182). New
+  `isExcludedGolfFeature(tags)` (`constants.ts` — `golf=driving_range|
+  miniature` or a driving-range/mini-golf NAME) applied in
+  `apiLocationMatches` (all cached-partition paths) AND re-checked
+  client-side on the matching/measuring `*-full` eliminations' LIVE query
+  results — label and cut agree, and the Overpass filter string (= every
+  city's refs cache key) is untouched (the v933 fountain pattern).
+- **Jammed Door rolls 2d6** (rulebook p396). `DiceRoller` gained a `count`
+  prop (N dice + summed `onSettle`); `curseDiceCount` (`curseMeta.ts`)
+  returns 2 for Jammed Door (+ a "two d6" description fallback); the
+  `CurseInbox` dialog passes it.
+- **Egg Partner / Lemon Phylactery blocked during the endgame** (their card
+  text). `curseBlockedDuringEndgame(description)` (`castingCost.ts`) +
+  `CastCurseDialog` gates the cast once `endgameStartedAt` is armed, with an
+  explanatory notice (Move already had its own gate).
+- **Drained Brain can't ban the just-asked question** (rulebook p392). The
+  picker disables (and `toggleDrainedQuestion` refuses) the ids of UNANSWERED
+  `hiderInbox` entries, in the picker's own id format.
+- **One-active-blocking-curse limit spans task + transit blockers**
+  (rulebook p386 covers every curse "preventing the seekers from asking
+  questions or taking transit", not just the 3 UI-enforced ask-blockers).
+  `cursePreventsAskingOrTransit` (`curseEnforcement.ts`) pools the
+  before-asking task curses + the movement/transit blockers (Jammed Door /
+  U-Turn / Gambler's Feet / Right Turn); a TIMED blocker auto-expires via
+  `blockingCurseExpired` + the new `activeBlockingCurseCastAt` atom, so the
+  hider isn't stuck manually clearing a curse that ran out. Unit-tested
+  (`tests/curseBlockers.test.ts`).
+- **Rail Station (measuring) covers light rail** (rulebook p206: "includes
+  light and heavy rail; metros/subways count"). New
+  `fetchPrewarmedRailStationElements()` (`journey/stations.ts`) = the
+  prewarmed all-mode area-stations union filtered to train/subway/tram — so
+  halts, tram stops and PTv2-only light rail count, Overpass-free for warm
+  cities. Used by the `rail-measure-ordinary` elimination (live fallback
+  broadened to `station|halt|tram_stop`) AND the nearest-reference label
+  (`fetchNearest` rail-station branch), so label == cut.
+- **10-minute planning window between rounds** (rulebook p81). New
+  persistent `planningWindowEndsAt` set to now+10 min after a COMPLETED
+  round (`startNewRound` + the guest `applyRoundStarted`), cleared on round
+  start/reset; the lobby shows a `PlanningWindowBanner` countdown above
+  Start. Informational — the host still starts the round (enforcement is
+  social), the countdown just makes the allowance visible.
+- **Endgame "off transit" condition enforced** (rulebook p75). The server
+  keeps each seeker's previous fix (`prevSeekerPos`, slid at ≥8 s spacing)
+  and `seekerLooksOnTransit` estimates speed over the last usable pair
+  (dt ∈ [8 s, 3 min]); a claim from a seeker at the zone but moving
+  ≥ `ENDGAME_TRANSIT_SPEED_KMH` (18) is DENIED with the new
+  `endgameDenied.reason:"transit"` (additive optional wire field) — client
+  copy/notifications + the `EndgameOverlay` fail card show "get off transit
+  first" via the volatile `endgameDeniedReason` atom. Can't-verify still
+  allows (friends-game bias), and a wrong-place denial reads `"off-zone"`.
+- **Unnamed street/path = intersection-to-intersection** (rulebook p162).
+  The `same-street-or-path` step-1 query now fetches ALL highway ways (not
+  just named); an unnamed nearest way routes through
+  `unnamedStreetSegmentBoundary` (`matching.ts`): a targeted
+  `way(id)→node(w)→way(bn)` fetch finds the way's nodes shared with other
+  highway ways (= physical intersections), the segment bracketing the
+  seeker's nearest point (way endpoints count as boundaries) is sliced out
+  and 25 m-buffered like the named case. The hider grade shares the boundary
+  (the generic `hiderifyMatching` tail), so answer and cut agree.
+- **US 4th admin division → OSM level 7** (rulebook p169's own example is
+  NYC boroughs, which are L7 — Queens borough L7 beside coterminous Queens
+  County L6; the generic tier4→9 found nothing). `TIER_OVERRIDES.US =
+  [4,6,8,7]` (`adminDivisions.ts`); the US L7 label reads "Borough /
+  Township".
+- **Micro-enclave borders** (rulebook p210 "Enclaves count!"). The
+  measuring `international-border` case folds the play area's own OSM
+  `admin_level=2` border WAYS (a light poly-scoped way query — local
+  segments incl. enclave rings like Baarle/Llívia/Büsingen, never
+  whole-country relations) into the bundled 1:50m lines; best-effort, any
+  failure keeps the bundle alone. The impact overlay shares the geometry
+  (v840's measuring-geom path).
 
 **v969 — rulebook audit Section A: seven correctness fixes.** From the full
 start-to-finish rulebook read (`src/content/rulebook.md`), the seven places

@@ -519,6 +519,29 @@ export const hidingPeriodEndsAt = persistentAtom<number | null>(
  *
  * Persisted so a reload mid-load doesn't drop the pending start.
  */
+/**
+ * v970 (rulebook audit B): the BETWEEN-ROUNDS planning window. Rulebook p81:
+ * "After the hider is caught, the new hider is permitted up to 10 minutes
+ * for any final planning before their hiding period begins." Set to
+ * now+10 min when a new round is staged after a completed one
+ * (`startNewRound` / the guest `applyRoundStarted`), shown as a countdown
+ * in the lobby, and cleared when the clock is armed. Deliberately NOT
+ * auto-starting the round at 0 — the window is the players' allowance and
+ * enforcement is social; the lobby just makes the 10 minutes visible.
+ */
+export const planningWindowEndsAt = persistentAtom<number | null>(
+    "jlhs:planningWindowEndsAt",
+    null,
+    {
+        encode: (v) => (v === null || !Number.isFinite(v) ? "" : String(v)),
+        decode: (v) => {
+            if (!v) return null;
+            const n = Number(v);
+            return Number.isFinite(n) ? n : null;
+        },
+    },
+);
+
 export const pendingHidingDurationMin = persistentAtom<number | null>(
     "pendingHidingDurationMin",
     null,
@@ -580,6 +603,11 @@ export const endgameConfirmedAt = persistentAtom<number | null>(
  * seconds. Not persisted — a denial is a fleeting moment.
  */
 export const endgameDeniedAt = atom<number | null>(null);
+
+/** v970: why the last endgame claim was denied — "transit" = right zone but
+ *  still moving at transit speed (rulebook p75), "off-zone" = wrong place.
+ *  Volatile, set alongside `endgameDeniedAt`; drives the fail overlay copy. */
+export const endgameDeniedReason = atom<"off-zone" | "transit" | null>(null);
 
 /**
  * Volatile celebration trigger — unix ms set the moment the endgame is

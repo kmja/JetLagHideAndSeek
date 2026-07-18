@@ -4,7 +4,11 @@ import { type CSSProperties, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { Button } from "@/components/ui/button";
-import { endgameDeniedAt, endgameSuccessAt } from "@/lib/gameSetup";
+import {
+    endgameDeniedAt,
+    endgameDeniedReason,
+    endgameSuccessAt,
+} from "@/lib/gameSetup";
 import { playerRole } from "@/lib/hiderRole";
 import { play } from "@/lib/sound";
 import { cn } from "@/lib/utils";
@@ -72,6 +76,7 @@ function useConfetti(count: number, colors: string[]): Burst[] {
 export function EndgameOverlay() {
     const $success = useStore(endgameSuccessAt);
     const $denied = useStore(endgameDeniedAt);
+    const $deniedReason = useStore(endgameDeniedReason);
     const $role = useStore(playerRole);
 
     // Which beat is live, keyed on its trigger timestamp so a re-fire replays.
@@ -112,28 +117,45 @@ export function EndgameOverlay() {
     const success = beat.kind === "success";
 
     const dismiss = () => {
-        if (beat.kind === "fail" && endgameDeniedAt.get() === beat.at)
+        if (beat.kind === "fail" && endgameDeniedAt.get() === beat.at) {
             endgameDeniedAt.set(null);
+            endgameDeniedReason.set(null);
+        }
         if (beat.kind === "success" && endgameSuccessAt.get() === beat.at)
             endgameSuccessAt.set(null);
         setBeat(null);
     };
 
-    const eyebrow = success ? "Endgame started" : "Wrong zone";
+    // v970: a denial can be "right zone but still ON TRANSIT" (rulebook p75
+    // — the endgame begins only once the seekers are off transit).
+    const transitDenied = !success && $deniedReason === "transit";
+    const eyebrow = success
+        ? "Endgame started"
+        : transitDenied
+          ? "Still on transit"
+          : "Wrong zone";
     const headline = success
         ? isHider
             ? "THE ENDGAME BEGINS"
             : "YOU'RE IN THE ENDGAME"
-        : isHider
-          ? "ENDGAME ATTEMPTED"
-          : "NOT THE RIGHT ZONE";
+        : transitDenied
+          ? isHider
+              ? "THEY'RE STILL RIDING"
+              : "GET OFF TRANSIT FIRST"
+          : isHider
+            ? "ENDGAME ATTEMPTED"
+            : "NOT THE RIGHT ZONE";
     const body = success
         ? isHider
             ? "The seekers reached your zone and the endgame has started. Lock down your final spot — you can't move now."
             : "You've reached the hider's zone — the endgame is on. Get off transit and search on foot to find them."
-        : isHider
-          ? "The seekers guessed the wrong zone. Nothing's locked in — stay hidden and keep your lead."
-          : "The hider isn't in this zone. Nothing's locked in — keep searching and try again once you're in the right place.";
+        : transitDenied
+          ? isHider
+              ? "The seekers reached your zone but are still on transit — the endgame hasn't started. Stay ready."
+              : "You're at the zone, but the endgame only begins once you're off transit. Disembark and declare again."
+          : isHider
+            ? "The seekers guessed the wrong zone. Nothing's locked in — stay hidden and keep your lead."
+            : "The hider isn't in this zone. Nothing's locked in — keep searching and try again once you're in the right place.";
 
     const overlay = (
         <div

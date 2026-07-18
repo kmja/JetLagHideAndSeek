@@ -583,6 +583,14 @@ export interface SMsgCurseBacklog {
  */
 export interface SMsgEndgameDenied {
     t: "endgameDenied";
+    /**
+     * v970 (rulebook audit B): why the claim was denied. "off-zone" (or
+     * absent — older servers) = the claiming seeker isn't at the hider's
+     * zone; "transit" = they're at the zone but still MOVING at transit
+     * speed (rulebook p75: the endgame begins only once the seekers are in
+     * the zone AND no longer on a mode of transit).
+     */
+    reason?: "off-zone" | "transit";
 }
 
 export type ServerMessage =

@@ -32,6 +32,7 @@ import {
 import { CATEGORIES, type CategoryId } from "@/lib/categories";
 import {
     canPayDiscardCost,
+    curseBlockedDuringEndgame,
     curseCostRequiresDestination,
     curseCostRequiresRockCount,
     curseCostRequiresVideo,
@@ -42,16 +43,19 @@ import {
 import { preparePhotoForSend } from "@/lib/photo";
 import {
     activeBlockingCurse,
+    activeBlockingCurseCastAt,
+    blockingCurseExpired,
     CURSE_DRAINED_BRAIN,
-    curseBlocksAsking,
+    cursePreventsAskingOrTransit,
 } from "@/lib/curseEnforcement";
-import { gameSize } from "@/lib/gameSetup";
+import { endgameStartedAt, gameSize } from "@/lib/gameSetup";
 import { getSubtypes } from "@/lib/subtypes";
 import type { CurseCard } from "@/lib/hiderDeck";
 import {
     activateOverflowingChalice,
     discardCard,
     hiderHand,
+    hiderInbox,
 } from "@/lib/hiderRole";
 import { currentGameCode, multiplayerEnabled } from "@/lib/multiplayer/session";
 import { hiderCastCurse } from "@/lib/multiplayer/store";
@@ -150,6 +154,7 @@ export function CastCurseDialog({
     const $gameSize = useStore(gameSize);
     const $multiplayer = useStore(multiplayerEnabled);
     const $hand = useStore(hiderHand);
+    const $inbox = useStore(hiderInbox);
     /** Cards the hider has selected to pay a *discard* casting cost
      *  (e.g. "Discard 2 cards"). Empty until they pick; the cast
      *  button stays gated until the right count is chosen. */
@@ -165,14 +170,33 @@ export function CastCurseDialog({
     );
     const isDrainedBrain = card?.name === CURSE_DRAINED_BRAIN;
     const $activeBlocker = useStore(activeBlockingCurse);
-    // Rulebook p386: only one ask-blocking curse can be active at a time.
-    // Block casting a SECOND one while a different ask-blocker the hider
-    // cast is still active (the seekers must clear it first).
-    const isBlockingCurse = card ? curseBlocksAsking(card.name) : false;
+    const $activeBlockerAt = useStore(activeBlockingCurseCastAt);
+    // Rulebook p386: only ONE curse preventing the seekers from asking
+    // questions OR taking transit can be active at a time (v970: the pool
+    // spans every task/transit blocker, not just the 3 UI-enforced
+    // ask-blockers). Block casting a SECOND one while a different blocker
+    // the hider cast is still active (the seekers must clear it first);
+    // a TIMED blocker (Jammed Door / Gambler's Feet / Right Turn)
+    // auto-expires after its printed duration.
+    const isBlockingCurse = card ? cursePreventsAskingOrTransit(card) : false;
     const blockedByActiveCurse =
         isBlockingCurse &&
         $activeBlocker !== null &&
-        $activeBlocker !== card?.name;
+        $activeBlocker !== card?.name &&
+        !blockingCurseExpired(
+            $activeBlocker,
+            $activeBlockerAt,
+            $gameSize,
+            Date.now(),
+        );
+    // v970 (rulebook audit B): Egg Partner / Lemon Phylactery carry
+    // "cannot be played during the endgame" on the card — enforce it once
+    // the seekers' endgame claim is armed.
+    const $endgameStartedAt = useStore(endgameStartedAt);
+    const blockedByEndgame =
+        $endgameStartedAt !== null &&
+        !!card &&
+        curseBlockedDuringEndgame(card.description);
     const fizzleRule = card ? DICE_FIZZLE[card.name] : undefined;
     // Photo casting cost (Zoologist / Luxury Car): the hider attaches a
     // proof photo the seekers see. `photoFile` is the picked/edited file
@@ -429,6 +453,8 @@ export function CastCurseDialog({
         !photoBusy &&
         // Rulebook p386: can't stack a second ask-blocking curse.
         !blockedByActiveCurse &&
+        // Card text: "cannot be played during the endgame".
+        !blockedByEndgame &&
         // Cards with a fizzle rule need a SETTLED roll before the
         // action button enables; cards without can cast right away.
         (fizzleRule === undefined || settled !== null) &&
@@ -455,9 +481,26 @@ export function CastCurseDialog({
     const categoryOfQuestion = (qid: string): CategoryId =>
         (qid.includes("/") ? qid.split("/")[0] : qid) as CategoryId;
 
+    // v970 (rulebook audit B): "You may not, however, ban the question that
+    // has just been asked, even if you have not yet answered it" (rulebook
+    // p392). The just-asked questions = the hider inbox's UNANSWERED entries,
+    // expressed in the picker's id format (bare category for single-question
+    // categories, "<category>/<subtype>" otherwise). Computed inline (no
+    // hook — this sits below the `!card` early return, and the inbox is a
+    // handful of entries).
+    const justAskedIds = new Set<string>();
+    for (const e of $inbox) {
+        if (e.repliedAt != null) continue;
+        const sub = (e.data?.type ?? e.data?.locationType) as
+            | string
+            | undefined;
+        justAskedIds.add(sub ? `${e.id}/${sub}` : e.id);
+    }
+
     // Toggle a question pick. Enforces one-question-per-category (picking a
     // second question in a category replaces the first) and a cap of 3.
     const toggleDrainedQuestion = (catId: CategoryId, qid: string) => {
+        if (justAskedIds.has(qid)) return; // can't ban the just-asked question
         setDrainedQuestions((curr) => {
             if (curr.includes(qid)) return curr.filter((x) => x !== qid);
             const withoutSameCat = curr.filter(
@@ -559,10 +602,12 @@ export function CastCurseDialog({
      * boost. Called from each successful-cast branch below.
      */
     const onCurseLanded = () => {
-        // Rulebook p386: record an ask-blocking curse as active so a
-        // second one can't be cast until the seekers clear this one.
-        if (curseBlocksAsking(card.name)) {
+        // Rulebook p386: record a blocking curse as active so a second
+        // one can't be cast until the seekers clear this one (or a timed
+        // one runs out).
+        if (cursePreventsAskingOrTransit(card)) {
             activeBlockingCurse.set(card.name);
+            activeBlockingCurseCastAt.set(Date.now());
         }
         if (card.name === "Curse of the Overflowing Chalice") {
             activateOverflowingChalice();
@@ -805,6 +850,10 @@ export function CastCurseDialog({
                                             const qid = catId;
                                             const sel =
                                                 drainedQuestions.includes(qid);
+                                            // v970: can't ban the just-asked
+                                            // (still unanswered) question.
+                                            const justAsked =
+                                                justAskedIds.has(qid);
                                             return (
                                                 <button
                                                     key={catId}
@@ -816,11 +865,19 @@ export function CastCurseDialog({
                                                         )
                                                     }
                                                     aria-pressed={sel}
+                                                    disabled={justAsked}
+                                                    title={
+                                                        justAsked
+                                                            ? "You can't ban the question that was just asked."
+                                                            : undefined
+                                                    }
                                                     className={cn(
                                                         "flex items-center gap-2 rounded-md border px-2.5 py-1.5 text-left text-xs font-semibold transition-colors",
                                                         sel
                                                             ? "border-purple-400 bg-purple-500/25 text-purple-100"
                                                             : "border-border bg-background/40 text-foreground/80 hover:border-purple-500/50",
+                                                        justAsked &&
+                                                            "opacity-40 cursor-not-allowed",
                                                     )}
                                                 >
                                                     <CatIcon
@@ -891,6 +948,10 @@ export function CastCurseDialog({
                                                                 drainedQuestions.includes(
                                                                     qid,
                                                                 );
+                                                            const justAsked =
+                                                                justAskedIds.has(
+                                                                    qid,
+                                                                );
                                                             return (
                                                                 <button
                                                                     key={qid}
@@ -904,11 +965,21 @@ export function CastCurseDialog({
                                                                     aria-pressed={
                                                                         sel
                                                                     }
+                                                                    disabled={
+                                                                        justAsked
+                                                                    }
+                                                                    title={
+                                                                        justAsked
+                                                                            ? "You can't ban the question that was just asked."
+                                                                            : undefined
+                                                                    }
                                                                     className={cn(
                                                                         "rounded-full border px-2 py-0.5 text-[11px] font-medium transition-colors",
                                                                         sel
                                                                             ? "border-purple-400 bg-purple-500/25 text-purple-100"
                                                                             : "border-border bg-background/40 text-foreground/70 hover:border-purple-500/50",
+                                                                        justAsked &&
+                                                                            "opacity-40 cursor-not-allowed",
                                                                     )}
                                                                 >
                                                                     {s.label}
@@ -926,6 +997,8 @@ export function CastCurseDialog({
                                 These 3 questions (each a different category)
                                 stay disabled for the seekers for the rest of
                                 your run — the app enforces it.
+                                {justAskedIds.size > 0 &&
+                                    " The question that was just asked can't be banned (rulebook)."}
                             </p>
                         </div>
                     )}
@@ -1364,6 +1437,22 @@ export function CastCurseDialog({
                         clear the first. The hider marks it cleared when the
                         seekers tell them (same trust model as real-world
                         curses). */}
+                    {/* v970: the card itself says it can't be played during
+                        the endgame (Egg Partner / Lemon Phylactery). */}
+                    {blockedByEndgame && (
+                        <div
+                            className={cn(
+                                "rounded-sm border px-3 py-2",
+                                "border-destructive/40 bg-destructive/10",
+                                "text-xs leading-snug",
+                            )}
+                            role="status"
+                        >
+                            The endgame has begun — this curse can&apos;t be
+                            played during the endgame (see the card text).
+                        </div>
+                    )}
+
                     {blockedByActiveCurse && (
                         <div
                             className={cn(
@@ -1385,7 +1474,10 @@ export function CastCurseDialog({
                                 size="sm"
                                 variant="outline"
                                 className="h-7 self-start text-xs"
-                                onClick={() => activeBlockingCurse.set(null)}
+                                onClick={() => {
+                                    activeBlockingCurse.set(null);
+                                    activeBlockingCurseCastAt.set(null);
+                                }}
                             >
                                 Seekers cleared it
                             </Button>

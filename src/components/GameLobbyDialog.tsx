@@ -3,6 +3,7 @@ import {
     ArrowLeftRight,
     Check,
     ChevronDown,
+    Clock,
     Copy,
     Loader2,
     LogOut,
@@ -13,6 +14,8 @@ import {
     Share2,
     Shield,
 } from "lucide-react";
+
+import { useNow } from "@/hooks/useNow";
 import { QRCodeSVG } from "qrcode.react";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "react-toastify";
@@ -41,6 +44,7 @@ import {
     HIDING_PERIOD_MINUTES,
     hidingPeriodEndsAt,
     pendingHidingDurationMin,
+    planningWindowEndsAt,
     playArea,
     preloadChoices,
     setupCompleted,
@@ -126,6 +130,48 @@ const GLASS_PILL_BTN =
  * up by GameStartWatcher which opens the GoGoGoOverlay celebration
  * on both host and guest devices.
  */
+/**
+ * v970 (rulebook audit B): between-rounds planning countdown. Rulebook p81
+ * grants the new hider "up to 10 minutes for any final planning before
+ * their hiding period begins" — this makes the allowance visible in the
+ * lobby. Informational only; the host still presses Start.
+ */
+function PlanningWindowBanner({ endsAt }: { endsAt: number }) {
+    const now = useNow();
+    const leftMs = endsAt - now;
+    const over = leftMs <= 0;
+    const total = Math.max(0, Math.ceil(leftMs / 1000));
+    const mm = Math.floor(total / 60);
+    const ss = String(total % 60).padStart(2, "0");
+    return (
+        <div
+            className={cn(
+                "rounded-md border px-3 py-2 text-xs leading-snug flex items-center gap-2",
+                over
+                    ? "border-warning/50 bg-warning/10 text-foreground"
+                    : "border-info/40 bg-info/10 text-foreground",
+            )}
+            role="status"
+        >
+            <Clock className="w-4 h-4 shrink-0 opacity-70" />
+            {over ? (
+                <span>
+                    The 10-minute planning window is over — time to start the
+                    round.
+                </span>
+            ) : (
+                <span>
+                    Planning window: the new hider has{" "}
+                    <span className="font-bold tabular-nums">
+                        {mm}:{ss}
+                    </span>{" "}
+                    for final planning before the round starts.
+                </span>
+            )}
+        </div>
+    );
+}
+
 export function GameLobbyDialog() {
     const $setupCompleted = useStore(setupCompleted);
     const $hidingEndsAt = useStore(hidingPeriodEndsAt);
@@ -141,6 +187,7 @@ export function GameLobbyDialog() {
     const $transportStatus = useStore(transportStatus);
     const $mapGeoLocation = useStore(mapGeoLocation);
     const $pending = useStore(pendingHidingDurationMin);
+    const $planningEndsAt = useStore(planningWindowEndsAt);
     const $size = useStore(gameSize);
     const $manualOpen = useStore(lobbyManualOpen);
     const $overLobby = useStore(gameStartOverLobby);
@@ -530,6 +577,7 @@ export function GameLobbyDialog() {
         // Arm the clock (correct timing + guest sync via the push below)…
         hidingPeriodEndsAt.set(Date.now() + safeMinutes * 60_000);
         pendingHidingDurationMin.set(null);
+        planningWindowEndsAt.set(null);
         // …but play the 3-2-1 + GO-GO-GO flourish OVER the lobby first:
         // set both flags SYNCHRONOUSLY so the pre-game branch never swaps
         // to the map for a frame (no seeker-view flash), and the lobby
@@ -1215,6 +1263,15 @@ export function GameLobbyDialog() {
                     still dismiss via swipe-down; the Leave button
                     stays available there too. */}
                 <div className="px-6 pt-3 pb-4 border-t border-border space-y-2">
+                    {/* v970 (rulebook audit B): between-rounds planning
+                        window — the new hider is permitted up to 10 min of
+                        final planning before their hiding period begins
+                        (rulebook p81). Purely informational: the countdown
+                        makes the allowance visible, the host still starts
+                        the round (enforcement is social). */}
+                    {!isMidGame && $planningEndsAt !== null && (
+                        <PlanningWindowBanner endsAt={$planningEndsAt} />
+                    )}
                     {isMidGame ? null : isHost ? (
                         <>
                             {/* v297: subtitle slot is conditionally

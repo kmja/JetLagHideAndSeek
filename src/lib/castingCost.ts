@@ -160,6 +160,21 @@ export function curseCostRequiresDestination(
 }
 
 /**
+ * v970 (rulebook audit B): whether a curse's own card text forbids playing
+ * it during the endgame — Egg Partner and Lemon Phylactery both carry
+ * "This curse cannot be played during the endgame." (their bonus rides on
+ * events "before the end of your run", which the endgame closes out).
+ * Matched on the description so a future card with the same clause is
+ * covered automatically. The Move POWERUP has the same clause but its own
+ * dedicated gate in `roundActions.playMovePowerup`.
+ */
+export function curseBlockedDuringEndgame(description: string | null): boolean {
+    return (
+        !!description && /cannot be played during the endgame/i.test(description)
+    );
+}
+
+/**
  * The subset of `hand` that can satisfy `cost`, excluding the curse
  * card paying the cost (the casting cost is paid *in addition* to the
  * curse itself).

@@ -61,7 +61,7 @@ const TABLE: Record<string, Partial<Record<AdminLevel, string>>> = {
     TR: { 4: "Province (İl)", 6: "District (İlçe)", 8: "Village / Quarter (Mahalle)" },
     TW: { 4: "Province / Special Municipality", 5: "County / City (縣 / 市)", 7: "Township / District (鄉 / 區)" },
     UA: { 4: "Oblast", 6: "Raion", 8: "Hromada" },
-    US: { 4: "State", 5: "Combined Statistical Area", 6: "County", 7: "Township (where used)", 8: "City / Town", 9: "Ward / Borough", 10: "Neighbourhood" },
+    US: { 4: "State", 5: "Combined Statistical Area", 6: "County", 7: "Borough / Township", 8: "City / Town", 9: "Ward", 10: "Neighbourhood" },
     ZA: { 4: "Province", 6: "District Municipality", 8: "Local Municipality" },
 };
 
@@ -112,6 +112,12 @@ const TIER_OVERRIDES: Record<string, [number, number, number, number]> = {
     NO: [4, 7, 7, 7],
     SE: [4, 7, 7, 7],
     DK: [4, 7, 7, 7],
+    // v970 (rulebook audit B): the rulebook's own 4th-division example is
+    // "NYC has boroughs" — and NYC boroughs are OSM admin_level 7 (Queens
+    // borough L7 sits beside coterminous Queens County L6; NYC has NO L8/L9
+    // inside it), so the generic tier4→9 default found nothing there. Tiers
+    // 1-3 keep the standard state/county/municipality 4/6/8.
+    US: [4, 6, 8, 7],
 };
 
 export function adminTierToOsmLevel(

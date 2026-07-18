@@ -47,6 +47,7 @@ import {
     seekingStartFiredFor,
     endgameConfirmedAt,
     endgameDeniedAt,
+    endgameDeniedReason,
     endgameStartedAt,
     endgameSuccessAt,
     endgameZone,
@@ -60,6 +61,7 @@ import {
     locationTrackingExternal,
     manualPausedAt,
     manualPauseWasHiding,
+    planningWindowEndsAt,
     playArea,
     readRoundProgress,
     revealedStation,
@@ -834,6 +836,10 @@ function reconcileLocalRoleFromPresence(roster: GameState["participants"]) {
  * reset lives here on the discrete round-start event only.
  */
 function applyRoundStarted(roster: GameState["participants"]) {
+    // v970 (rulebook audit B): capture whether the PREVIOUS round actually
+    // completed before the reset wipes it — a completed round grants the
+    // new hider the 10-minute planning window (rulebook p81).
+    const prevRoundCompleted = roundFoundAt.get() !== null;
     // v670: reset ALL per-round state via the shared helper — the same
     // one `startNewRound`/`startNewGame` use — so a guest device can't
     // carry stale curses / Move-freeze / scoring credit-debit /
@@ -842,6 +848,9 @@ function applyRoundStarted(roster: GameState["participants"]) {
     // nothing else fixed them). Clears questions, hider hand/deck, map
     // overlays, the live hiding clock, and the endgame stamps too.
     resetSharedRoundState();
+    if (prevRoundCompleted) {
+        planningWindowEndsAt.set(Date.now() + 10 * 60_000);
+    }
     // Per-seeker live positions are scoped to the previous round —
     // the new round restarts the broadcast.
     seekerLocations.set({});
@@ -1478,27 +1487,36 @@ function handleServerMessage(msg: ServerMessage) {
             return;
         }
         case "endgameDenied": {
-            // v950: the server validated a seeker's endgame claim as NOT at
-            // the hider's zone. It armed nothing (the seekers can re-try at the
-            // right station) — this is the transient "wrong place" signal.
-            // Notify by role + raise the on-map banner (auto-clears).
+            // v950: the server validated a seeker's endgame claim and denied
+            // it. It armed nothing (the seekers can re-try) — this is the
+            // transient signal. v970: `reason` distinguishes the wrong-place
+            // denial from the ON-TRANSIT denial (right zone, but the endgame
+            // only begins once the seekers are off transit — rulebook p75).
+            const onTransit = msg.reason === "transit";
             const role = playerRole.get();
             if (role === "hider") {
                 notify({
                     title: "Endgame attempted",
-                    body: "The seekers tried to start the endgame, but they're not at your zone.",
+                    body: onTransit
+                        ? "The seekers reached your zone but are still on transit — the endgame hasn't started yet."
+                        : "The seekers tried to start the endgame, but they're not at your zone.",
                     tag: "endgame",
                 });
             } else if (role === "seeker") {
                 notify({
-                    title: "Not the right spot",
-                    body: "The hider isn't in this zone. Keep searching.",
+                    title: onTransit
+                        ? "Get off transit first"
+                        : "Not the right spot",
+                    body: onTransit
+                        ? "You're at the zone, but the endgame can only start once you're off transit. Disembark and declare again."
+                        : "The hider isn't in this zone. Keep searching.",
                     tag: "endgame",
                 });
             }
-            // The declared zone was wrong — drop it so a later correct claim
-            // starts clean.
+            // The declared zone was wrong (or premature) — drop it so a later
+            // correct claim starts clean.
             pendingEndgameZone.set(null);
+            endgameDeniedReason.set(onTransit ? "transit" : "off-zone");
             endgameDeniedAt.set(Date.now());
             return;
         }

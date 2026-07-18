@@ -4,6 +4,7 @@ import osmtogeojson from "osmtogeojson";
 import { useEffect, useRef, useState } from "react";
 
 import { mapGeoLocation, polyGeoJSON } from "@/lib/context";
+import { fetchPrewarmedRailStationElements } from "@/lib/journey/stations";
 import { cn } from "@/lib/utils";
 import { fetchCoastline, LOCATION_FIRST_TAG } from "@/maps/api";
 import { fetchAreaCoastlineLines } from "@/maps/api/coast";
@@ -369,6 +370,27 @@ export async function fetchNearest(
     // their middle. This is handled first so it bypasses the centroid
     // `tryCacheNearest` path below (which would win with the wrong ref).
     if (family.kind === "water") return fetchNearestWater(lat, lng);
+
+    // v970 (rulebook audit B): rail stations include light rail / halts /
+    // tram stops (rulebook p206) — the SAME prewarmed rail set the
+    // measuring elimination buffers, so the label agrees with the cut.
+    // Handled before the centroid cache below, which only holds the bare
+    // `railway=station` family and would win with a farther heavy station.
+    if (family.kind === "rail-station") {
+        try {
+            const rail = await fetchPrewarmedRailStationElements();
+            if (rail && rail.length > 0) {
+                const ref = pickNearestNamed(
+                    rail as Parameters<typeof pickNearestNamed>[0],
+                    lat,
+                    lng,
+                );
+                if (ref) return ref;
+            }
+        } catch {
+            // fall through to the cache / around-radius paths
+        }
+    }
 
     // Play-area-wide cache short-circuit. One Overpass call per
     // category per play area instead of N around-radius walks per

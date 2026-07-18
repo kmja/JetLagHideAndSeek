@@ -26,6 +26,7 @@ import {
 } from "@/lib/context";
 import {
     activeBlockingCurse,
+    activeBlockingCurseCastAt,
     seekerOnTransit,
     spottyMemoryCategory,
 } from "@/lib/curseEnforcement";
@@ -33,6 +34,7 @@ import {
     closingInWarningLevel,
     endgameConfirmedAt,
     endgameDeniedAt,
+    endgameDeniedReason,
     endgameStartedAt,
     endgameSuccessAt,
     endgameZone,
@@ -48,6 +50,7 @@ import {
     hidingPeriodEndsAt,
     locationGraceStartedAt,
     manualPausedAt,
+    planningWindowEndsAt,
     manualPauseWasHiding,
     resetMapOverlays,
     revealedStation,
@@ -91,6 +94,7 @@ export function resetCurseState(): void {
     spottyMemoryCategory.set(null);
     seekerOnTransit.set(false);
     activeBlockingCurse.set(null);
+    activeBlockingCurseCastAt.set(null);
 }
 
 export function resetSharedRoundState(): void {
@@ -115,6 +119,7 @@ export function resetSharedRoundState(): void {
 
     // Live hiding-period clock + start/seeking celebration dedupe keys.
     hidingPeriodEndsAt.set(null);
+    planningWindowEndsAt.set(null);
     gameStartPosition.set(null);
     seekingStartFiredFor.set(null);
     gameStartFiredFor.set(null);
@@ -142,6 +147,7 @@ export function resetSharedRoundState(): void {
     endgameStartedAt.set(null);
     endgameConfirmedAt.set(null);
     endgameDeniedAt.set(null);
+    endgameDeniedReason.set(null);
     endgameSuccessAt.set(null);
     endgameZone.set(null);
     pendingEndgameZone.set(null);

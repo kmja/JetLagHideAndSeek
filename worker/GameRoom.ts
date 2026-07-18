@@ -67,6 +67,18 @@ const FOUND_POS_STALE_MS = 3 * 60_000;
  *  endgame "are the seekers at the zone?" check. Urban GPS is noisy and the
  *  hider can be anywhere IN the zone, so "at the zone" is radius + this. */
 const ENDGAME_ZONE_MARGIN_M = 150;
+/** v970 (rulebook audit B): the endgame begins only once the seekers are in
+ *  the zone AND "no longer on a mode of transit" (rulebook p75). A claiming
+ *  seeker whose recent GPS shows them moving at or above this speed is
+ *  treated as still on transit and the claim is denied with
+ *  reason:"transit". 18 km/h is comfortably above sustained walking/jogging
+ *  between fixes but well below any tram/train/bus. */
+const ENDGAME_TRANSIT_SPEED_KMH = 18;
+/** Usable window for the endgame speed sample: the two fixes must be at
+ *  least this far apart (GPS jitter over a tiny dt reads as huge speed)… */
+const ENDGAME_SPEED_MIN_DT_MS = 8_000;
+/** …and no older than this (a stale pair proves nothing). */
+const ENDGAME_SPEED_MAX_DT_MS = 3 * 60_000;
 
 /**
  * v940: seeker-location reminder thresholds (stale time → push). KEEP IN SYNC
@@ -483,6 +495,7 @@ export class GameRoom {
             this.castCurses = [];
             this.curseCastSeq = 0;
             this.closingSample.clear();
+            this.prevSeekerPos.clear();
             this.closingPushed = false;
             this.pushSubscriptions.clear();
             this.locLastAt.clear();
@@ -1386,7 +1399,12 @@ export class GameRoom {
         // longer manually confirms/refutes. Can't-verify (no zone / no fix)
         // allows it (friends game, don't block).
         const correct = this.seekerIsAtHidingZone(conn.participantId);
-        if (correct) {
+        // v970 (rulebook audit B): even AT the zone, the endgame only begins
+        // once the seekers are off transit (rulebook p75) — a seeker riding
+        // through the zone can't arm it. Denied with reason:"transit".
+        const onTransit =
+            correct && this.seekerLooksOnTransit(conn.participantId);
+        if (correct && !onTransit) {
             // Endgame BEGINS: arm it (persistent) + confirm, so the seekers
             // proceed to "find them" and the hider locks down. `at` is the
             // seeker's claim time.
@@ -1412,7 +1430,10 @@ export class GameRoom {
         // WRONG place: DON'T arm the endgame (so the seekers can re-try at the
         // right station). Fire the transient "denied" signal so both sides
         // KNOW it was attempted — online via `endgameDenied`, offline via push.
-        const denied: ServerMessage = { t: "endgameDenied" };
+        const denied: ServerMessage = {
+            t: "endgameDenied",
+            reason: onTransit ? "transit" : "off-zone",
+        };
         const deniedPayload = JSON.stringify(denied);
         for (const [pid, c] of this.conns.entries()) {
             if (pid !== conn.participantId) {
@@ -1434,8 +1455,10 @@ export class GameRoom {
         );
         this.state.waitUntil(
             this.pushToOfflineRole("seeker", {
-                title: "Not the right spot",
-                body: "The hider isn't in this zone. Keep searching.",
+                title: onTransit ? "Get off transit first" : "Not the right spot",
+                body: onTransit
+                    ? "You're at the zone, but the endgame can only start once you're off transit. Disembark and declare again."
+                    : "The hider isn't in this zone. Keep searching.",
                 tag: "endgame",
             }),
         );
@@ -1463,6 +1486,30 @@ export class GameRoom {
         // hider can still be anywhere IN the zone, so "at the zone" is radius +
         // slack, not "at the exact station".
         return d <= zone.radiusMeters + ENDGAME_ZONE_MARGIN_M;
+    }
+
+    /**
+     * v970 (rulebook audit B): does the claiming seeker's recent GPS show
+     * them still MOVING at transit speed? Estimated from their last two
+     * fixes when the pair is usable (dt within [8 s, 3 min]); can't-verify
+     * returns false (allow) — same friends-game bias as the zone check.
+     */
+    private seekerLooksOnTransit(seekerId: string): boolean {
+        const cur = this.lastPos.get(seekerId);
+        const prev = this.prevSeekerPos.get(seekerId);
+        if (!cur || !prev) return false;
+        const dtMs = cur.ts - prev.ts;
+        if (dtMs < ENDGAME_SPEED_MIN_DT_MS || dtMs > ENDGAME_SPEED_MAX_DT_MS) {
+            return false;
+        }
+        const meters = haversineMetersServer(
+            prev.lat,
+            prev.lng,
+            cur.lat,
+            cur.lng,
+        );
+        const kmh = meters / 1000 / (dtMs / 3_600_000);
+        return kmh >= ENDGAME_TRANSIT_SPEED_KMH;
     }
 
     /**
@@ -1760,6 +1807,14 @@ export class GameRoom {
     private lastPos: Map<string, { lat: number; lng: number; ts: number }> =
         new Map();
 
+    /** v970: each seeker's PREVIOUS fix (slid only when ≥8 s older than the
+     *  incoming one), so the endgame claim can estimate their current speed
+     *  — the "off transit" condition. Ephemeral like `lastPos`. */
+    private prevSeekerPos: Map<
+        string,
+        { lat: number; lng: number; ts: number }
+    > = new Map();
+
     /**
      * v940/v946: seeker-location freshness escalation. `locLastAt` is the
      * SERVER's receive time of each seeker's last `loc` (skew-immune).
@@ -1854,7 +1909,13 @@ export class GameRoom {
         if (ts <= prev) return;
         this.lastLocTs.set(conn.participantId, ts);
         // Remember the position for the `found` proximity check (the seeker's
-        // side of it). Fanned to the hide team below as usual.
+        // side of it). Fanned to the hide team below as usual. v970: slide the
+        // previous fix into `prevSeekerPos` (only when meaningfully older)
+        // so the endgame claim can estimate the seeker's speed.
+        const lastFix = this.lastPos.get(conn.participantId);
+        if (lastFix && ts - lastFix.ts >= ENDGAME_SPEED_MIN_DT_MS) {
+            this.prevSeekerPos.set(conn.participantId, lastFix);
+        }
         this.lastPos.set(conn.participantId, { lat, lng, ts });
         // v940: this seeker is fresh again — reset the freshness clock (server
         // receive time) + clear any reminders sent this stale episode.
@@ -1955,6 +2016,7 @@ export class GameRoom {
         this.castCurses = [];
         this.curseCastSeq = 0;
         this.closingSample.clear();
+        this.prevSeekerPos.clear();
         this.closingPushed = false;
         // Per-participant location-update timestamps are per-round
         // (the next round's clocks restart). Without clearing, a

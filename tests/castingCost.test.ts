@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+    curseBlockedDuringEndgame,
     canPayDiscardCost,
     curseCostDeliverableIsImage,
     curseCostRequiresPhoto,
@@ -168,5 +169,22 @@ describe("eligibility + payability", () => {
         expect(
             curseRequiresImage("Discard two cards.", "The seekers must wait."),
         ).toBe(false);
+    });
+
+    it("v970: detects cards that cannot be played during the endgame", () => {
+        expect(
+            curseBlockedDuringEndgame(
+                "…you are awarded an extra 30 min. This curse cannot be played during the endgame.",
+            ),
+        ).toBe(true);
+        expect(
+            curseBlockedDuringEndgame(
+                "This card cannot be played during the endgame.",
+            ),
+        ).toBe(true);
+        expect(
+            curseBlockedDuringEndgame("The seekers must acquire an egg."),
+        ).toBe(false);
+        expect(curseBlockedDuringEndgame(null)).toBe(false);
     });
 });

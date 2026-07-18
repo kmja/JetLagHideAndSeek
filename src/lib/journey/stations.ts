@@ -318,6 +318,35 @@ async function fetchPrewarmedStationsUnion(): Promise<
     return cullElementsToPlayArea(merged);
 }
 
+/**
+ * v970 (rulebook audit B): the RAIL-STATION reference set for the measuring
+ * "Rail Station" question — "Includes light and heavy rail; metros/subways
+ * count" (rulebook p206). Served from the prewarmed all-mode area-stations
+ * union filtered to the rail modes (train / subway / tram), so it covers
+ * `railway=halt`, tram stops, and PTv2-only light rail that the bare
+ * `["railway"="station"]` reference filter misses — Overpass-free for a
+ * warm city. Returns null (caller falls back to its live query) when any
+ * play-area relation is cold or the area isn't relation-backed.
+ */
+export async function fetchPrewarmedRailStationElements(): Promise<
+    | {
+          id: number;
+          lat?: number;
+          lon?: number;
+          center?: { lat?: number; lon?: number };
+          tags?: Record<string, string>;
+      }[]
+    | null
+> {
+    const union = await fetchPrewarmedStationsUnion();
+    if (!union) return null;
+    const rail: TransitMode[] = ["train", "subway", "tram"];
+    return union.filter((el) => {
+        const mode = inferMode(el.tags ?? {});
+        return mode !== null && rail.includes(mode);
+    });
+}
+
 /** Relation ids we've asked the worker to warm this session, so a warm
  *  fires once per relation, not on every fetch. */
 const stationWarmRequested = new Set<number>();

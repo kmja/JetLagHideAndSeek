@@ -1,6 +1,7 @@
 import { persistentAtom } from "@nanostores/persistent";
 
 import type { CategoryId } from "@/lib/categories";
+import { curseDurationMs } from "@/lib/curseMeta";
 import type { ReceivedCurse } from "@/lib/seekerInbound";
 
 /**
@@ -49,6 +50,73 @@ export function curseBlocksAsking(name: string): boolean {
 }
 
 /**
+ * v970 (rulebook audit B): the rulebook's one-at-a-time limit covers EVERY
+ * curse "actively preventing the seekers from asking questions or taking
+ * transit" (p386) — not just the three the app enforces in the question UI.
+ * That's the task-blocking curses (the seekers can't ask their next question
+ * until the task is done) and the transit/movement blockers. The hider must
+ * wait for the active one to be cleared before casting another.
+ */
+const CURSE_TASK_OR_TRANSIT_BLOCKERS: ReadonlySet<string> = new Set([
+    // "before asking another question" task curses
+    "Curse of the Unguided Tourist",
+    "Curse of the Ransom Note",
+    "Curse of the Mediocre Travel Agent",
+    "Curse of the Distant Cuisine",
+    "Curse of the Bird Guide",
+    "Curse of the Cairn",
+    "Curse of Water Weight",
+    "Curse of the Zoologist",
+    "Curse of the Egg Partner",
+    "Curse of the Bridge Troll",
+    "Curse of the Luxury Car",
+    "Curse of the Impressionable Consumer",
+    "Curse of the Endless Tumble",
+    "Curse of the Labyrinth",
+    "Curse of the Hidden Hangman",
+    "Curse of the Lemon Phylactery",
+    // transit / movement blockers
+    "Curse of the Jammed Door",
+    "Curse of the U-Turn",
+    "Curse of the Gambler's Feet",
+    "Curse of the Right Turn",
+]);
+
+/**
+ * Whether casting this curse claims the rulebook's single
+ * blocking-curse slot. Known names first; unknown (demo) curses fall
+ * back to the description telling the seekers they can't ask/board
+ * until something is done.
+ */
+export function cursePreventsAskingOrTransit(curse: {
+    name: string;
+    description: string;
+}): boolean {
+    if (CURSE_ASK_BLOCKERS.has(curse.name)) return true;
+    if (CURSE_TASK_OR_TRANSIT_BLOCKERS.has(curse.name)) return true;
+    return /before (?:asking|they can ask|boarding)|cannot ask another question/i.test(
+        curse.description,
+    );
+}
+
+/**
+ * Whether the recorded active blocking curse has ALREADY run out on its
+ * own — true only for the timed blockers (whose duration the app knows
+ * via `curseDurationMs`); task blockers stay active until the hider
+ * marks them cleared.
+ */
+export function blockingCurseExpired(
+    name: string,
+    castAt: number | null,
+    size: "small" | "medium" | "large",
+    now: number,
+): boolean {
+    if (castAt == null) return false;
+    const dur = curseDurationMs({ name, description: "" }, size);
+    return dur != null && now >= castAt + dur;
+}
+
+/**
  * The name of the ask-blocking curse the HIDER has cast that is still
  * active on the seekers, or null. Set when the hider casts an ask-blocker
  * and cleared when the hider marks it cleared (the seekers must tell them,
@@ -61,6 +129,24 @@ export const activeBlockingCurse = persistentAtom<string | null>(
     "jlhs:activeBlockingCurse",
     null,
     { encode: (v) => v ?? "", decode: (v) => v || null },
+);
+
+/**
+ * Unix ms when the active blocking curse was cast (v970). Lets the cast
+ * gate auto-expire a TIMED blocker (Jammed Door / Gambler's Feet / Right
+ * Turn auto-clear on the seeker side after their duration), so the hider
+ * isn't stuck manually clearing a curse that already ran out.
+ */
+export const activeBlockingCurseCastAt = persistentAtom<number | null>(
+    "jlhs:activeBlockingCurseCastAt",
+    null,
+    {
+        encode: (v) => (v == null ? "" : String(v)),
+        decode: (v) => {
+            const n = Number(v);
+            return v && Number.isFinite(n) ? n : null;
+        },
+    },
 );
 
 /**

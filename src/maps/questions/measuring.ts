@@ -20,6 +20,7 @@ import {
     findPlacesInZone,
     findPlacesSpecificInZone,
     apiLocationFilter,
+    apiLocationMatches,
     nearestToQuestion,
     prettifyLocation,
     QuestionSpecificLocation,
@@ -31,6 +32,7 @@ import {
     requestWaterWarmAll,
 } from "@/maps/api/water";
 import { seaFromCoast as seaFromCoastViaWorker } from "@/lib/geometry/client";
+import { fetchPrewarmedRailStationElements } from "@/lib/journey/stations";
 import { filterCoastlineByStraitRule } from "@/maps/questions/coastlineStrait";
 import { seaFromCoastline } from "@/maps/questions/seaFromCoastline";
 import { majorCityPoints } from "@/maps/data/majorCities";
@@ -355,12 +357,22 @@ export const determineMeasuringBoundary = async (
             return [
                 turf.combine(
                     turf.featureCollection(
-                        data.elements.map((x: any) =>
-                            turf.point([
-                                x.center ? x.center.lon : x.lon,
-                                x.center ? x.center.lat : x.lat,
-                            ]),
-                        ),
+                        data.elements
+                            // v970 (rulebook audit B): re-check tags
+                            // client-side so the cached paths' exclusions
+                            // (golf driving ranges / mini golf) apply to
+                            // this LIVE query too — label and cut agree.
+                            .filter(
+                                (x: any) =>
+                                    !x.tags ||
+                                    apiLocationMatches(location, x.tags),
+                            )
+                            .map((x: any) =>
+                                turf.point([
+                                    x.center ? x.center.lon : x.lon,
+                                    x.center ? x.center.lat : x.lat,
+                                ]),
+                            ),
                     ),
                 ).features[0],
             ];
@@ -377,24 +389,37 @@ export const determineMeasuringBoundary = async (
          * follow the *-full pattern.
          */
         case "rail-measure-ordinary": {
-            // All railway stations (heavy + light + metro) inside the
-            // play area. Same shape as the *-full POI cases — points
-            // get buffered radially by the seeker-distance arc.
-            const data = await findPlacesInZone(
-                '["railway"="station"]',
-                undefined,
-                "nwr",
-                "center",
-                [],
-                60,
-            );
-            if (data.elements.length === 0) {
+            // All rail stations inside the play area. Rulebook p206:
+            // "Includes light and heavy rail; metros/subways count" —
+            // v970 (rulebook audit B): the prewarmed all-mode station
+            // union filtered to rail modes is the primary source (it
+            // covers halts, tram stops and PTv2-only light rail the bare
+            // `railway=station` filter misses, and is Overpass-free for
+            // a warm city); the live query is the cold-area fallback,
+            // broadened to station|halt|tram_stop. Same shape as the
+            // *-full POI cases — points get buffered radially by the
+            // seeker-distance arc.
+            const prewarmedRail = await fetchPrewarmedRailStationElements();
+            const elements: any[] =
+                prewarmedRail ??
+                ((
+                    await findPlacesInZone(
+                        '["railway"~"^(station|halt|tram_stop)$"]',
+                        undefined,
+                        "nwr",
+                        "center",
+                        [],
+                        60,
+                    )
+                ).elements ??
+                    []);
+            if (elements.length === 0) {
                 return [turf.multiPolygon([])];
             }
             return [
                 turf.combine(
                     turf.featureCollection(
-                        data.elements.map((x: any) =>
+                        elements.map((x: any) =>
                             turf.point([
                                 x.center ? x.center.lon : x.lon,
                                 x.center ? x.center.lat : x.lat,
@@ -411,7 +436,33 @@ export const determineMeasuringBoundary = async (
             // buffer what's nearby (a 4-degree bbox is enough; a few
             // border lines in a city's frame, not the world's set).
             const bordersFC = await fetchBorders0Land();
-            const clipped = clipLinesToBbox(bordersFC, bBox);
+            let clipped = clipLinesToBbox(bordersFC, bBox);
+            // v970 (rulebook audit B): "Enclaves count!" (rulebook p210) —
+            // the 1:50m bundle omits MICRO-enclaves (Baarle, Llívia,
+            // Büsingen; Kaliningrad-scale is in it). Fold in the play
+            // area's own OSM `admin_level=2` border WAYS (a poly-scoped
+            // query returns just the local segments — including enclave
+            // rings — not whole-country relations). Best-effort: any
+            // failure keeps the bundled lines alone.
+            try {
+                const osm = osmtogeojson(
+                    await findPlacesInZone(
+                        '["boundary"="administrative"]["admin_level"="2"]',
+                        undefined,
+                        "way",
+                        "geom",
+                    ),
+                ).features.filter(
+                    (f) =>
+                        f.geometry?.type === "LineString" ||
+                        f.geometry?.type === "MultiLineString",
+                );
+                if (osm.length > 0) {
+                    clipped = clipped.concat(osm as Feature[]);
+                }
+            } catch {
+                /* bundled lines only */
+            }
             if (clipped.length === 0) return [turf.multiPolygon([])];
             return [highSpeedBase(clipped)];
         }

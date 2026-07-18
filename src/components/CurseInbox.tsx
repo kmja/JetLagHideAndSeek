@@ -14,6 +14,7 @@ import {
     spottyMemoryCategory,
 } from "@/lib/curseEnforcement";
 import {
+    curseDiceCount,
     curseDurationMs,
     curseRequiresDice,
     formatCurseCountdown,
@@ -607,8 +608,10 @@ export function CurseInbox({
                                 })}
                             </div>
                         </div>
-                    ) : dlgMeta?.requiresDice ? (
-                        <DiceRoller />
+                    ) : dlgMeta?.requiresDice && resolvedDialog ? (
+                        // v970: Jammed Door rolls TWO d6 per doorway
+                        // (rulebook p396); other dice curses roll one.
+                        <DiceRoller count={curseDiceCount(resolvedDialog)} />
                     ) : null}
 
                     <div className="flex gap-2">

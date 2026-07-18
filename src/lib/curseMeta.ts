@@ -33,6 +33,19 @@ export function curseRequiresDice(curse: {
 }
 
 /**
+ * How many d6 a dice curse rolls at once. The Curse of the Jammed Door
+ * requires TWO dice per doorway (rulebook p396: "Seekers must roll two
+ * d6 dice"); every other dice curse rolls one. v970 (rulebook audit B).
+ */
+export function curseDiceCount(curse: {
+    name: string;
+    description: string;
+}): number {
+    if (curse.name === "Curse of the Jammed Door") return 2;
+    return /\btwo\s+d6\b/i.test(curse.description) ? 2 : 1;
+}
+
+/**
  * Time-limited curses → duration in minutes per game size. Everything
  * not listed here clears when the seekers finish the curse's task (manual
  * clear) — including the "for the rest of your run" curses, which the

@@ -15,6 +15,7 @@ import {
     locationTrackingExternal,
     MOVE_PERIOD_MINUTES,
     pendingHidingDurationMin,
+    planningWindowEndsAt,
     preloadBucketTimestamps,
     roundEndBaseMs,
     roundEndBonusPieces,
@@ -131,6 +132,14 @@ export function startNewRound() {
     // once the map is ready (usually immediately on a continuing game).
     const minutes = HIDING_PERIOD_MINUTES[gameSize.get()];
     pendingHidingDurationMin.set(minutes);
+    // v970 (rulebook audit B): between rounds the NEW hider gets "up to
+    // 10 minutes for any final planning before their hiding period
+    // begins" (rulebook p81) — surface it as a lobby countdown. Only
+    // after a COMPLETED round (a fresh game's first round has no
+    // previous hider to hand over from).
+    if (prevFoundAt !== null) {
+        planningWindowEndsAt.set(Date.now() + 10 * 60_000);
+    }
 }
 
 /**

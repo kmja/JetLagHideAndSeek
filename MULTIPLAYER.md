@@ -185,6 +185,14 @@ restart.
 - `messages.ts` — discriminated wire-protocol types. Same module
   imported by both client and Worker so the compiler enforces
   shape parity.
+- **`SMsgEndgameDenied.reason?` (v970)** — `"off-zone"` (or absent, older
+  servers) = the claiming seeker isn't at the hider's zone; `"transit"` =
+  they ARE at the zone but their recent GPS shows them still moving at
+  transit speed (rulebook p75: the endgame begins only once the seekers are
+  off transit). The server estimates speed from each seeker's last two `loc`
+  fixes (`prevSeekerPos`, slid at ≥8 s spacing; usable pair = dt within
+  [8 s, 3 min]; threshold `ENDGAME_TRANSIT_SPEED_KMH` = 18). Can't-verify
+  allows the claim, same friends-game bias as the zone-radius check.
 - `state.ts` — canonical GameState shape + transport constants.
 - `version.ts` — protocol version constant; bumped on breaking
   changes.
