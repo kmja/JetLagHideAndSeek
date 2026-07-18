@@ -226,17 +226,37 @@ export class MultiplayerTransport {
         this.setStatus(
             this.reconnectAttempt > 0 ? "reconnecting" : "connecting",
         );
+        let socket: WebSocket;
         try {
-            this.socket = new WebSocket(this.url);
+            socket = new WebSocket(this.url);
         } catch (e) {
             console.warn("[multiplayer] WebSocket constructor failed", e);
             this.scheduleReconnect();
             return;
         }
-        this.socket.addEventListener("open", () => this.handleOpen());
-        this.socket.addEventListener("message", (evt) => this.handleMessage(evt));
-        this.socket.addEventListener("close", () => this.handleClose());
-        this.socket.addEventListener("error", () => this.handleClose());
+        this.socket = socket;
+        // Generation guard: only the CURRENT socket's events act. Without
+        // this, a superseded socket (closed by forceReconnect while a fresh
+        // one is already connecting — e.g. the "Retry now" button firing
+        // mid-connect) fires its delayed `close` and runs handleClose, which
+        // nulls `this.socket` (now the NEW socket) and schedules a spurious
+        // reconnect. The new socket then opens with `this.socket === null`, so
+        // handleOpen's `this.socket?.send(resume)` is a NO-OP — the connection
+        // opens (status flips to "open", banner hides) but the server never
+        // gets the resume, so the device stays "offline" on every peer. (The
+        // reported "Retry now → looks connected but shown offline" bug.)
+        socket.addEventListener("open", () => {
+            if (this.socket === socket) this.handleOpen();
+        });
+        socket.addEventListener("message", (evt) => {
+            if (this.socket === socket) this.handleMessage(evt);
+        });
+        socket.addEventListener("close", () => {
+            if (this.socket === socket) this.handleClose();
+        });
+        socket.addEventListener("error", () => {
+            if (this.socket === socket) this.handleClose();
+        });
     }
 
     private handleOpen() {

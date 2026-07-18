@@ -428,7 +428,25 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v962`. Use `git log` for the per-version detail;
+build stamp. Current: `v963`. Use `git log` for the per-version detail;
+
+**v963 — "Retry now" reconnect sent no resume (stayed offline) — socket
+generation guard.** Follow-up to v962: clicking the Reconnecting banner's "Retry
+now" flipped the status to "open" (banner hid, looked connected) but the device
+stayed OFFLINE on every peer. Root cause: `transport.ts openSocket` attached its
+`open`/`message`/`close`/`error` listeners WITHOUT checking the event came from
+the CURRENT socket. When `forceReconnect` (the Retry path) closed a socket that
+was still mid-connect and immediately opened a fresh one, the OLD socket's
+delayed `close` ran `handleClose`, which nulled `this.socket` — now pointing at
+the NEW socket — and scheduled a spurious reconnect. The new socket then opened
+with `this.socket === null`, so `handleOpen`'s `this.socket?.send(resume)` was a
+NO-OP: the connection opened (status → "open") but the server never received the
+`resume` handshake, so it never re-registered the participant → offline
+everywhere. (The auto-reconnect path avoided it because it force-reconnects a
+zombie whose `close` never fires, so there's no orphan event.) Fix: a generation
+guard — each socket's listeners run its handler only while `this.socket ===
+socket`, so a superseded socket's events are ignored and can't null the live
+socket or drop its resume.
 
 **v962 — heartbeat zombie-socket detection (fixes "peer reconnected but this
 device never sees it").** A seeker Android reconnected and sent a question, but
