@@ -124,7 +124,7 @@ function Banner({
     children: React.ReactNode;
 }) {
     return (
-        <div className="fixed inset-x-0 top-0 z-[1052] flex justify-center pointer-events-none px-3 pt-3">
+        <div className="fixed inset-x-0 top-0 z-[1052] flex justify-center pointer-events-none px-3 pt-[max(0.75rem,env(safe-area-inset-top))]">
             <div
                 className={cn(
                     "pointer-events-auto flex items-center gap-3 rounded-2xl border px-4 py-2.5 shadow-lg backdrop-blur",

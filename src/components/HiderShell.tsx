@@ -42,10 +42,13 @@ export function HiderShell() {
             style={{
                 // Reserve the HiderHandFan's peek-strip height when a hand
                 // is held, so the bottom nav lands directly above the
-                // (still fixed) fan.
-                paddingBottom: hasCards
-                    ? `${FAN_HEIGHT_PX}px`
-                    : "env(safe-area-inset-bottom)",
+                // (still fixed) fan. The safe-area-inset-bottom is NOT added
+                // here — as container padding it lifted the nav and left a
+                // background gap below it (the iOS "empty space under the
+                // footer" bug); the nav owns that inset itself (like the
+                // seeker BottomNav), so its background fills to the screen
+                // edge with content padded up.
+                paddingBottom: hasCards ? `${FAN_HEIGHT_PX}px` : 0,
             }}
             header={<HiderTopBar />}
             footer={<HiderBottomNav />}

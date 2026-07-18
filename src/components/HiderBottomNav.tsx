@@ -12,7 +12,12 @@ import {
 } from "@/components/HiderMapDisplayControls";
 import { HiderQuestionLog } from "@/components/HiderQuestionLog";
 import { hidingPeriodEndsAt, mapOptionsDrawerOpen } from "@/lib/gameSetup";
-import { hiderInbox, hidingZone, roundFoundAt } from "@/lib/hiderRole";
+import {
+    hiderHand,
+    hiderInbox,
+    hidingZone,
+    roundFoundAt,
+} from "@/lib/hiderRole";
 import {
     lobbyManualOpen,
     participants,
@@ -82,6 +87,11 @@ export function HiderBottomNav() {
     const [questionsOpen, setQuestionsOpen] = useState(false);
     const [zoneOpen, setZoneOpen] = useState(false);
     const mapActiveCount = useHiderMapOptionsActiveCount();
+    // The nav owns the iOS bottom safe-area inset (so its background fills to
+    // the screen edge, content padded up) — but ONLY when no hand fan is held.
+    // With a hand, the HiderShell reserves the fan's peek strip and the fixed
+    // fan covers the bottom edge, so the nav must sit flush above the fan.
+    const hasCards = useStore(hiderHand).length > 0;
 
     const inboxCount = $inbox.length;
     const onlineCount = $participants.filter((p) => p.online).length;
@@ -118,6 +128,7 @@ export function HiderBottomNav() {
                     // padding, so the nav lands directly above the fan.
                     "shrink-0 z-[1040]",
                     "bg-background/95 backdrop-blur-md border-t border-border",
+                    !hasCards && "pb-[env(safe-area-inset-bottom)]",
                 )}
             >
                 <div className="flex items-stretch px-2 py-2 gap-1">

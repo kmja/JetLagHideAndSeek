@@ -428,7 +428,23 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v960`. Use `git log` for the per-version detail;
+build stamp. Current: `v961`. Use `git log` for the per-version detail;
+
+**v961 — iOS safe-area fixes: top banner under the status bar + footer gap.**
+Two `viewport-fit=cover` safe-area bugs on the HIDER view: (1) the
+`LocationPauseBanner` (the fixed top "Game paused / seekers must share location"
+banner) used a plain `pt-3`, so its content sat UNDER the iOS status bar/notch
+— now `pt-[max(0.75rem,env(safe-area-inset-top))]`. (2) `HiderShell` applied the
+bottom safe-area inset as CONTAINER padding (`paddingBottom:
+env(safe-area-inset-bottom)`), which lifted the bottom nav and left a strip of
+page background BELOW it ("empty space under the footer"). Fixed by moving the
+inset INTO `HiderBottomNav` itself (`pb-[env(safe-area-inset-bottom)]` on the nav
+background, so it fills to the screen edge with content padded up — the same
+pattern the seeker `BottomNav` already used) and dropping it from the shell
+root; the nav's inset is gated on `!hasCards` since a held hand fan (which
+reserves `FAN_HEIGHT_PX` and is fixed to the bottom edge) must sit flush above
+the nav. Map-area-relative overlays (PendingAnswer/HiderUnanswered) and the
+already-inset SpoofIndicator were unaffected.
 
 **v960 — endgame success card uses game terminology.** The `EndgameOverlay`
 success headline was "YOU FOUND THE ZONE" / "THEY FOUND YOUR ZONE"; changed to
