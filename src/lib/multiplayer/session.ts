@@ -158,6 +158,11 @@ export const demoMode = atom<boolean>(false);
 /** Current transport state (no persistence — it derives from the live socket). */
 export const transportStatus = atom<TransportStatus>("idle");
 
+/** Auto-reconnect attempt counter (0 while connected / first-connecting; N
+ *  after N scheduled retries). The Reconnecting banner uses it to hold the
+ *  "Retry now" button back until the FIRST automatic attempt has failed. */
+export const transportReconnectAttempt = atom<number>(0);
+
 /** Full participant roster as the server last reported it. */
 export const participants = atom<Participant[]>([]);
 

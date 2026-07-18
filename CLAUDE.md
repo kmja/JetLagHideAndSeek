@@ -428,7 +428,20 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v963`. Use `git log` for the per-version detail;
+build stamp. Current: `v964`. Use `git log` for the per-version detail;
+
+**v964 — "Retry now" held back until the first auto-reconnect fails.** The
+Reconnecting banner (`ReconnectingBanner`) always showed "Retry now"; offering
+it during a healthy in-progress reconnect just invites interrupting it (and the
+auto-reconnect resolves nearly all drops within a second or two). The transport
+now emits a `reconnectAttempt` event (separate from `status`, which dedupes
+consecutive "reconnecting"→"reconnecting" and so can't carry the count) →
+`transportReconnectAttempt` atom (`session.ts`); the banner shows the curtain
+immediately (unchanged) but reveals the button only once `attempt >= 2` (the
+first automatic retry has come back unsuccessful). Emitted on
+`scheduleReconnect` (++), `handleOpen` (reset 0 on success), and a fresh
+`connect()` (reset 0 so a prior game's leftover count can't pop the button
+instantly).
 
 **v963 — "Retry now" reconnect sent no resume (stayed offline) — socket
 generation guard.** Follow-up to v962: clicking the Reconnecting banner's "Retry

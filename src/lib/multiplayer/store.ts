@@ -114,6 +114,7 @@ import {
     selfParticipantId,
     sessionToken,
     transportStatus,
+    transportReconnectAttempt,
 } from "./session";
 import { getTransport } from "./transport";
 import { stopDemoGame } from "./demoBroker";
@@ -1542,6 +1543,7 @@ export function installMultiplayerBridge() {
     const t = getTransport();
     t.on("message", handleServerMessage);
     t.on("status", (status) => transportStatus.set(status));
+    t.on("reconnectAttempt", (n) => transportReconnectAttempt.set(n));
 
     // After any auto-reconnect the transport opens a brand-new
     // WebSocket. The server won't know who we are until we re-send

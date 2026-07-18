@@ -22,6 +22,11 @@ export type TransportStatus = "idle" | "connecting" | "open" | "reconnecting" | 
 export interface TransportEvents {
     message: (msg: ServerMessage) => void;
     status: (status: TransportStatus) => void;
+    /** Fired whenever the auto-reconnect attempt counter changes (0 while
+     *  connected/first-connecting; N after N scheduled retries). Separate
+     *  from `status` because consecutive retries stay "reconnecting" and the
+     *  status event dedupes on an unchanged value. */
+    reconnectAttempt: (attempt: number) => void;
 }
 
 const PING_INTERVAL_MS = 25_000;
@@ -107,6 +112,14 @@ export class MultiplayerTransport {
         }
         this.url = url;
         this.closedByUser = false;
+        // Fresh connect — reset the retry counter (a leftover value from a
+        // previous game's disconnect would make the banner offer "Retry now"
+        // immediately). This path sends its own resume via the outbox, so it
+        // doesn't need the reconnect handshake that reconnectAttempt gates.
+        if (this.reconnectAttempt !== 0) {
+            this.reconnectAttempt = 0;
+            this.emit("reconnectAttempt", 0);
+        }
         this.attachLifecycleListeners();
         this.openSocket();
     }
@@ -262,6 +275,7 @@ export class MultiplayerTransport {
     private handleOpen() {
         const isReconnect = this.reconnectAttempt > 0;
         this.reconnectAttempt = 0;
+        this.emit("reconnectAttempt", 0);
         this.setStatus("open");
         // On auto-reconnect, the server doesn't know who we are yet
         // (the WebSocket is a new connection). Re-authenticate first
@@ -444,6 +458,7 @@ export class MultiplayerTransport {
     private scheduleReconnect() {
         this.clearTimers();
         const attempt = ++this.reconnectAttempt;
+        this.emit("reconnectAttempt", attempt);
         // 250 ms × 2^(attempt-1), capped, plus jitter to avoid
         // thundering-herd reconnects after a Worker hiccup.
         const exp = Math.min(

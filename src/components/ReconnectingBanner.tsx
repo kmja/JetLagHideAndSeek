@@ -6,6 +6,7 @@ import {
     currentGameCode,
     demoMode,
     multiplayerEnabled,
+    transportReconnectAttempt,
     transportStatus,
 } from "@/lib/multiplayer/session";
 import { reconnectNow } from "@/lib/multiplayer/store";
@@ -30,7 +31,14 @@ export function ReconnectingBanner() {
     const $code = useStore(currentGameCode);
     const $mp = useStore(multiplayerEnabled);
     const $demo = useStore(demoMode);
+    const $attempt = useStore(transportReconnectAttempt);
     const [visible, setVisible] = useState(false);
+    // Hold the manual "Retry now" back until the FIRST automatic reconnect
+    // attempt has actually failed (attempt ≥ 2 = first retry already came back
+    // unsuccessful). Offering it during a healthy in-progress reconnect just
+    // invites the user to interrupt it. The auto-reconnect resolves the vast
+    // majority of drops on its own within a second or two.
+    const showRetry = $attempt >= 2;
 
     // In a real online game but the socket isn't open → we're disconnected.
     // Demo mode presents as "open" and never hits this, but guard anyway.
@@ -69,14 +77,16 @@ export function ReconnectingBanner() {
                         progress is safe and we'll resync automatically.
                     </p>
                 </div>
-                <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => reconnectNow()}
-                    className="mt-1"
-                >
-                    Retry now
-                </Button>
+                {showRetry && (
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => reconnectNow()}
+                        className="mt-1"
+                    >
+                        Retry now
+                    </Button>
+                )}
             </div>
         </div>
     );
