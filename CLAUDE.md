@@ -428,7 +428,33 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v973`. Use `git log` for the per-version detail;
+build stamp. Current: `v975`. Use `git log` for the per-version detail;
+
+**v974/v975 — distances follow the selected unit system (slices 2 + 3).**
+Completes the v972 unit-system unification so EVERY distance in the app —
+not just the rulebook — renders in the player's chosen units with the
+creators' clean rounded numbers.
+- **v974 — the actual SIZES** (radar / thermometer / tentacle). Radar
+  carousel presets are unit-aware (imperial: 0.25/0.5/1/3/6/10/25/50/100 mi)
+  sharing stable tier `sig`s so the one-per-game rule + saved games survive
+  a unit switch (`sigForRadius` matches EITHER system's form); a new radar
+  question is seeded in the user's units. The three duplicated thermometer
+  preset copies collapsed into ONE shared module (`thermometerPresets.ts`)
+  used by the configure dialog, the on-map tracker overlay, and the card —
+  labels + the live km threshold + the tracker readout all convert (imperial:
+  0.5/3/10/45 mi). Tentacle radius stamped in the selected units
+  (2 km → 1 mi, 25 km → 15 mi). `gameRadius`/`gameDistanceKm` in `units.ts`
+  are the shared producers. Tests in `tests/units.test.ts`.
+- **v975 — the DESCRIPTIONS.** Measuring/tentacle tile distances
+  (`subtypes.ts`: "within 2 km", "within 25 km", "250 km/h") and every curse
+  distance in `hiderDeck.ts` ("within 150 m", "2 km (S) / 10 km (M) /
+  50 km (L)", "30 m", …) are now `{{km:}} / {{m:}} / {{kmh:}}` TEMPLATES
+  rendered through `applyUnitTemplates` at display time — the subtype picker
+  tiles (`AddQuestionDialog`), the card body (`CardTile.renderBodyText`,
+  applied BEFORE the (S)/(M)/(L) size collapse so a size-varying distance
+  converts then reduces), and the seeker/hider curse inbox
+  (`CurseInbox` → `renderBodyText`). One metric-authored source now serves
+  both systems everywhere.
 
 **v973 — body-of-water measuring: fix the freeze + water-marked-"further"
 bug.** The body-of-water elimination pushes the detailed per-city SEA polygon

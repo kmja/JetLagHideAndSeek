@@ -119,7 +119,7 @@ export const SUBTYPES: Record<
     measuring: [
         // Transit-Related
         { value: "airport", label: "Airport", icon: Plane, description: "Closer or further to an airport?", validSizes: ALL },
-        { value: "highspeed-measure-shinkansen", label: "High-speed train line", icon: TrainFront, description: "Closer or further to a high-speed line? (EU: 250 km/h purpose-built, ~200 km/h upgraded.)", validSizes: ALL },
+        { value: "highspeed-measure-shinkansen", label: "High-speed train line", icon: TrainFront, description: "Closer or further to a high-speed line? (EU: {{kmh:250}} purpose-built, ~{{kmh:200}} upgraded.)", validSizes: ALL },
         { value: "rail-measure-ordinary", label: "Rail station", icon: TrainTrack, description: "Closer or further to any rail station? (Includes metros / subways.)", validSizes: ALL },
         // Borders
         { value: "international-border", label: "International border", icon: Globe, description: "Closer or further to a country border? (Enclaves count.)", validSizes: ALL },
@@ -128,7 +128,7 @@ export const SUBTYPES: Record<
         // Natural
         { value: "sea-level", label: "Sea level (altitude)", icon: Compass, description: "Higher or lower altitude? (Phone compass — sometimes inaccurate.)", validSizes: ALL },
         { value: "body-of-water", label: "Body of water", icon: Sailboat, description: "Closer or further to any named body of water (no pools)?", validSizes: ALL },
-        { value: "coastline", label: "Coastline", icon: Anchor, description: "Closer or further to the coast? (Straits under 2 km don't count.)", validSizes: ALL },
+        { value: "coastline", label: "Coastline", icon: Anchor, description: "Closer or further to the coast? (Straits under {{km:2}} don't count.)", validSizes: ALL },
         { value: "peak-full", label: "Mountain", icon: Mountain, description: "Closer or further to a mountain?", validSizes: ALL },
         { value: "park-full", label: "Park", icon: Trees, description: "Closer or further to a park (measured to the icon)?", validSizes: ALL },
         // Places of Interest
@@ -149,18 +149,18 @@ export const SUBTYPES: Record<
      * picker / configure UI, not here. */
     tentacles: [
         // Medium + Large — 2 km tier
-        { value: "museum", label: "Museum", icon: Landmark, description: "Closest museum within 2 km.", validSizes: ML },
-        { value: "library", label: "Library", icon: Library, description: "Closest library within 2 km.", validSizes: ML },
-        { value: "cinema", label: "Movie theater", icon: Film, description: "Closest movie theater within 2 km.", validSizes: ML },
-        { value: "hospital", label: "Hospital", icon: Hospital, description: "Closest hospital within 2 km.", validSizes: ML },
+        { value: "museum", label: "Museum", icon: Landmark, description: "Closest museum within {{km:2}}.", validSizes: ML },
+        { value: "library", label: "Library", icon: Library, description: "Closest library within {{km:2}}.", validSizes: ML },
+        { value: "cinema", label: "Movie theater", icon: Film, description: "Closest movie theater within {{km:2}}.", validSizes: ML },
+        { value: "hospital", label: "Hospital", icon: Hospital, description: "Closest hospital within {{km:2}}.", validSizes: ML },
         // Large — 25 km tier including Metro Lines (rulebook p38).
         // v343: metro now has its own schema variant + data path
         // (representative-point-per-route fed into the Voronoi
         // pipeline), so it's safe to surface here.
-        { value: "metro", label: "Metro line", icon: TrainTrack, description: "Closest metro line within 25 km.", validSizes: L },
-        { value: "zoo", label: "Zoo", icon: PawPrint, description: "Closest zoo within 25 km.", validSizes: L },
-        { value: "aquarium", label: "Aquarium", icon: Fish, description: "Closest aquarium within 25 km.", validSizes: L },
-        { value: "theme_park", label: "Amusement park", icon: FerrisWheel, description: "Closest amusement park within 25 km.", validSizes: L },
+        { value: "metro", label: "Metro line", icon: TrainTrack, description: "Closest metro line within {{km:25}}.", validSizes: L },
+        { value: "zoo", label: "Zoo", icon: PawPrint, description: "Closest zoo within {{km:25}}.", validSizes: L },
+        { value: "aquarium", label: "Aquarium", icon: Fish, description: "Closest aquarium within {{km:25}}.", validSizes: L },
+        { value: "theme_park", label: "Amusement park", icon: FerrisWheel, description: "Closest amusement park within {{km:25}}.", validSizes: L },
     ],
     /* Photo subtypes — rulebook pp32–35. Validity scales with game size:
      *   S/M/L  — base set (building visible, widest street, tree, sky, you, tallest in sightline)

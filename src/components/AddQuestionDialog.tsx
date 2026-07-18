@@ -59,7 +59,7 @@ import {
 import { encodeQuestionForHider } from "@/lib/shareLinks";
 import { useSubtypeAvailability } from "@/lib/subtypeAvailability";
 import { getSubtypes, type SubtypeMeta } from "@/lib/subtypes";
-import { gameRadius, resolvedUnits } from "@/lib/units";
+import { applyUnitTemplates, gameRadius, resolvedUnits } from "@/lib/units";
 import { cn } from "@/lib/utils";
 import {
     cacheableFamilyForType,
@@ -228,19 +228,24 @@ const SubtypeTile = ({
      *  badge so the seeker sees the cost before tapping. */
     repeatMultiplier?: number;
 }) => {
+    const $units = useStore(resolvedUnits);
     const showRepeat =
         !disabled && repeatMultiplier !== undefined && repeatMultiplier > 1;
     // v747: the subtype picker now uses the SAME QuestionOverlayCard chrome as
     // on-map overlays + the questions list (solid category-colour icon block,
     // big deep-colour label, detail line) so the whole add-question flow reads
     // as one system. The repeat-cost multiplier rides the card's right slot.
+    // v972: render any {{km:}} / {{kmh:}} distance templates in the subtype
+    // description in the selected unit system.
     return (
         <QuestionOverlayCard
             categoryId={category}
             flat
             summary={{
                 bigLabel: subtype.label,
-                detail: blockedReason ?? subtype.description,
+                detail:
+                    blockedReason ??
+                    applyUnitTemplates(subtype.description ?? "", $units),
                 icon: subtype.icon,
             }}
             onClick={disabled ? undefined : onClick}

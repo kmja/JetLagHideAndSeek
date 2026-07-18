@@ -2,6 +2,7 @@ import { Check } from "lucide-react";
 import type { CSSProperties, ReactNode } from "react";
 
 import type { GameSize } from "@/lib/gameSetup";
+import { applyUnitTemplates, resolvedUnits } from "@/lib/units";
 import type { Card, PowerupKind } from "@/lib/hiderDeck";
 import { cn } from "@/lib/utils";
 
@@ -985,6 +986,13 @@ function SizeMinutesBadge({
  * digital UI does).
  */
 export function renderBodyText(text: string, gameSize: GameSize): ReactNode {
+    // v972: render any {{km:}} / {{m:}} / {{kmh:}} distance templates in the
+    // card text in the selected unit system BEFORE the (S)/(M)/(L) size
+    // collapse below (a size-varying distance like "{{km:2}} (S) / …"
+    // becomes "1 mi (S) / …", which the size parser then reduces). Reads
+    // the atom directly — curse/powerup cards re-render when opened, so
+    // non-reactive read is fine here.
+    text = applyUnitTemplates(text, resolvedUnits.get());
     // Value shape, in two parts so decimals work cleanly:
     //   1. The numeric portion — one or more digits, optionally
     //      followed by `.<digits>` for decimals. Required.

@@ -32,6 +32,7 @@ import { cn } from "@/lib/utils";
 import type { WritableAtom } from "nanostores";
 import { toast } from "react-toastify";
 
+import { renderBodyText } from "./CardTile";
 import { DiceRoller } from "./DiceRoller";
 import { SectionPill } from "./JetLagLogo";
 
@@ -306,7 +307,7 @@ export function CurseInbox({
                                     {curse.name}
                                 </div>
                                 <p className="text-xs text-foreground/80 mt-1 leading-snug">
-                                    {curse.description}
+                                    {renderBodyText(curse.description, $gameSize)}
                                 </p>
                                 {curse.photoUrl && (
                                     <img
@@ -408,7 +409,12 @@ export function CurseInbox({
                         in" countdown. */}
                     <div className="space-y-1.5">
                         <p className="text-sm text-foreground/80 leading-snug">
-                            {resolvedDialog?.description}
+                            {resolvedDialog
+                                ? renderBodyText(
+                                      resolvedDialog.description,
+                                      $gameSize,
+                                  )
+                                : null}
                         </p>
                         {resolvedDialog?.photoUrl && (
                             <img

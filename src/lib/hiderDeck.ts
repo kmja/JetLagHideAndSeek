@@ -232,7 +232,7 @@ const CURSE_SLOTS: CurseSlot[] = [
             kind: "curse",
             name: "Curse of the Unguided Tourist",
             description:
-                "Send the seekers an unzoomed Google Street View image from a street within 150 meters of where they are now. The shot has to be parallel to the horizon and include at least one human-built structure other than a road. Without using the internet for research, they must find what you sent them in real life before they can use transportation or ask another question. They must send a picture to the hider for verification.",
+                "Send the seekers an unzoomed Google Street View image from a street within {{m:150}} of where they are now. The shot has to be parallel to the horizon and include at least one human-built structure other than a road. Without using the internet for research, they must find what you sent them in real life before they can use transportation or ask another question. They must send a picture to the hider for verification.",
             castingCost: "Seekers must be outside.",
         },
         copies: 1,
@@ -253,7 +253,7 @@ const CURSE_SLOTS: CurseSlot[] = [
             kind: "curse",
             name: "Curse of the Mediocre Travel Agent",
             description:
-                "Choose any publicly-accessible place within 0.5 km (S) / 0.5 km (M) / 1 km (L) of the seekers' current location. They cannot currently be on transit. They must go there, and spend at least 5 min (S) / 5 min (M) / 10 min (L) there, before asking another question. They must send you at least three photos of them enjoying their vacation, and procure an object to bring you as a souvenir. If this souvenir is lost before they can give it to you, you are awarded an extra 30 min (S) / 45 min (M) / 60 min (L).",
+                "Choose any publicly-accessible place within {{km:0.5}} (S) / {{km:0.5}} (M) / {{km:1}} (L) of the seekers' current location. They cannot currently be on transit. They must go there, and spend at least 5 min (S) / 5 min (M) / 10 min (L) there, before asking another question. They must send you at least three photos of them enjoying their vacation, and procure an object to bring you as a souvenir. If this souvenir is lost before they can give it to you, you are awarded an extra 30 min (S) / 45 min (M) / 60 min (L).",
             castingCost:
                 "Their vacation destination must be further from you than their current location.",
         },
@@ -316,7 +316,7 @@ const CURSE_SLOTS: CurseSlot[] = [
             description:
                 "The seekers must acquire and carry at least 2 liters of liquid per seeker for the rest of your run. They cannot ask another question until they have acquired the liquid. The water may be distributed between seekers as they see fit. If the liquid is lost or abandoned at any point after acquisition, the hider is awarded a 30 min (S) / 30 min (M) / 60 min (L) bonus.",
             castingCost:
-                "Seekers must be within 300 meters of a body of water.",
+                "Seekers must be within {{m:300}} of a body of water.",
         },
         copies: 1,
     },
@@ -358,7 +358,7 @@ const CURSE_SLOTS: CurseSlot[] = [
             description:
                 "The seekers must ask their next question from under a bridge.",
             castingCost:
-                "Seekers must be at least 2 km (S) / 10 km (M) / 50 km (L) from you.",
+                "Seekers must be at least {{km:2}} (S) / {{km:10}} (M) / {{km:50}} (L) from you.",
         },
         copies: 1,
     },
@@ -387,7 +387,7 @@ const CURSE_SLOTS: CurseSlot[] = [
             kind: "curse",
             name: "Curse of the Impressionable Consumer",
             description:
-                "Seekers must enter and gain admission (if applicable) to a location or buy a product that they saw an advertisement for before asking another question. This advertisement must be found out in the world, not on a seeker's device, and must be at least 30 meters from the product or location itself.",
+                "Seekers must enter and gain admission (if applicable) to a location or buy a product that they saw an advertisement for before asking another question. This advertisement must be found out in the world, not on a seeker's device, and must be at least {{m:30}} from the product or location itself.",
             castingCost: "The seekers' next question is free.",
         },
         copies: 1,
@@ -397,7 +397,7 @@ const CURSE_SLOTS: CurseSlot[] = [
             kind: "curse",
             name: "Curse of the Endless Tumble",
             description:
-                "Seekers must roll a die at least 30 meters and have it land on a 5 or a 6 before they can ask another question. The die must roll the full distance, unaided, using only the momentum from the initial throw and gravity to travel the 30 meters. If the seekers accidentally hit someone with a die, you are awarded a 10 min (S) / 20 min (M) / 30 min (L) bonus.",
+                "Seekers must roll a die at least {{m:30}} and have it land on a 5 or a 6 before they can ask another question. The die must roll the full distance, unaided, using only the momentum from the initial throw and gravity to travel the {{m:30}}. If the seekers accidentally hit someone with a die, you are awarded a 10 min (S) / 20 min (M) / 30 min (L) bonus.",
             castingCost:
                 "Roll a die. If it's a 5 or a 6, this card has no effect.",
         },
@@ -469,7 +469,7 @@ const CURSE_SLOTS: CurseSlot[] = [
             kind: "curse",
             name: "Curse of the Right Turn",
             description:
-                "For the next 20 min (S) / 40 min (M) / 60 min (L), the seekers can only turn right at any street intersection. If, at any point, they find themselves in a dead end where they cannot continue forward or turn right for another 300 meters, they may do a full 180. A right turn is defined as a road at any angle that veers to the right of the seekers.",
+                "For the next 20 min (S) / 40 min (M) / 60 min (L), the seekers can only turn right at any street intersection. If, at any point, they find themselves in a dead end where they cannot continue forward or turn right for another {{m:300}}, they may do a full 180. A right turn is defined as a road at any angle that veers to the right of the seekers.",
             castingCost: "Discard a card.",
         },
         copies: 1,
