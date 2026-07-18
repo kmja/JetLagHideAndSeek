@@ -428,7 +428,18 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v956`. Use `git log` for the per-version detail;
+build stamp. Current: `v957`. Use `git log` for the per-version detail;
+
+**v957 — GPS play-area auto-suggest prefers a starred area.** Follow-up to
+v956: the wizard's GPS suggestion (`tryGpsSuggest`, `GameSetupDialog.tsx`) took
+the top-ranked `geocode` result (`found[0]`) for the first reverse-geocoded
+candidate that returned matches. It now `ensureWarmCitiesLoaded()`s first and,
+among that candidate's matches, PREFERS a warm (starred/prewarmed) area
+(`found.find(isWarmCity) ?? found[0]`) — so when a location resolves to several
+options the auto-suggestion lands on the fast, reliable one (and never trips the
+v956 non-warm confirm). Deliberately scoped to WITHIN the winning candidate's
+specificity level (not across candidates) so it can't over-broaden a small-town
+fix into a whole county/country.
 
 **v956 — confirm before picking a non-starred (unwarmed) play area.** Picking a
 play area that isn't prewarmed means the map + questions load live off Overpass

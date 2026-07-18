@@ -1026,6 +1026,11 @@ export function PlayAreaStep({
                         setGpsState("no-match");
                         return;
                     }
+                    // Make sure the warm-city set is available so we can
+                    // prefer a STARRED area when a candidate returns several
+                    // (a warm area plays fast + reliably, so it's the better
+                    // auto-suggestion). Cheap: coalesced + cached.
+                    await ensureWarmCitiesLoaded();
                     // Helper: read freshest query without committing
                     // a write. Lets us bail mid-iteration if the user
                     // starts typing.
@@ -1064,7 +1069,16 @@ export function PlayAreaStep({
                         try {
                             const found = await geocode(candidate, "en");
                             if (found.length > 0) {
-                                winnerMatch = found[0];
+                                // Prefer a starred (warm) area among this
+                                // candidate's matches; else the top-ranked one.
+                                const warmSet = warmCityIds.get();
+                                winnerMatch =
+                                    found.find((f) =>
+                                        isWarmCity(
+                                            f.properties.osm_id,
+                                            warmSet,
+                                        ),
+                                    ) ?? found[0];
                                 break;
                             }
                         } catch {
