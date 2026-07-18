@@ -34,6 +34,9 @@ import {
     endgameConfirmedAt,
     endgameDeniedAt,
     endgameStartedAt,
+    endgameSuccessAt,
+    endgameZone,
+    pendingEndgameZone,
     endOfRoundDialogOpen,
     gamePausedForLocationAt,
     gameStartCelebrationAt,
@@ -139,6 +142,9 @@ export function resetSharedRoundState(): void {
     endgameStartedAt.set(null);
     endgameConfirmedAt.set(null);
     endgameDeniedAt.set(null);
+    endgameSuccessAt.set(null);
+    endgameZone.set(null);
+    pendingEndgameZone.set(null);
 
     // Close the end-of-round celebration if it was up, and clear the
     // synced round-summary (v851 — the hider's authoritative base+bonus,

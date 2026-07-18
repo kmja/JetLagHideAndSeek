@@ -60,7 +60,7 @@ import { holedMaskViaWorker } from "@/lib/geometry/client";
 import { findZoneAtPoint } from "@/lib/journey/stations";
 import { SAT_TILE_BASE } from "@/maps/api/constants";
 import { CurseInbox } from "@/components/CurseInbox";
-import { EndgameDeniedBanner } from "@/components/EndgameDeniedBanner";
+import { EndgameOverlay } from "@/components/EndgameOverlay";
 import { fadePaint } from "@/lib/mapPaint";
 import { participants, seekerLocations } from "@/lib/multiplayer/session";
 import { playerColor, playerInitials } from "@/lib/playerColor";
@@ -1216,9 +1216,9 @@ export function HiderBackgroundMap() {
                 curses the same way. */}
             <CurseInbox source={castCurses} />
 
-            {/* v950: transient "endgame attempted at the wrong spot" banner —
-                the server denied a seeker's claim (not at this zone). */}
-            <EndgameDeniedBanner />
+            {/* v959: big endgame milestone overlay — success (seekers reached
+                the zone) or fail (wrong zone), role-specific, on both maps. */}
+            <EndgameOverlay />
 
             {/* Floating timer card — the hider's parity counterpart to the
                 seeker's HiderTimer (golden hiding box / white hidden box +

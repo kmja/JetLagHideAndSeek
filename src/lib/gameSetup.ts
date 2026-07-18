@@ -571,11 +571,58 @@ export const endgameConfirmedAt = persistentAtom<number | null>(
 /**
  * v950 volatile — unix ms of the last DENIED endgame attempt (the server
  * validated a seeker's claim as NOT at the hider's zone). Drives a transient
- * on-map banner for BOTH roles (seeker: "not the right spot"; hider: "seekers
- * tried the endgame at the wrong place"); the `EndgameDeniedBanner` auto-clears
- * it after a few seconds. Not persisted — a denial is a fleeting moment.
+ * full-screen fail animation for BOTH roles (seeker: "not the right zone";
+ * hider: "endgame attempted"); the `EndgameOverlay` auto-clears it after a few
+ * seconds. Not persisted — a denial is a fleeting moment.
  */
 export const endgameDeniedAt = atom<number | null>(null);
+
+/**
+ * Volatile celebration trigger — unix ms set the moment the endgame is
+ * ARMED (a correct claim: the server validated the seekers really are at the
+ * hider's zone, or solo/offline self-confirm). Drives the big full-screen
+ * `EndgameOverlay` success animation on BOTH roles. Not persisted — a
+ * one-shot beat, not a state a reload should replay.
+ */
+export const endgameSuccessAt = atom<number | null>(null);
+
+/** The final hiding zone the seekers correctly reached — recorded when the
+ *  endgame is confirmed so the seeker map can CUT down to just this zone
+ *  (spotlight the circle, dim everything else, frame the camera on it).
+ *  Persisted so the focus survives a reload while the endgame is live. */
+export interface EndgameZone {
+    lat: number;
+    lng: number;
+    radiusMeters: number;
+    name: string;
+}
+export const endgameZone = persistentAtom<EndgameZone | null>(
+    "endgameZone",
+    null,
+    {
+        encode: JSON.stringify,
+        decode: (v) => {
+            try {
+                const z = JSON.parse(v) as EndgameZone | null;
+                if (
+                    z &&
+                    Number.isFinite(z.lat) &&
+                    Number.isFinite(z.lng) &&
+                    Number.isFinite(z.radiusMeters)
+                )
+                    return z;
+            } catch {
+                /* corrupt → null */
+            }
+            return null;
+        },
+    },
+);
+
+/** Volatile — the zone a seeker just DECLARED but the server hasn't yet
+ *  validated. On a correct verdict it's promoted to `endgameZone`; on a
+ *  denial it's dropped. */
+export const pendingEndgameZone = atom<EndgameZone | null>(null);
 
 /**
  * Volatile celebration trigger — unix ms set the moment the hiding

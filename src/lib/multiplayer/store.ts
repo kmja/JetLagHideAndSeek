@@ -48,6 +48,10 @@ import {
     endgameConfirmedAt,
     endgameDeniedAt,
     endgameStartedAt,
+    endgameSuccessAt,
+    endgameZone,
+    type EndgameZone,
+    pendingEndgameZone,
     endOfRoundDialogOpen,
     hiddenCreditMs,
     hiddenDebitMs,
@@ -520,21 +524,26 @@ export function setLocationTrackingExternal(external: boolean) {
  * offline play just flips the local atom and relies on the
  * persistent store to keep the banner across reloads.
  */
-export function seekerStartEndgame() {
+export function seekerStartEndgame(zone?: EndgameZone | null) {
     if (endgameStartedAt.get() !== null) return;
     const at = Date.now();
     if (!multiplayerEnabled.get()) {
         // Solo / offline: no server to validate the claim, so arm + confirm
-        // locally (the seeker IS the whole team).
+        // locally (the seeker IS the whole team). Fire the success beat + cut
+        // the map to the declared zone.
         endgameStartedAt.set(at);
         endgameConfirmedAt.set(at);
+        endgameSuccessAt.set(at);
+        if (zone) endgameZone.set(zone);
         return;
     }
     // v950: DON'T optimistically arm in multiplayer — the server validates the
     // claim against the hider's zone and either arms it (correct, via
     // `setupChanged`) or replies `endgameDenied` (wrong). Setting it locally
     // first would flash a false "in the zone" / "denied" state before the
-    // authoritative verdict arrives.
+    // authoritative verdict arrives. Stash the declared zone so a correct
+    // verdict can promote it to the focus zone (v959).
+    pendingEndgameZone.set(zone ?? null);
     getTransport().send({ t: "startEndgame", at });
 }
 
@@ -1303,6 +1312,15 @@ function handleServerMessage(msg: ServerMessage) {
                 prevEndgameAt === null &&
                 msg.setup.endgameStartedAt !== null
             ) {
+                // v959: fire the big success celebration on BOTH roles, and —
+                // for the declaring seeker — promote the pending zone so the
+                // map cuts down to the correct final zone.
+                endgameSuccessAt.set(Date.now());
+                if (playerRole.get() === "seeker") {
+                    const pending = pendingEndgameZone.get();
+                    if (pending) endgameZone.set(pending);
+                }
+                pendingEndgameZone.set(null);
                 if (playerRole.get() === "hider") {
                     notify({
                         title: "Seekers reached your zone!",
@@ -1477,6 +1495,9 @@ function handleServerMessage(msg: ServerMessage) {
                     tag: "endgame",
                 });
             }
+            // The declared zone was wrong — drop it so a later correct claim
+            // starts clean.
+            pendingEndgameZone.set(null);
             endgameDeniedAt.set(Date.now());
             return;
         }

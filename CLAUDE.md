@@ -428,7 +428,35 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v958`. Use `git log` for the per-version detail;
+build stamp. Current: `v959`. Use `git log` for the per-version detail;
+
+**v959 — endgame declaration is a MILESTONE: big success/fail animations, map
+cuts to the final zone, no more toaster.** Reaching the endgame is a major game
+beat, so it was beefed up from a quiet toast + small banner to a full-screen
+moment on BOTH roles.
+- **Removed the "Endgame declared — hider notified." toast** (both paths in
+  `StationTransitCard.handleStartEndgame`).
+- **New `EndgameOverlay`** (replaces the small `EndgameDeniedBanner`, now
+  deleted; mounted on both maps, portaled to `<body>` at `z-[1075]`,
+  `pointer-events-auto`): a full-screen animation for BOTH outcomes, role-
+  specific copy. SUCCESS (`endgameSuccessAt`) — gold `jlGoExplode` card + a
+  deterministic confetti ring ("YOU FOUND THE ZONE" / "THEY FOUND YOUR ZONE").
+  FAIL (`endgameDeniedAt`) — red `jlFizzleShake`/`jlFizzleFlash` card ("NOT THE
+  RIGHT ZONE" / "ENDGAME ATTEMPTED"), auto-clears after 6.5 s. Both dismiss on
+  tap; a round-reset that nulls the trigger drops a lingering overlay.
+- **Map cuts to just the final zone on SUCCESS.** New persistent `endgameZone`
+  atom ({lat,lng,radiusMeters,name}) recorded when a claim is CONFIRMED —
+  `seekerStartEndgame(zone)` sets it directly solo; in multiplayer the declared
+  zone is stashed in volatile `pendingEndgameZone` and PROMOTED to `endgameZone`
+  only when the server arms the endgame (setupChanged, seeker role), dropped on
+  `endgameDenied`. The seeker `Map.tsx` draws an `endgame-focus` spotlight (dark
+  world-minus-circle mask + a bright gold ring/glow) and `fitBounds` the camera
+  to the zone. All three atoms clear in `roundReset`.
+- **Confirm-dialog copy updated to the new (v950/v951) rules** — the SERVER
+  validates the claim against the hider's secret zone; there's no manual hider
+  confirm/refute. "Declare the endgame here? We'll check your location against
+  the hider's zone… if you've truly reached it, the endgame begins and your map
+  zeroes in on this zone; if not, you'll be told to keep searching."
 
 **v958 — SEEK/GO overlay stuck-inert fix + train-line preview shows the LINE.**
 - **The "ON THE HUNT!" (seeking-start) overlay was un-dismissable on the

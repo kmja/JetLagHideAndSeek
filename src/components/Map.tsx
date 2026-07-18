@@ -52,7 +52,12 @@ import {
     mapLibreContext,
     mapLibreViewport,
 } from "@/lib/featureFlags";
-import { hidingPeriodEndsAt, playArea, revealedStation } from "@/lib/gameSetup";
+import {
+    endgameZone,
+    hidingPeriodEndsAt,
+    playArea,
+    revealedStation,
+} from "@/lib/gameSetup";
 import { satelliteView } from "@/lib/gameSetup";
 import { stationLabelMaxChars } from "@/lib/debugState";
 import { playerRole, roundFoundAt } from "@/lib/hiderRole";
@@ -436,6 +441,70 @@ export function Map({ className }: MapProps) {
         $hidingRadius,
         $hidingRadiusUnits,
     ]);
+    // v959: endgame focus — once the seekers correctly reach the hider's zone,
+    // cut the map down to JUST that zone: a dark spotlight mask everywhere
+    // except the zone circle, plus a bright gold ring. `endgameZone` is set on
+    // a confirmed claim (store.ts).
+    const $endgameZone = useStore(endgameZone);
+    const endgameFocusFC = useMemo(() => {
+        if (!$endgameZone) return null;
+        try {
+            const circle = turf.circle(
+                [$endgameZone.lng, $endgameZone.lat],
+                $endgameZone.radiusMeters / 1000,
+                { steps: 96, units: "kilometers" },
+            );
+            const world = turf.polygon([
+                [
+                    [-180, -85],
+                    [180, -85],
+                    [180, 85],
+                    [-180, 85],
+                    [-180, -85],
+                ],
+            ]);
+            const mask = turf.difference(
+                turf.featureCollection([world, circle] as never),
+            );
+            const feats: GeoJSON.Feature[] = [];
+            if (mask) {
+                mask.properties = { kind: "mask" };
+                feats.push(mask as GeoJSON.Feature);
+            }
+            circle.properties = { kind: "ring" };
+            feats.push(circle as GeoJSON.Feature);
+            return {
+                type: "FeatureCollection",
+                features: feats,
+            } as GeoJSON.FeatureCollection;
+        } catch {
+            return null;
+        }
+    }, [$endgameZone]);
+    // Frame the camera on the endgame zone the moment it's set.
+    useEffect(() => {
+        if (!$endgameZone) return;
+        const map = mapRef.current?.getMap();
+        if (!map) return;
+        try {
+            const circle = turf.circle(
+                [$endgameZone.lng, $endgameZone.lat],
+                $endgameZone.radiusMeters / 1000,
+                { steps: 32, units: "kilometers" },
+            );
+            const [minX, minY, maxX, maxY] = turf.bbox(circle);
+            map.fitBounds(
+                [
+                    [minX, minY],
+                    [maxX, maxY],
+                ],
+                { padding: 64, duration: 1200, maxZoom: 16 },
+            );
+        } catch (e) {
+            console.warn("endgame fitBounds failed:", e);
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [$endgameZone?.lat, $endgameZone?.lng, $endgameZone?.radiusMeters]);
     // Transit-route overlays per mode — shared with HiderBackgroundMap via
     // the useTransitRouteOverlays hook (fetch) + TransitRouteLayers
     // (render), so the seeker and hider maps never drift on transit.
@@ -2217,6 +2286,48 @@ export function Map({ className }: MapProps) {
                         </Source>
                     )}
                 </FadeOverlay>
+
+                {/* v959: endgame focus — spotlight the final zone (dark mask
+                    everywhere else) + a bright gold ring. Drawn above the
+                    hiding-zones overlay, below pins. */}
+                {endgameFocusFC && (
+                    <Source
+                        id="endgame-focus"
+                        type="geojson"
+                        data={endgameFocusFC}
+                    >
+                        <Layer
+                            id="endgame-focus-mask"
+                            type="fill"
+                            filter={["==", ["get", "kind"], "mask"]}
+                            paint={{
+                                "fill-color": "#0a0f16",
+                                "fill-opacity": 0.62,
+                            }}
+                        />
+                        <Layer
+                            id="endgame-focus-ring"
+                            type="line"
+                            filter={["==", ["get", "kind"], "ring"]}
+                            paint={{
+                                "line-color": "hsl(45, 93%, 58%)",
+                                "line-width": 4,
+                                "line-blur": 1,
+                            }}
+                        />
+                        <Layer
+                            id="endgame-focus-glow"
+                            type="line"
+                            filter={["==", ["get", "kind"], "ring"]}
+                            paint={{
+                                "line-color": "hsl(45, 93%, 58%)",
+                                "line-width": 12,
+                                "line-blur": 8,
+                                "line-opacity": 0.4,
+                            }}
+                        />
+                    </Source>
+                )}
 
                 {/* Selected hiding-zone highlight — a prominent ring +
                     fill + dot for the station tapped open in the transit

@@ -11,7 +11,6 @@ import {
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { toast } from "react-toastify";
 
 import { JourneyCard } from "@/components/JourneyCard";
 import { appConfirm } from "@/lib/confirm";
@@ -299,6 +298,14 @@ export function StationTransitCard({
         const zoneName = station?.name ? ` — ${station.name}` : "";
         const radiusM =
             $radius * ($radiusUnits === "miles" ? 1609.34 : 1000);
+        const zone = station
+            ? {
+                  lat: station.lat,
+                  lng: station.lng,
+                  radiusMeters: radiusM,
+                  name: station.name ?? "",
+              }
+            : null;
         const GPS_MARGIN_M = 100;
         if ($gps && station) {
             const distM = haversineMeters(
@@ -311,29 +318,27 @@ export function StationTransitCard({
                 const overshoot = Math.round(distM - radiusM);
                 const ok = await appConfirm({
                     title: "You don't seem to be in this zone",
-                    description: `Your GPS puts you about ${overshoot} m outside${zoneName}'s zone. The endgame should only start once you've actually reached the hider's zone and are off transit. Start anyway?`,
-                    confirmLabel: "Start anyway",
+                    description: `Your GPS puts you about ${overshoot} m outside${zoneName}'s zone. The endgame only begins once you've actually reached the hider's zone and are off transit. Declare it anyway?`,
+                    confirmLabel: "Declare anyway",
                     destructive: true,
                 });
                 if (!ok) return;
-                seekerStartEndgame();
-                toast.success("Endgame declared — hider notified.", {
-                    autoClose: 2500,
-                });
+                seekerStartEndgame(zone);
                 close();
                 return;
             }
         }
+        // v959: new-rules copy — the SERVER checks your GPS against the hider's
+        // secret zone. There's no manual hider confirm/refute anymore: get it
+        // right and the endgame locks in (the map cuts to the final zone); get
+        // it wrong and you're told to keep searching, nothing else happens.
         const ok = await appConfirm({
-            title: "Start the endgame here?",
-            description: `Tells the hider you've reached their zone${zoneName}, so they must lock to a final spot. If you've got the wrong zone, the hider can refute it and you keep searching. Only declare it once you're actually inside the hider's zone and off transit.`,
-            confirmLabel: "Start endgame",
+            title: "Declare the endgame here?",
+            description: `We'll check your location against the hider's zone${zoneName}. If you've truly reached it, the endgame begins — the hider must lock to a final spot and your map zeroes in on this zone. If not, you'll be told to keep searching. Only declare it once you're actually inside the hider's zone and off transit.`,
+            confirmLabel: "Declare endgame",
         });
         if (!ok) return;
-        seekerStartEndgame();
-        toast.success("Endgame declared — hider notified.", {
-            autoClose: 2500,
-        });
+        seekerStartEndgame(zone);
         close();
     };
 
