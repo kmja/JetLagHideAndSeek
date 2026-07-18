@@ -428,7 +428,59 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v968`. Use `git log` for the per-version detail;
+build stamp. Current: `v969`. Use `git log` for the per-version detail;
+
+**v969 — rulebook audit Section A: seven correctness fixes.** From the full
+start-to-finish rulebook read (`src/content/rulebook.md`), the seven places
+the app disagreed with the printed rules:
+- **A1 — hiding radius follows game size.** The seeker-side `hidingRadius`
+  context atom (0.5 km persistent default) was never derived from `gameSize`,
+  so a LARGE game ran the seeker zone overlay/analysis + the hider grace
+  auto-commit at 500 m instead of the rulebook's 1 km (the zone-COMMIT path
+  already used `radiusForGameSize`). `rulebookHidingRadiusKm(size)` +
+  `syncHidingRadiusToGameSize` (`gameSetup.ts`) sync the atom on boot (heals
+  stale installs) and on every size change; the ZoneSidebar manual radius
+  field still works within a session.
+- **A2 — Randomize's substitute earns the card draw.** The substitute is
+  "answered as normal" (rulebook p376), but the spatial-randomize path never
+  called `presentDraw` — the hider was shorted the category's draw (photo
+  randomize already drew). `ResponseCardActions.playRandomize` (`HiderView`)
+  now settles the late rule (`settleLateAnswer` — overdue banks overtime, no
+  card) and presents `QUESTION_DRAW_BUDGET[category]` when on time.
+- **A3 — same-landmass ENCLAVE rule.** "A landmass entirely surrounded by
+  the seekers' landmass counts as a match" (rulebook p174) — an island in a
+  lake inside the seeker's landmass is a separate polygon, so containment
+  graded it "no". `determineMatchingBoundary` drops the seeker polygon's
+  interior rings (lake holes), so enclaves fall inside the boundary.
+- **A4 — coastline 2 km STRAIT rule.** Rulebook p218: coastline is only
+  where land meets the ocean / a great lake / water connected to them by a
+  waterway never under 2 km across — OSM `natural=coastline` traces every
+  tidal channel, so the East-River class of shoreline wrongly counted. New
+  `src/maps/questions/coastlineStrait.ts` (`filterCoastlineByStraitRule`,
+  unit-tested in `tests/coastlineStrait.test.ts`): build the sea polygon
+  (`seaFromCoastline`), ERODE 1 km (sub-2 km water vanishes), keep only
+  ocean-grade cores (frame-touching = open sea, or ≥500 km² eroded = great
+  lake — a wide bay whose only connection was a narrow strait disconnects
+  and drops), DILATE back, keep the 0.5 km coastline chunks adjacent to
+  qualifying water. Returns `[]` = the area genuinely has NO coastline
+  (narrow water only); `null` = couldn't compute → the measuring `coastline`
+  case keeps the UNfiltered lines (safe fallback — includes the
+  fully-interior-lake-ring case seaFromCoastline can't polygonize).
+- **A5 — sea-level compares |elevation|.** "Closer to sea level" is DISTANCE
+  from sea level, not signed height: a hider at −50 m vs a seeker at +10 m is
+  FARTHER. `seaLevelRegion` (`elevation.ts`) now bands isobands on
+  `absElevation` — identical wherever terrain is all above sea level,
+  correct in the Death-Valley/Dead-Sea case.
+- **A6 — thermometer presets are strictly the rulebook set.** The house
+  presets 500m/2km/10km are no longer selectable (`validSizes: []` —
+  entries kept only so a legacy saved game's sig still resolves a label);
+  the official set is 1 km (all) / 5 km (all) / 15 km (M+L) / 75 km (L).
+- **A7 — Spotty Memory small-game d6.** Rulebook p397: Small games have five
+  categories, so a 6 is a REROLL. `spottyCategoryForRoll(roll, size)`
+  (`curseEnforcement.ts`) maps 1–5 to the five Small categories (no
+  tentacles) and returns null on a 6; `CurseInbox`'s die `onSettle` toasts
+  "Rolled a 6 … Reroll!" and leaves the roll unconsumed. Medium/Large keep
+  the fixed 6-face mapping.
 
 **v968 — Transit Line route picker is PREWARMED (Overpass-free for warm
 cities).** v966's route picker made two LIVE Overpass queries — a position-keyed

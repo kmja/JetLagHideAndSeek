@@ -31,6 +31,7 @@ import {
     requestWaterWarmAll,
 } from "@/maps/api/water";
 import { seaFromCoast as seaFromCoastViaWorker } from "@/lib/geometry/client";
+import { filterCoastlineByStraitRule } from "@/maps/questions/coastlineStrait";
 import { seaFromCoastline } from "@/maps/questions/seaFromCoastline";
 import { majorCityPoints } from "@/maps/data/majorCities";
 import {
@@ -245,6 +246,25 @@ export const determineMeasuringBoundary = async (
                 coastLines = clipLinesToBbox(await fetchCoastline(), bBox);
             }
             if (coastLines.length === 0) return [turf.multiPolygon([])];
+            // v969 (rulebook audit A4): the 2 km strait rule — OSM coastline
+            // traces every tidal channel, but the rulebook only counts coast
+            // on the ocean / a great lake / water connected to them by a
+            // waterway never under 2 km across. Filter the lines to the
+            // qualifying shoreline via a morphological opening of the sea
+            // polygon; `[]` means the area's only "coast" is narrow water
+            // (no coastline exists per the rulebook), `null` means the
+            // filter couldn't compute → keep the unfiltered lines.
+            const qualifying = filterCoastlineByStraitRule(
+                coastLines as Feature<
+                    GeoJSON.LineString | GeoJSON.MultiLineString
+                >[],
+                bBox as [number, number, number, number],
+                { lng: question.lng, lat: question.lat },
+            );
+            if (qualifying !== null) {
+                if (qualifying.length === 0) return [turf.multiPolygon([])];
+                coastLines = qualifying;
+            }
             return [highSpeedBase(coastLines)];
         }
         case "airport":

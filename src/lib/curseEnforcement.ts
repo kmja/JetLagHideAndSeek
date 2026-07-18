@@ -77,6 +77,27 @@ export const SPOTTY_DIE_CATEGORIES: CategoryId[] = [
 ];
 
 /**
+ * v969 (rulebook audit A7): resolve a Spotty Memory d6 roll to a category,
+ * game-size-aware. Rulebook p397: "For small-sized games, which only include
+ * five categories of questions, a six would result in a reroll" — Small games
+ * have no tentacles, so faces 1–5 map to the five Small categories and a 6
+ * returns null (= reroll). Medium/Large use the fixed 6-face mapping.
+ */
+export function spottyCategoryForRoll(
+    roll: number,
+    size: "small" | "medium" | "large",
+): CategoryId | null {
+    if (size === "small") {
+        if (roll === 6) return null; // reroll
+        const smallCats = SPOTTY_DIE_CATEGORIES.filter(
+            (c) => c !== "tentacles",
+        );
+        return smallCats[roll - 1] ?? null;
+    }
+    return SPOTTY_DIE_CATEGORIES[roll - 1] ?? null;
+}
+
+/**
  * Seeker self-declared "I'm on transit / in a station" flag, for Urban
  * Explorer enforcement. Persisted so a reload mid-curse keeps it; reset
  * per round in `roundActions`. The seeker toggles it from the curse

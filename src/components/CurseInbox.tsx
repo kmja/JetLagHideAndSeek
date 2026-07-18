@@ -10,8 +10,8 @@ import {
     CURSE_SPOTTY_MEMORY,
     CURSE_URBAN_EXPLORER,
     seekerOnTransit,
+    spottyCategoryForRoll,
     spottyMemoryCategory,
-    SPOTTY_DIE_CATEGORIES,
 } from "@/lib/curseEnforcement";
 import {
     curseDurationMs,
@@ -29,6 +29,7 @@ import {
 import { type ReceivedCurse, receivedCurses } from "@/lib/seekerInbound";
 import { cn } from "@/lib/utils";
 import type { WritableAtom } from "nanostores";
+import { toast } from "react-toastify";
 
 import { DiceRoller } from "./DiceRoller";
 import { SectionPill } from "./JetLagLogo";
@@ -481,11 +482,23 @@ export function CurseInbox({
                     {resolvedDialog?.name === CURSE_SPOTTY_MEMORY ? (
                         <div className="space-y-2">
                             <DiceRoller
-                                onSettle={(v) =>
-                                    spottyMemoryCategory.set(
-                                        SPOTTY_DIE_CATEGORIES[v - 1],
-                                    )
-                                }
+                                onSettle={(v) => {
+                                    // v969 (rulebook audit A7): Small games
+                                    // have five categories — a 6 is a reroll
+                                    // (rulebook p397), never "tentacles".
+                                    const cat = spottyCategoryForRoll(
+                                        v,
+                                        $gameSize,
+                                    );
+                                    if (cat === null) {
+                                        toast.info(
+                                            "Rolled a 6 — small games have five categories. Reroll!",
+                                            { autoClose: 3500 },
+                                        );
+                                        return;
+                                    }
+                                    spottyMemoryCategory.set(cat);
+                                }}
                             />
                             <div className="rounded-sm border border-purple-500/40 bg-purple-500/5 px-2.5 py-2 text-xs leading-snug">
                                 {$spottyCategory ? (

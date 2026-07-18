@@ -519,6 +519,27 @@ export const determineMatchingBoundary = memoize(
                     );
                     throw new Error("No landmass found");
                 }
+                // v969 (rulebook audit A3): the ENCLAVE rule — "If the hider
+                // is on a landmass that is entirely surrounded by the landmass
+                // the seekers are on, it counts as a match" (rulebook p174).
+                // An island in a lake inside the seeker's landmass is a
+                // separate polygon, so plain containment graded it "no". Drop
+                // the seeker polygon's interior rings (lake holes): anything
+                // inside those holes — enclave islands included — now falls
+                // inside the boundary, which is exactly the surrounded rule.
+                // (The filled water itself is harmless in the kept region: a
+                // hiding zone is never in a lake.)
+                try {
+                    const coords = (boundary as Feature<Polygon>).geometry;
+                    if (
+                        coords?.type === "Polygon" &&
+                        coords.coordinates.length > 1
+                    ) {
+                        boundary = turf.polygon([coords.coordinates[0]]);
+                    }
+                } catch {
+                    /* keep the holed boundary — strictly worse but valid */
+                }
                 break;
             }
             case "same-street-or-path": {

@@ -607,12 +607,30 @@ function ResponseCardActions({
                 randomizedFrom: result.fromLabel,
                 ...result.answer,
             };
+            // v969 (rulebook audit A2): the substitute is "answered as
+            // normal" (rulebook p376), so it earns the category's normal
+            // card draw — this path used to skip presentDraw entirely,
+            // shorting the hider (photo randomize already drew via
+            // recordPhotoAnswerDraw). Same late rule as any answer: an
+            // overdue answer banks the overtime and earns no card.
+            const late = settleLateAnswer(question.key, question.id);
             // Re-key the answered entry to the SUBSTITUTE question's
             // identity (result.answer carries the swapped type /
             // locationType / radius+unit) so repeat-cost counts the
             // substitute as asked and leaves the original re-askable at
             // its original cost. Same shape the online echo merges.
             markHandled(reply, reply);
+            if (!late) {
+                const budget = QUESTION_DRAW_BUDGET[question.id];
+                if (budget) {
+                    presentDraw(
+                        budget.draw,
+                        budget.keep,
+                        question.id,
+                        question.key,
+                    );
+                }
+            }
             toast.success(
                 `Randomized to a ${result.toLabel} question — answered automatically and sent to the seeker.`,
                 { autoClose: 5000 },

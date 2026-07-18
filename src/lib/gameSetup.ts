@@ -9,7 +9,11 @@ import {
 } from "lucide-react";
 import { atom } from "nanostores";
 
-import { displayHidingZones } from "@/lib/context";
+import {
+    displayHidingZones,
+    hidingRadius,
+    hidingRadiusUnits,
+} from "@/lib/context";
 
 /**
  * Game setup state — the result of the 3-step onboarding flow that runs on
@@ -745,6 +749,33 @@ export const HIDING_PERIOD_MINUTES: Record<GameSize, number> = {
     medium: 60,
     large: 180,
 };
+
+/** Rulebook hiding-zone radius in KM by game size (500 m small+medium,
+ *  1 km large). Twin of `radiusForGameSize` in hiderRole.ts (metres) —
+ *  this one feeds the km-denominated `hidingRadius` context atom. */
+export function rulebookHidingRadiusKm(size: GameSize): number {
+    return size === "large" ? 1 : 0.5;
+}
+
+/**
+ * v969 (rulebook audit A1): keep the seeker-side `hidingRadius` context atom
+ * in lockstep with the game size. The zone-commit path already used
+ * `radiusForGameSize`, but the SEEKER zone overlay/analysis and the hider
+ * grace-period auto-commit read `hidingRadius` — a persistent atom defaulting
+ * to 0.5 km that nothing ever derived from `gameSize`, so a LARGE game ran
+ * those paths with a 500 m radius instead of the rulebook's 1 km. Synced on
+ * boot (heals stale installs) and on every size change. The ZoneSidebar's
+ * manual radius field still works within a session (an analysis tool); the
+ * rulebook value is restored on reload / size change.
+ */
+function syncHidingRadiusToGameSize(size: GameSize): void {
+    hidingRadius.set(rulebookHidingRadiusKm(size));
+    hidingRadiusUnits.set("kilometers");
+}
+if (typeof window !== "undefined") {
+    syncHidingRadiusToGameSize(gameSize.get());
+    gameSize.listen((s) => syncHidingRadiusToGameSize(s));
+}
 
 /**
  * Fresh-hiding-period granted by the Move powerup, per the printed

@@ -211,11 +211,13 @@ export async function buildElevationField(
  *     tiles unavailable) or the seeker's own altitude couldn't be
  *     sampled — the caller then skips auto-elimination.
  *
- * "Closer to sea level" is modelled as `elevation < seekerElevation`.
- * For the overwhelming majority of play areas (everything above sea
- * level) this is exactly right. Sub-sea-level terrain (Death Valley,
- * Dead Sea) at the margin can be slightly off, but that's a rare edge
- * and the hider answers from their own app regardless.
+ * v969 (rulebook audit A5): "closer to sea level" is DISTANCE FROM sea
+ * level — |elevation| — not signed elevation. The old `elevation <
+ * seekerElevation` model mis-graded sub-sea-level terrain (a hider at
+ * −50 m vs a seeker at +10 m is FARTHER from sea level, but −50 < 10
+ * called them closer). Banding on |elevation| is identical to the old
+ * behaviour wherever everything is above sea level (the overwhelming
+ * majority of play areas) and correct in the Death-Valley/Dead-Sea case.
  */
 export async function seaLevelRegion(
     bbox: Bbox,
@@ -229,27 +231,32 @@ export async function seaLevelRegion(
     if (seekerElevation === null || !Number.isFinite(seekerElevation)) {
         return null;
     }
+    const seekerAbs = Math.abs(seekerElevation);
 
-    // Assemble a turf point FeatureCollection with `elevation` props.
+    // Assemble a turf point FeatureCollection with |elevation| props —
+    // the metric the question actually compares.
     const fc = turf.featureCollection(
         field.points.map((p) =>
-            turf.point([p.lng, p.lat], { elevation: p.elevation }),
+            turf.point([p.lng, p.lat], {
+                absElevation: Math.abs(p.elevation),
+            }),
         ),
     );
 
-    // isobands needs a value range. Use the data's min/max bracketing
-    // the seeker's elevation. If the seeker sits at an extreme of the
+    // isobands needs a value range. Use the data's |min|/|max| bracketing
+    // the seeker's |elevation|. If the seeker sits at an extreme of the
     // local range there's nothing to cut (everything is on one side),
     // so bail to null.
     let min = Infinity;
     let max = -Infinity;
     for (const p of field.points) {
-        if (p.elevation < min) min = p.elevation;
-        if (p.elevation > max) max = p.elevation;
+        const abs = Math.abs(p.elevation);
+        if (abs < min) min = abs;
+        if (abs > max) max = abs;
     }
     if (
-        seekerElevation <= min + 1 ||
-        seekerElevation >= max - 1 ||
+        seekerAbs <= min + 1 ||
+        seekerAbs >= max - 1 ||
         !Number.isFinite(min) ||
         !Number.isFinite(max)
     ) {
@@ -258,19 +265,19 @@ export async function seaLevelRegion(
 
     let bands;
     try {
-        bands = turf.isobands(fc as any, [min - 1, seekerElevation, max + 1], {
-            zProperty: "elevation",
+        bands = turf.isobands(fc as any, [min - 1, seekerAbs, max + 1], {
+            zProperty: "absElevation",
         });
     } catch {
         return null;
     }
 
     // isobands emits one MultiPolygon feature per band, tagged with the
-    // band range string in `elevation`. The lower band is the
+    // band range string in `absElevation`. The lower band is the
     // "closer to sea level" region.
-    const lowerKey = `${min - 1}-${seekerElevation}`;
+    const lowerKey = `${min - 1}-${seekerAbs}`;
     const lower = bands.features.find(
-        (f: any) => f.properties?.elevation === lowerKey,
+        (f: any) => f.properties?.absElevation === lowerKey,
     );
     if (!lower) {
         // Band labelling varies slightly by turf version — fall back to

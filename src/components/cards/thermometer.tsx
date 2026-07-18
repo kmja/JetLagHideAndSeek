@@ -31,8 +31,11 @@ import { ManualAnswerDisclosure, QuestionCard } from "./base";
  *   - Medium + Large: +15 km
  *   - Large only: +75 km
  *
- * We retain 500m / 2km / 10km as house presets for backward compatibility
- * with previously saved games, but they aren't in the official deck.
+ * v969 (rulebook audit A6): the old 500m / 2km / 10km "house presets" are no
+ * longer SELECTABLE anywhere (empty validSizes) — they are not rulebook
+ * distances (the official set is strictly 1/5/15/75 by size). The entries
+ * are retained only so a legacy saved game whose question carries one of
+ * those sigs still resolves a label.
  *
  * Each preset is committed at most once per game; `sig` is the signature
  * stored on the question's `distance` field for uniqueness checks.
@@ -42,16 +45,15 @@ const THERMOMETER_PRESETS: {
     km: number;
     label: string;
     sig: string;
-    /** Game sizes this preset is legal in (rulebook p30). The official
-     *  big-distance presets are size-gated; the house presets
-     *  (500m/2km/10km) stay available everywhere. */
+    /** Game sizes this preset is legal in (rulebook p30). Empty = legacy
+     *  entry kept only for sig→label resolution, never selectable. */
     validSizes: GameSize[];
 }[] = [
-    { km: 0.5, label: "500m", sig: "500m", validSizes: ALL_SIZES },
+    { km: 0.5, label: "500m", sig: "500m", validSizes: [] },
     { km: 1, label: "1km", sig: "1km", validSizes: ALL_SIZES },
-    { km: 2, label: "2km", sig: "2km", validSizes: ALL_SIZES },
+    { km: 2, label: "2km", sig: "2km", validSizes: [] },
     { km: 5, label: "5km", sig: "5km", validSizes: ALL_SIZES },
-    { km: 10, label: "10km", sig: "10km", validSizes: ALL_SIZES },
+    { km: 10, label: "10km", sig: "10km", validSizes: [] },
     // Official: 15km is Medium+Large only; 75km is Large only.
     { km: 15, label: "15km", sig: "15km", validSizes: ["medium", "large"] },
     { km: 75, label: "75km", sig: "75km", validSizes: ["large"] },
