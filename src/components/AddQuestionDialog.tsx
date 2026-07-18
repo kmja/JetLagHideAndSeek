@@ -525,6 +525,19 @@ export const AddQuestionDialog = ({
             setPendingKey(null);
             return;
         }
+        // v966: the transit-line question needs the seeker to pick the route
+        // they're riding before it can be sent (its stops drive the answer).
+        if (
+            pendingQuestion.id === "matching" &&
+            (pendingQuestion.data as { type?: string }).type ===
+                "same-train-line" &&
+            !(pendingQuestion.data as { transitRoute?: unknown }).transitRoute
+        ) {
+            toast.error(
+                "Pick the transit line you're riding before sending this question.",
+            );
+            return;
+        }
         // Snapshot the question before closing — pendingQuestion will become
         // null once we clear the dialog state.
         const q = pendingQuestion;

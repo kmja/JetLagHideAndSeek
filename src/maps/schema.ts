@@ -275,6 +275,34 @@ export const tentacleQuestionSchema = z.union([
 const baseMatchingQuestionSchema = ordinaryBaseQuestionSchema.extend({
     same: z.boolean().default(true),
     lengthComparison: z.enum(["shorter", "longer", "same"]).optional(),
+    /**
+     * v966: the transit ROUTE the seekers are currently riding, for the
+     * `same-train-line` question. Per the rulebook the answer is "yes if the
+     * transit the seekers are currently riding would stop at the hider's
+     * station" — so the seeker PICKS the route they're on (it can't be auto-
+     * detected), and its stops are baked in here. `stops` drives both the
+     * elimination (keep/cut zones whose station is one of these stops) and the
+     * hider's auto-grade; `geometry` (a flattened [lng,lat] line) draws the
+     * route on the preview. Declared on the base schema so it survives the
+     * wire (Zod strips undeclared keys) even though only same-train-line
+     * populates it. Optional — absent on every other matching type.
+     */
+    transitRoute: z
+        .object({
+            id: z.string(),
+            name: z.string(),
+            ref: z.string().optional(),
+            mode: z.string(),
+            stops: z.array(
+                z.object({
+                    lat: z.number(),
+                    lng: z.number(),
+                    name: z.string().optional(),
+                }),
+            ),
+            geometry: z.array(z.array(z.number())).optional(),
+        })
+        .optional(),
 });
 
 const ordinaryMatchingQuestionSchema = baseMatchingQuestionSchema.extend({

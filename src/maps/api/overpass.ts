@@ -920,6 +920,144 @@ out geom;
     );
 };
 
+/* ────────────────── Transit-route picker (v966) ────────────────── */
+
+export interface TransitRouteSummary {
+    /** OSM element id, e.g. "relation/123456". */
+    id: string;
+    /** Display name (falls back to ref, then "<mode> route"). */
+    name: string;
+    ref?: string;
+    /** OSM `route` tag value: subway / train / light_rail / tram / … */
+    mode: string;
+}
+
+export interface TransitRouteStop {
+    lat: number;
+    lng: number;
+    name?: string;
+}
+
+export interface TransitRouteDetail {
+    stops: TransitRouteStop[];
+    /** Flattened line as [lng, lat] pairs, for drawing the route. */
+    geometry: number[][];
+}
+
+/**
+ * v966: list the transit ROUTES with a member within `radiusMeters` of the
+ * given point — the routes the seeker could currently be riding, for the
+ * `same-train-line` question's route picker. `modes` are OSM `route` tag
+ * values (subway/train/light_rail/tram/monorail/ferry/bus); defaults to the
+ * rail-based set. Returns a de-duplicated, name-sorted summary list.
+ */
+export const findTransitRoutesNear = async (
+    lat: number,
+    lng: number,
+    modes: string[] = ["subway", "train", "light_rail", "tram", "monorail"],
+    radiusMeters = 500,
+): Promise<TransitRouteSummary[]> => {
+    const modeRe = modes.map((m) => m.replace(/[^a-z_]/gi, "")).join("|");
+    if (!modeRe) return [];
+    const query = `[out:json];
+relation(around:${radiusMeters},${lat},${lng})["type"="route"]["route"~"^(${modeRe})$"];
+out tags;`;
+    const data = await getOverpassData(query);
+    const seen = new Set<string>();
+    const routes: TransitRouteSummary[] = [];
+    for (const el of data.elements ?? []) {
+        if (el.type !== "relation" || !el.tags) continue;
+        const tags = el.tags as Record<string, string>;
+        const mode = tags.route ?? "";
+        const ref = tags.ref;
+        const name =
+            tags["name:en"] ??
+            tags.name ??
+            (ref ? `${mode} ${ref}` : `${mode} route`);
+        // De-dupe a route mapped as separate directional relations (same
+        // name+ref → one entry; keep the first).
+        const dedupeKey = `${mode}|${name}|${ref ?? ""}`;
+        if (seen.has(dedupeKey)) continue;
+        seen.add(dedupeKey);
+        routes.push({ id: `relation/${el.id}`, name, ref, mode });
+    }
+    routes.sort((a, b) =>
+        a.name.localeCompare(b.name, undefined, { numeric: true }),
+    );
+    return routes;
+};
+
+/**
+ * v966: fetch one transit route's ordered STOPS + line geometry (for the
+ * picked route). Reads the relation with member geometry (`out geom`) plus
+ * the recursed member nodes (for their names), then extracts:
+ *   - stops: member nodes whose role is a stop/platform role OR whose tags
+ *     mark them a station/halt/stop/platform — de-duplicated by nearness so a
+ *     PTv2 stop-position + platform pair collapses to one stop.
+ *   - geometry: the concatenated way-member vertices ([lng,lat]).
+ */
+export const fetchTransitRouteDetail = async (
+    routeId: string,
+): Promise<TransitRouteDetail> => {
+    const relId = routeId.split("/")[1];
+    const query = `[out:json];relation(${relId});(._;>;);out geom;`;
+    const data = await getOverpassData(query);
+    const rel = (data.elements ?? []).find(
+        (e: any) => e.type === "relation" && String(e.id) === String(relId),
+    );
+    const nodeById = new Map<number, any>();
+    for (const e of data.elements ?? []) {
+        if (e.type === "node") nodeById.set(e.id, e);
+    }
+    const isStopNode = (node: any, role: string): boolean => {
+        if (/^(stop|platform)/.test(role)) return true;
+        const t = (node?.tags ?? {}) as Record<string, string>;
+        return (
+            ["station", "halt", "stop", "tram_stop"].includes(t.railway) ||
+            ["stop_position", "platform", "station"].includes(
+                t.public_transport,
+            )
+        );
+    };
+    const rawStops: TransitRouteStop[] = [];
+    const geometry: number[][] = [];
+    for (const m of rel?.members ?? []) {
+        if (m.type === "node") {
+            const node = nodeById.get(m.ref);
+            if (!isStopNode(node, m.role ?? "")) continue;
+            const la = m.lat ?? node?.lat;
+            const ln = m.lon ?? node?.lon;
+            if (!Number.isFinite(la) || !Number.isFinite(ln)) continue;
+            rawStops.push({ lat: la, lng: ln, name: node?.tags?.name });
+        } else if (m.type === "way" && Array.isArray(m.geometry)) {
+            for (const g of m.geometry) {
+                if (g && Number.isFinite(g.lat) && Number.isFinite(g.lon))
+                    geometry.push([g.lon, g.lat]);
+            }
+        }
+    }
+    // De-dupe stops: a PTv2 route lists a stop_position node AND a platform
+    // node for the same stop. Collapse points within ~60 m, preferring the
+    // one that carries a name.
+    const stops: TransitRouteStop[] = [];
+    for (const s of rawStops) {
+        const near = stops.find(
+            (t) =>
+                turf.distance(
+                    turf.point([t.lng, t.lat]),
+                    turf.point([s.lng, s.lat]),
+                    { units: "meters" },
+                ) < 60,
+        );
+        if (near) {
+            if (!near.name && s.name) near.name = s.name;
+            continue;
+        }
+        stops.push({ ...s });
+    }
+    return { stops, geometry };
+};
+
 /** Soft cap on how many coordinate pairs go into a `poly:` filter
  *  string. The string is repeated once per sub-statement in a
  *  combined query, so the effective query size is roughly

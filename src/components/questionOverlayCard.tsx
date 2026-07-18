@@ -46,7 +46,7 @@ function subtypeLabel(type: string | undefined): string | null {
         case "highspeed-measure-shinkansen":
             return "High-speed rail";
         case "same-train-line":
-            return "Train line";
+            return "Transit line";
         case "same-length-station":
             return "Station length";
         case "admin1-border":

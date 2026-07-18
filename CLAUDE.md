@@ -428,7 +428,40 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v965`. Use `git log` for the per-version detail;
+build stamp. Current: `v966`. Use `git log` for the per-version detail;
+
+**v966 — Transit Line matching question rebuilt to the rulebook (seeker picks
+the route they're riding).** The rulebook (`src/content/rulebook.md`, the
+Matching → Transit section) defines this question as: *"the answer is yes if the
+transit the seekers are currently riding would stop at the hider's station"* —
+seekers must be on MOVING transit and it's about THEIR line's stops, NOT the
+auto-computed nearest station's lines. The old implementation matched every
+way/relation sharing the nearest station's `name`/`network`, which drew the
+WHOLE subway network and was conceptually wrong. Rebuilt end-to-end:
+- **Data model:** `baseMatchingQuestionSchema.transitRoute?` (`schema.ts`) —
+  `{ id, name, ref?, mode, stops:[{lat,lng,name?}], geometry? }`. Declared on
+  the base schema so it survives the wire (Zod strips undeclared keys); only
+  same-train-line populates it. The whole question object already crosses the
+  wire (`addQ`), so no protocol change.
+- **Route picker (`TransitRoutePicker.tsx`):** lists the transit routes near
+  the seeker's live GPS (`findTransitRoutesNear` — `rel(around:R,gps)[type=route]
+  [route~subway|train|light_rail|tram|monorail]`, filtered to the game's
+  `allowedTransit` modes) and, on pick, fetches that route's stops + line
+  geometry (`fetchTransitRouteDetail` — `relation(id);(._;>;);out geom;`,
+  extracting stop/platform member nodes deduped by 60 m + the way vertices) and
+  bakes them onto `data.transitRoute`. Shows the picked route + a mini map of
+  the line + stops. Rendered in `cards/matching.tsx` for same-train-line INSTEAD
+  of the nearest-reference + location map. `AddQuestionDialog.handleConfirm`
+  blocks sending until a route is picked.
+- **Elimination + grading now key on the route's STOPS** (both `matching.ts`
+  `matchingStationBoundary("line")` and `hiderifyMatching`, plus `ZoneSidebar`):
+  a candidate/zone station is "matching" iff it's within 150 m of a route stop
+  (`stationIsRouteStop`, bridging the `railway=station` node vs the route's
+  stop_position/platform node); the Voronoi-cell union + `same` keep/complement
+  is unchanged. `trainLineNodeFinder`/`trainLineForPoint` (the whole-network
+  finder) are no longer used by same-train-line.
+- Copy: subtype description → "Pick the line you're riding — does it stop at the
+  hider's station?"; on-card label "Train line" → "Transit line".
 
 **v965 — body-of-water measuring shows NO overlay (arcgis buffer throwing on
 dense coast) — harden `arcBufferToPoint`.** In a dense coastal metro (NYC) the

@@ -158,6 +158,28 @@ function stationName(f: Feature<Point>): string | null {
     return ((p?.["name:en"] as string) || (p?.name as string) || null) ?? null;
 }
 
+/** v966: a candidate station coincides with one of the picked route's stops
+ *  when it's within this distance — the route lists stop_position/platform
+ *  nodes that sit a little off the `railway=station` node. */
+const STATION_STOP_MATCH_M = 150;
+
+/** True if `station` is one of the route's stops (within
+ *  STATION_STOP_MATCH_M of any stop point). */
+function stationIsRouteStop(
+    station: Feature<Point>,
+    stops: { lat: number; lng: number }[],
+): boolean {
+    const c = station.geometry?.coordinates;
+    if (!c) return false;
+    const pt = turf.point([c[0], c[1]]);
+    return stops.some(
+        (s) =>
+            turf.distance(pt, turf.point([s.lng, s.lat]), {
+                units: "meters",
+            }) <= STATION_STOP_MATCH_M,
+    );
+}
+
 /**
  * Seeker-side elimination for the three station-property matching types
  * (v625): "same train line", "same first letter", "same station-name
@@ -186,17 +208,16 @@ async function matchingStationBoundary(
 
     let matching: Feature<Point>[];
     if (mode === "line") {
-        const ids = new Set<number>(
-            await trainLineNodeFinder(nearest.properties.id as string),
+        // v966: the answer is "is the hider's station a stop on the ROUTE the
+        // seekers are riding?" — so the matching set is every candidate
+        // station that is one of the picked route's stops (within
+        // STATION_STOP_MATCH_M, bridging the station node vs the route's
+        // stop_position/platform node). No route picked → nothing to cut.
+        const stops = question.transitRoute?.stops ?? [];
+        if (stops.length === 0) return false;
+        matching = stations.features.filter((s) =>
+            stationIsRouteStop(s, stops),
         );
-        const nearestNum = parseInt(
-            String(nearest.properties.id).split("/")[1],
-        );
-        if (Number.isFinite(nearestNum)) ids.add(nearestNum);
-        matching = stations.features.filter((s) => {
-            const num = parseInt(String(s.properties?.id ?? "").split("/")[1]);
-            return Number.isFinite(num) && ids.has(num);
-        });
     } else {
         const name = stationName(nearest);
         if (!name) return false;
@@ -814,18 +835,15 @@ export const hiderifyMatching = async (question: MatchingQuestion) => {
         );
 
         if (question.type === "same-train-line") {
-            const nodes = await trainLineNodeFinder(
-                nearestSeekerTrainStation.properties.id,
-            );
-
-            const hiderId = parseInt(
-                nearestHiderTrainStation.properties.id.split("/")[1],
-            );
-
-            if (nodes.includes(hiderId)) {
-                question.same = true;
-            } else {
-                question.same = false;
+            // v966: "yes" iff the hider's nearest station is a STOP on the
+            // route the seekers are riding (baked onto the question by the
+            // seeker's route picker). No route → leave the manual answer.
+            const stops = question.transitRoute?.stops ?? [];
+            if (stops.length > 0) {
+                question.same = stationIsRouteStop(
+                    nearestHiderTrainStation as Feature<Point>,
+                    stops,
+                );
             }
         }
 

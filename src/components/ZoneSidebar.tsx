@@ -382,44 +382,35 @@ export const ZoneSidebar = () => {
                     );
 
                     if (question.data.type === "same-train-line") {
-                        // Custom-only lists don't have reliable OSM IDs
-                        if (useCustomStations && !includeDefaultStations) {
+                        // v966: keep/cut zones whose station is a STOP on the
+                        // route the seekers picked (within ~150 m of a stop),
+                        // per the new rulebook-correct model. No route → skip.
+                        const stops = question.data.transitRoute?.stops ?? [];
+                        if (stops.length === 0) {
                             toast.warning(
-                                "'Same train line' isn't supported with custom-only station lists; skipping this filter.",
+                                "Pick the transit line you're riding first; skipping this filter.",
                             );
                         } else {
-                            const nid = nearestTrainStation.properties.id as
-                                | string
-                                | undefined;
-                            if (!nid || !nid.includes("/")) {
-                                toast.warning(
-                                    "Nearest station has no OSM id; skipping 'same train line' filter.",
+                            circles = circles.filter((circle) => {
+                                let center: [number, number];
+                                try {
+                                    center = turf.getCoord(
+                                        circle.properties,
+                                    ) as [number, number];
+                                } catch {
+                                    return false;
+                                }
+                                const pt = turf.point(center);
+                                const isStop = stops.some(
+                                    (s) =>
+                                        turf.distance(
+                                            pt,
+                                            turf.point([s.lng, s.lat]),
+                                            { units: "meters" },
+                                        ) <= 150,
                                 );
-                                continue;
-                            }
-
-                            const nodes = await trainLineNodeFinder(nid);
-
-                            if (nodes.length === 0) {
-                                toast.warning(
-                                    `No train line found for ${extractStationName(
-                                        nearestTrainStation,
-                                    )}`,
-                                );
-                                continue;
-                            } else {
-                                circles = circles.filter((circle) => {
-                                    const idProp =
-                                        circle.properties.properties.id;
-                                    if (!idProp || !idProp.includes("/"))
-                                        return false;
-                                    const id = parseInt(idProp.split("/")[1]);
-
-                                    return question.data.same
-                                        ? nodes.includes(id)
-                                        : !nodes.includes(id);
-                                });
-                            }
+                                return question.data.same ? isStop : !isStop;
+                            });
                         }
                     }
 

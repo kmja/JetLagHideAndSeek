@@ -82,7 +82,7 @@ export const SUBTYPES: Record<
     matching: [
         // Transit
         { value: "airport", label: "Airport", icon: Plane, description: "Same commercial airport in zone.", validSizes: ALL },
-        { value: "same-train-line", label: "Transit line", icon: Train, description: "Hider's station is on the line you're currently riding.", validSizes: ALL },
+        { value: "same-train-line", label: "Transit line", icon: Train, description: "Pick the line you're riding — does it stop at the hider's station? (You must be on moving transit.)", validSizes: ALL },
         { value: "same-length-station", label: "Station name length", icon: Languages, description: "Same number of characters in your nearest station's name.", validSizes: ALL },
         { value: "same-street-or-path", label: "Street or path", icon: Footprints, description: "Hider is on the same named street or path as you.", validSizes: ALL },
         // Administrative Divisions (1st-4th, rulebook p18). Each

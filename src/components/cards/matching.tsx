@@ -10,6 +10,7 @@ import NearestReferencePreview, {
     useNearestReference,
 } from "@/components/NearestReferencePreview";
 import PresetsDialog from "@/components/PresetsDialog";
+import { TransitRoutePicker } from "@/components/TransitRoutePicker";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
@@ -301,11 +302,24 @@ export const MatchingQuestionComponent = ({
                 redundant clutter. */}
             {questionSpecific}
 
+            {/* v966: the "same-train-line" question is about the ROUTE the
+                seekers are riding, not a map location — the seeker picks it
+                (rulebook: "yes if the transit the seekers are currently riding
+                would stop at the hider's station"). Show the route picker
+                instead of the nearest-reference + location map. */}
+            {data.type === "same-train-line" && forceExpanded && (
+                <TransitRoutePicker
+                    data={data}
+                    onChange={questionModified}
+                    disabled={!isQuestionEditable(data)}
+                />
+            )}
+
             {/* "Your nearest reference" preview — only in the configure
                 dialog (forceExpanded), and only while the question is
                 still a draft. Helps the seeker confirm which specific
                 place the hider is being matched against. */}
-            {forceExpanded && data.drag && (
+            {forceExpanded && data.drag && data.type !== "same-train-line" && (
                 <NearestReferencePreview
                     lat={data.lat}
                     lng={data.lng}
@@ -315,7 +329,8 @@ export const MatchingQuestionComponent = ({
                 />
             )}
 
-            {data.type !== "custom-zone" && (
+            {data.type !== "custom-zone" &&
+                data.type !== "same-train-line" && (
                 <MatchingMeasuringLocation
                     lat={data.lat}
                     lng={data.lng}
