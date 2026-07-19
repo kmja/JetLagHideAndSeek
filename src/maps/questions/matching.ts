@@ -29,7 +29,10 @@ import {
     trainLineNodeFinder,
 } from "@/maps/api";
 import { hidingZone } from "@/lib/hiderRole";
-import { basemapLandParts } from "@/maps/api/basemapWater";
+import {
+    basemapLandParts,
+    ensureBasemapWaterForArea,
+} from "@/maps/api/basemapWater";
 import { fetchAreaLandPolygons } from "@/maps/api/coast";
 import {
     fetchPrewarmedAreaStreets,
@@ -581,12 +584,16 @@ export const determineMatchingBoundary = memoize(
                 let usedBasemapLand = false;
                 try {
                     const frameB = turf.bbox(mapGeoJSON.get()!);
-                    const landParts = basemapLandParts([
+                    const frameBb: [number, number, number, number] = [
                         frameB[0],
                         frameB[1],
                         frameB[2],
                         frameB[3],
-                    ]);
+                    ];
+                    // v1002: deterministically read the basemap water from the
+                    // pmtiles before deriving the land (no map/idle race).
+                    await ensureBasemapWaterForArea(frameBb);
+                    const landParts = basemapLandParts(frameBb);
                     if (landParts && landParts.length > 0) {
                         for (const p of landParts) collected.push(p);
                         usedBasemapLand = true;

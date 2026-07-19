@@ -37,6 +37,7 @@ import { filterCoastlineByStraitRule } from "@/maps/questions/coastlineStrait";
 import {
     basemapCoastLines,
     basemapWaterVersion,
+    ensureBasemapWaterForArea,
     getBasemapWaterPolys,
 } from "@/maps/api/basemapWater";
 import { majorCityPoints } from "@/maps/data/majorCities";
@@ -236,6 +237,7 @@ export const determineMeasuringBoundary = async (
             // frame edges dropped. Only engages when the local sea is tagged
             // ocean/sea/bay; otherwise falls through to the per-city OSM
             // coastline, then the bundled 1:50m — so it never regresses.
+            await ensureBasemapWaterForArea(bbox4(bBox));
             const basemapCoast = basemapCoastLines(bbox4(bBox));
             let coastLines: Feature[];
             if (basemapCoast && basemapCoast.length > 0) {
@@ -557,6 +559,11 @@ export const determineMeasuringBoundary = async (
             // and the label agree by construction — no separate coastline fetch,
             // no OSM `natural=water`, no `__waterArea` hack, no coastline
             // assembly / polygonize / flood-fill. The map data IS the answer.
+            // v1002: deterministically read the basemap water from the pmtiles
+            // (fixed zoom, no map/idle race) before using it, so the overlay is
+            // ready when the elimination runs. No-op + falls back to the capture
+            // path on any failure.
+            await ensureBasemapWaterForArea(bbox4(bBox));
             const basemapWater = getBasemapWaterPolys(bbox4(bBox));
             if (basemapWater && basemapWater.length > 0) {
                 // v1001: SIMPLIFY each water polygon (~30 m, negligible against a

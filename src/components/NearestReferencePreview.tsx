@@ -30,6 +30,7 @@ import { MAJOR_CITIES } from "@/maps/data/majorCities";
 import type { APILocations } from "@/maps/schema";
 import {
     basemapCoastLines,
+    ensureBasemapWaterForArea,
     nearestBasemapWater,
 } from "@/maps/api/basemapWater";
 import { fetchPrewarmedAreaWater } from "@/maps/api/water";
@@ -591,6 +592,9 @@ async function fetchNearestCoastline(
     const poly = polyGeoJSON.get();
     if (poly) {
         try {
+            await ensureBasemapWaterForArea(
+                turf.bbox(poly) as [number, number, number, number],
+            );
             const bmc = basemapCoastLines(
                 turf.bbox(poly) as [number, number, number, number],
             );
@@ -703,6 +707,17 @@ async function fetchNearestWater(
     // body-of-water elimination buffers — so the label distance and the overlay
     // agree by construction (both read `getBasemapWaterPolys`). Falls back to
     // the OSM path below only when no map has captured the basemap water yet.
+    // v1002: read it deterministically from the pmtiles first.
+    const wPoly = polyGeoJSON.get();
+    if (wPoly) {
+        try {
+            await ensureBasemapWaterForArea(
+                turf.bbox(wPoly) as [number, number, number, number],
+            );
+        } catch {
+            /* fall through — capture / OSM covers us */
+        }
+    }
     const bmw = nearestBasemapWater(lat, lng);
     if (bmw) return bmw;
     let data: { elements?: unknown[] } | null = await fetchPrewarmedAreaWater();

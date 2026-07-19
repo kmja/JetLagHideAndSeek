@@ -5,6 +5,8 @@ import { atom } from "nanostores";
 import type { MapRef } from "react-map-gl/maplibre";
 
 import { mapGeoLocation, polyGeoJSON } from "@/lib/context";
+import { pmtilesUrl } from "@/lib/protomapsStyle";
+import { fetchBasemapLayerPolys } from "@/maps/api/basemapTiles";
 import { playAreaSignature } from "@/maps/geo-utils/playAreaIndex";
 
 /**
@@ -39,6 +41,10 @@ export const basemapWaterVersion = atom(0);
 interface WaterEntry {
     polys: Feature<Polygon | MultiPolygon>[];
     keys: Set<string>;
+    // v1002: once the AUTHORITATIVE headless read (`ensureBasemapWaterForArea`)
+    // has populated this entry, the `querySourceFeatures` capture stops writing
+    // to it — the headless set is the deterministic source of truth.
+    headless: boolean;
 }
 
 // Small bounded cache keyed by play area (a couple of recent areas is plenty).
@@ -94,8 +100,11 @@ export function captureBasemapWater(map: MaplibreMap): void {
         const key = playAreaKey();
         if (key === "none") return;
         let entry = cache.get(key);
+        // v1002: once the headless read owns this entry, don't pollute it with
+        // viewport-clipped capture geometry.
+        if (entry?.headless) return;
         if (!entry) {
-            entry = { polys: [], keys: new Set() };
+            entry = { polys: [], keys: new Set(), headless: false };
             // Evict the oldest if we're over the small cap.
             if (cache.size >= MAX_ENTRIES) {
                 const oldest = cache.keys().next().value;
@@ -133,6 +142,78 @@ export function captureBasemapWater(map: MaplibreMap): void {
     } catch {
         /* never throw from a map idle handler */
     }
+}
+
+// In-flight/done headless-ensure per play area (fetch the tiles at most once).
+const ensured = new Map<string, Promise<void>>();
+
+/**
+ * v1002: DETERMINISTICALLY populate the current play area's water from the
+ * pmtiles archive itself — read the `water` layer straight off R2 at a fixed
+ * zoom (`fetchBasemapLayerPolys`), independent of any map's viewport / idle
+ * race. This is the AUTHORITATIVE source: once it succeeds it marks the cache
+ * entry `headless`, the `querySourceFeatures` capture stops writing, and the
+ * sync readers (`getBasemapWaterPolys` / `basemapLandParts` / `basemapCoastLines`
+ * / `nearestBasemapWater`) return this set. Awaited by the body-of-water /
+ * same-landmass / coastline consumers before they read, so the geometry is
+ * ready when the elimination runs (fixing the "reveals before ready / never
+ * loads" fragility). Memoised per play area; every failure is a silent no-op so
+ * the capture path still covers it.
+ */
+export function ensureBasemapWaterForArea(
+    bbox: [number, number, number, number],
+): Promise<void> {
+    const key = playAreaKey();
+    if (key === "none") return Promise.resolve();
+    const existing = ensured.get(key);
+    if (existing) return existing;
+    const run = (async () => {
+        const url = pmtilesUrl.get();
+        if (!url) return;
+        const feats = await fetchBasemapLayerPolys(url, bbox, "water", {
+            targetZoom: 12,
+        });
+        if (!feats || feats.length === 0) return;
+        let entry = cache.get(key);
+        if (!entry) {
+            if (cache.size >= MAX_ENTRIES) {
+                const oldest = cache.keys().next().value;
+                if (oldest !== undefined) cache.delete(oldest);
+            }
+            entry = { polys: [], keys: new Set(), headless: false };
+            cache.set(key, entry);
+        }
+        // Replace with the authoritative headless set.
+        entry.polys = [];
+        entry.keys = new Set();
+        for (const f of feats) {
+            const g = f.geometry;
+            if (!g || (g.type !== "Polygon" && g.type !== "MultiPolygon"))
+                continue;
+            const gk = geomKey(g as Polygon | MultiPolygon);
+            if (entry.keys.has(gk)) continue;
+            entry.keys.add(gk);
+            const props = (f.properties ?? {}) as Record<string, unknown>;
+            entry.polys.push({
+                type: "Feature",
+                properties: {
+                    name:
+                        typeof props.name === "string" ? props.name : undefined,
+                    kind:
+                        typeof props.kind === "string" ? props.kind : undefined,
+                },
+                geometry: g as Polygon | MultiPolygon,
+            });
+        }
+        entry.headless = true;
+        basemapWaterVersion.set(basemapWaterVersion.get() + 1);
+    })().catch(() => {
+        // On failure, drop the memo so a later call can retry (the capture path
+        // covers us in the meantime).
+        ensured.delete(key);
+    });
+    ensured.set(key, run);
+    return run;
 }
 
 /**

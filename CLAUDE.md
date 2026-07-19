@@ -428,7 +428,30 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v1001`. Use `git log` for the per-version detail;
+build stamp. Current: `v1002`. Use `git log` for the per-version detail;
+
+**v1002 — headless pmtiles read: the basemap water is DETERMINISTIC (no map/idle
+race).** The `querySourceFeatures` capture (v998) only sees tiles a DISPLAY map
+has loaded, tying the water geometry to the map's viewport/zoom + an `idle` race
+— the root of the "overlay reveals before it's ready / sometimes never loads"
+fragility. New `src/maps/api/basemapTiles.ts` (`fetchBasemapLayerPolys`) reads
+the SAME pmtiles archive we already ship straight off R2 via range requests at a
+FIXED zoom (≈12, bounded to ≤24 tiles), decodes the MVT with
+`@mapbox/vector-tile` + `pbf`, and returns the layer's polygons in lng/lat —
+independent of any map. `basemapWater.ts` `ensureBasemapWaterForArea(bbox)` runs
+it once per play area (memoised), REPLACES the cache with the authoritative
+headless set + marks the entry `headless` (the `querySourceFeatures` capture then
+stops writing to it), and bumps `basemapWaterVersion`. The body-of-water /
+same-landmass / coastline eliminations AND the nearest-water/coast labels all
+`await ensureBasemapWaterForArea(...)` before reading the sync helpers, so the
+water is ready when the elimination runs — the overlay no longer depends on a map
+having idled. Purely additive + gated: every failure path (no URL, decode error,
+empty) is a silent no-op that falls back to the v998 capture, so worst case is
+identical to v1001. New direct deps `@mapbox/vector-tile` + `pbf` (both tiny;
+lockfile refreshed). NOTE: validated by build only — the pmtiles/MVT decode
+against the live archive is confirmed on-device (the sandbox can't reach the
+archive host); every failure degrades to the capture path, so a decode mismatch
+can't regress below v1001.
 
 **v1001 — body-of-water reliability + two more map-based migrations
 (same-landmass, coastline).**
