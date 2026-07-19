@@ -11,8 +11,16 @@ import {
     voronoi,
 } from "@turf/turf";
 import type maplibregl from "maplibre-gl";
-import { Circle as CircleIcon, LocateOff } from "lucide-react";
-import { useContext, useEffect, useMemo, useRef, useState } from "react";
+import { Circle as CircleIcon, type LucideIcon, LocateOff } from "lucide-react";
+import {
+    createElement,
+    useContext,
+    useEffect,
+    useMemo,
+    useRef,
+    useState,
+} from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import Map, {
     Layer,
     type MapLayerMouseEvent,
@@ -874,6 +882,45 @@ export function InlineLocationPicker({
         !!$hidingZones &&
         $hidingZones.features.length > 0;
 
+    // v988: register the measuring subtype icon as a map image so the reference
+    // field renders as a GPU symbol layer (recognisable glyph, any count). The
+    // symbol layer only mounts once the key is set; until then the circle-dot
+    // fallback shows, so a rasterize/addImage failure degrades to plain dots.
+    const [measureIconKey, setMeasureIconKey] = useState<string | null>(null);
+    useEffect(() => {
+        if (impactMode !== "measuring" || !candidateIcon || !impactType) {
+            setMeasureIconKey(null);
+            return;
+        }
+        const map = mapRef.current?.getMap();
+        if (!map) return;
+        const key = `measure-ref-${impactType}-${darkBasemap ? "d" : "l"}`;
+        let cancelled = false;
+        const register = async () => {
+            if (map.hasImage(key)) {
+                if (!cancelled) setMeasureIconKey(key);
+                return;
+            }
+            const data = await rasterizeIconBadge(candidateIcon, darkBasemap);
+            if (cancelled || !data) return;
+            try {
+                if (!map.hasImage(key)) map.addImage(key, data, { pixelRatio: 2 });
+                if (!cancelled) setMeasureIconKey(key);
+            } catch {
+                /* keep the circle-dot fallback */
+            }
+        };
+        void register();
+        // A basemap style swap (theme/satellite) wipes addImage images, so
+        // re-register on styledata.
+        const onStyle = () => void register();
+        map.on("styledata", onStyle);
+        return () => {
+            cancelled = true;
+            map.off("styledata", onStyle);
+        };
+    }, [impactMode, impactType, candidateIcon, darkBasemap]);
+
     return (
         <div className="space-y-2">
             <div
@@ -1212,31 +1259,62 @@ export function InlineLocationPicker({
                             type="geojson"
                             data={measuringDotsFC}
                         >
-                            <Layer
-                                id="impact-candidate-dots-layer"
-                                type="circle"
-                                paint={{
-                                    "circle-radius": [
-                                        "interpolate",
-                                        ["linear"],
-                                        ["zoom"],
-                                        9,
-                                        1.6,
-                                        13,
-                                        2.8,
-                                        16,
-                                        4,
-                                    ],
-                                    "circle-color": darkBasemap
-                                        ? "hsl(0, 0%, 88%)"
-                                        : "hsl(0, 0%, 28%)",
-                                    "circle-opacity": 0.75,
-                                    "circle-stroke-width": 0.6,
-                                    "circle-stroke-color": darkBasemap
-                                        ? "hsl(0, 0%, 15%)"
-                                        : "hsl(0, 0%, 100%)",
-                                }}
-                            />
+                            {measureIconKey ? (
+                                // v988: recognisable subtype ICON, GPU symbol
+                                // layer. `icon-allow-overlap:false` lets
+                                // MapLibre auto-declutter hundreds of refs into
+                                // a readable subset at each zoom — no manual cap,
+                                // zero React-marker cost.
+                                <Layer
+                                    key="impact-candidate-icons-layer"
+                                    id="impact-candidate-icons-layer"
+                                    type="symbol"
+                                    layout={{
+                                        "icon-image": measureIconKey,
+                                        "icon-allow-overlap": false,
+                                        "icon-ignore-placement": false,
+                                        "icon-padding": 2,
+                                        "icon-size": [
+                                            "interpolate",
+                                            ["linear"],
+                                            ["zoom"],
+                                            9,
+                                            0.4,
+                                            13,
+                                            0.6,
+                                            16,
+                                            0.8,
+                                        ],
+                                    }}
+                                />
+                            ) : (
+                                <Layer
+                                    key="impact-candidate-dots-layer"
+                                    id="impact-candidate-dots-layer"
+                                    type="circle"
+                                    paint={{
+                                        "circle-radius": [
+                                            "interpolate",
+                                            ["linear"],
+                                            ["zoom"],
+                                            9,
+                                            1.6,
+                                            13,
+                                            2.8,
+                                            16,
+                                            4,
+                                        ],
+                                        "circle-color": darkBasemap
+                                            ? "hsl(0, 0%, 88%)"
+                                            : "hsl(0, 0%, 28%)",
+                                        "circle-opacity": 0.75,
+                                        "circle-stroke-width": 0.6,
+                                        "circle-stroke-color": darkBasemap
+                                            ? "hsl(0, 0%, 15%)"
+                                            : "hsl(0, 0%, 100%)",
+                                    }}
+                                />
+                            )}
                         </Source>
                     )}
                     {impactMode && impactMode !== "measuring" && candidateIcon &&
@@ -1560,6 +1638,62 @@ function makePatternImage(
     ctx.textBaseline = "middle";
     ctx.fillText(symbol, size / 2, size / 2 + 1);
     return ctx.getImageData(0, 0, size, size);
+}
+
+/**
+ * v988: rasterize a Lucide subtype icon into a circular badge `ImageData` for
+ * `map.addImage`, so the MEASURING reference field can render as ONE GPU
+ * `symbol` layer (icon + `icon-allow-overlap:false` auto-declutter) at any
+ * count — bringing back the recognisable per-subtype glyph the v981 "dots"
+ * dropped, without the hundreds-of-React-`<Marker>`s freeze. Async because the
+ * SVG is loaded through an `<img>`; returns null on any failure so the caller
+ * falls back to the plain circle-dot layer (the reliable v981 behaviour).
+ */
+async function rasterizeIconBadge(
+    Icon: LucideIcon,
+    dark: boolean,
+): Promise<ImageData | null> {
+    try {
+        if (typeof document === "undefined") return null;
+        const px = 44; // device px; addImage pixelRatio 2 → ~22 css px
+        const iconPx = 24;
+        const svg = renderToStaticMarkup(
+            createElement(Icon, {
+                size: iconPx,
+                strokeWidth: 2.4,
+                color: dark ? "hsl(0, 0%, 90%)" : "hsl(0, 0%, 14%)",
+            }),
+        );
+        const img = new Image();
+        img.decoding = "async";
+        const url =
+            "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
+        await new Promise<void>((resolve, reject) => {
+            img.onload = () => resolve();
+            img.onerror = () => reject(new Error("icon svg failed to load"));
+            img.src = url;
+        });
+        const canvas = document.createElement("canvas");
+        canvas.width = px;
+        canvas.height = px;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) return null;
+        // Circular badge backdrop (matches the old marker: translucent bg +
+        // faint ring), so the glyph reads over any basemap.
+        ctx.beginPath();
+        ctx.arc(px / 2, px / 2, px / 2 - 2, 0, Math.PI * 2);
+        ctx.fillStyle = dark ? "rgba(18, 18, 20, 0.85)" : "rgba(255, 255, 255, 0.9)";
+        ctx.fill();
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = dark
+            ? "rgba(255, 255, 255, 0.4)"
+            : "rgba(0, 0, 0, 0.4)";
+        ctx.stroke();
+        ctx.drawImage(img, (px - iconPx) / 2, (px - iconPx) / 2, iconPx, iconPx);
+        return ctx.getImageData(0, 0, px, px);
+    } catch {
+        return null;
+    }
 }
 
 export default InlineLocationPicker;

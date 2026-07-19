@@ -428,7 +428,25 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v987`. Use `git log` for the per-version detail;
+build stamp. Current: `v988`. Use `git log` for the per-version detail;
+
+**v988 — measuring reference ICONS are back, as a GPU symbol layer.** v981
+replaced the measuring reference field's per-subtype ICON markers with plain GPU
+circle DOTS because the icons were hundreds of React `<Marker>`s that froze the
+main thread (the perf hit was the HTML markers, NOT the icons). Now the field
+renders as ONE GPU **`symbol`** layer with the recognisable subtype glyph:
+`rasterizeIconBadge` (`InlineLocationPicker.tsx`) draws the Lucide subtype icon
+(`iconForSubtype`) into a circular badge `ImageData` via
+`renderToStaticMarkup` → `<img>` → canvas, and `map.addImage`s it (keyed by
+subtype + basemap brightness, re-registered on `styledata` since a style swap
+wipes added images). The layer uses **`icon-allow-overlap:false`** so MapLibre
+auto-declutters any count into a readable subset at each zoom — no manual cap,
+zero React-marker cost. Fully guarded: the async rasterize/addImage sets a key
+only on success; until then (or on any failure) the plain circle-dot layer
+(v981) shows, so it degrades cleanly. `react-dom/server` folds into the existing
+`vendor-react` chunk (no new large chunk; the picker is lazy-loaded anyway).
+Matching/tentacles keep their labelled markers (few after the border/reach
+filter).
 
 **v987 — body-of-water: fold OPEN water back in as an AREA (coarse ocean) +
 thermometer configure dialog redesign.**
