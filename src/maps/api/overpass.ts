@@ -757,9 +757,13 @@ out geom;
 };
 
 export const fetchCoastline = async () => {
+    // v981: no loadingText — the configure dialog / question preview owns its
+    // own loading state; a separate "Fetching coastline data…" toaster for an
+    // internal step of body-of-water / coastline / same-landmass just read as
+    // noise (and leaked an implementation detail to the user).
     const response = await cacheFetch(
         import.meta.env.BASE_URL + "/coastline50.geojson",
-        "Fetching coastline data...",
+        undefined,
         CacheType.PERMANENT_CACHE,
     );
     const data = await response.json();
@@ -798,9 +802,12 @@ export const fetchCoastline = async () => {
  * future. See the admin2-border case comment in measuring.ts.
  */
 export const fetchBorders0Land = async () => {
+    // v981: no loadingText — these bundled datasets are fetched both by the
+    // measuring elimination AND (silently) by the subtype-availability gate,
+    // so a user-facing toaster here is noise.
     const response = await cacheFetch(
         import.meta.env.BASE_URL + "/borders0_50m.geojson",
-        "Fetching international border data...",
+        undefined,
         CacheType.PERMANENT_CACHE,
     );
     return await response.json();
@@ -809,7 +816,7 @@ export const fetchBorders0Land = async () => {
 export const fetchBorders1States = async () => {
     const response = await cacheFetch(
         import.meta.env.BASE_URL + "/borders1_50m.geojson",
-        "Fetching state border data...",
+        undefined,
         CacheType.PERMANENT_CACHE,
     );
     return await response.json();

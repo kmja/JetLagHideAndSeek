@@ -1137,7 +1137,7 @@ export const AddQuestionDialog = ({
                                             COLUMN so the description aligns
                                             with the title (v892: the category
                                             icon block was removed). */}
-                                        <div className="flex items-start gap-2">
+                                        <div className="flex items-center gap-4">
                                             <button
                                                 type="button"
                                                 onClick={() => {
@@ -1147,14 +1147,18 @@ export const AddQuestionDialog = ({
                                                 aria-label="Back to categories"
                                                 title="Back to categories"
                                                 className={cn(
-                                                    "inline-flex items-center justify-center w-7 h-7 rounded shrink-0 mt-0.5",
+                                                    // v981: sized to match the
+                                                    // two-line title+description
+                                                    // block beside it, with more
+                                                    // breathing room (gap-4).
+                                                    "inline-flex items-center justify-center w-12 h-12 rounded-lg shrink-0",
                                                     "bg-secondary text-foreground hover:bg-accent",
                                                     "border border-border transition-colors",
                                                     "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                                                 )}
                                             >
                                                 <ArrowLeft
-                                                    size={14}
+                                                    size={22}
                                                     strokeWidth={2.5}
                                                 />
                                             </button>

@@ -278,6 +278,34 @@ export function InlineLocationPicker({
     // Graceful-degrades to the full set while the remaining-area polygon
     // is still resolving, or if it can't be reduced to polygons.
     const visibleCandidates = useMemo(() => {
+        // v981: a dense measuring reference (NYC parks — hundreds/thousands)
+        // was plotted as hundreds of React <Marker>s, which FROZE the main
+        // thread while the configure dialog opened (the reported park freeze;
+        // the elimination buffer itself is already off-thread). The dots are
+        // only a density hint, so cap them to the nearest N to the pin — the
+        // buffered "closer/further" region (the actual answer) still uses the
+        // FULL candidate set in the impact math.
+        const MEASURING_MARKER_CAP = 120;
+        const capMeasuring = (
+            list: typeof candidatePoints,
+        ): typeof candidatePoints => {
+            if (
+                !list ||
+                impactMode !== "measuring" ||
+                list.length <= MEASURING_MARKER_CAP
+            ) {
+                return list;
+            }
+            return [...list]
+                .map((c) => {
+                    const dLng = c.lng - longitude;
+                    const dLat = c.lat - latitude;
+                    return { c, d: dLng * dLng + dLat * dLat };
+                })
+                .sort((a, b) => a.d - b.d)
+                .slice(0, MEASURING_MARKER_CAP)
+                .map((x) => x.c);
+        };
         if (!candidatePoints || candidatePoints.length === 0)
             return candidatePoints;
         // same-train-line: the question is about the nearest LINE, which is
@@ -300,7 +328,7 @@ export function InlineLocationPicker({
                 return candidatePoints.filter((_, i) => set.has(i));
             }
         }
-        if (!$maskData) return candidatePoints;
+        if (!$maskData) return capMeasuring(candidatePoints);
         const polys: GeoJSON.Feature[] = [];
         const collect = (g: GeoJSON.GeoJSON | null | undefined) => {
             if (!g) return;
@@ -311,7 +339,7 @@ export function InlineLocationPicker({
             }
         };
         collect($maskData as GeoJSON.GeoJSON);
-        if (polys.length === 0) return candidatePoints;
+        if (polys.length === 0) return capMeasuring(candidatePoints);
 
         const keep = new Set<number>();
         candidatePoints.forEach((c, i) => {
@@ -384,8 +412,16 @@ export function InlineLocationPicker({
             }
         }
 
-        return candidatePoints.filter((_, i) => keep.has(i));
-    }, [candidatePoints, $maskData, impactMode, impactType, referencePoint]);
+        return capMeasuring(candidatePoints.filter((_, i) => keep.has(i)));
+    }, [
+        candidatePoints,
+        $maskData,
+        impactMode,
+        impactType,
+        referencePoint,
+        latitude,
+        longitude,
+    ]);
 
     const [gpsState, setGpsState] = useState<"unknown" | "granted" | "denied">(
         "unknown",

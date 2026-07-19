@@ -428,7 +428,28 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v980`. Use `git log` for the per-version detail;
+build stamp. Current: `v981`. Use `git log` for the per-version detail;
+
+**v981 — measuring park FREEZE root cause (marker cap) + toaster removal +
+back-arrow styling.**
+- **The measuring park/POI freeze was NOT the buffer** (that's off-thread since
+  v978) — it was `InlineLocationPicker` rendering HUNDREDS of React `<Marker>`s
+  (one per reference; NYC has hundreds/thousands of parks), which froze the main
+  thread while the configure dialog opened. `visibleCandidates` now CAPS the
+  measuring dots to the nearest 120 to the pin (`capMeasuring`); the buffered
+  "closer/further" region (the actual answer) still uses the FULL candidate set
+  in the impact math, so only the on-map density hint is thinned.
+- **"Fetching coastline data…" / "Fetching …border data…" toasters removed** —
+  `fetchCoastline` / `fetchBorders0Land` / `fetchBorders1States` dropped their
+  `loadingText`; these are internal steps of body-of-water / coastline /
+  same-landmass / the border-availability gate, so the configure dialog owns
+  the loading state and no separate toaster leaks the implementation detail.
+- **Subtype-picker back arrow** enlarged to `w-12 h-12` (size-22 icon) with
+  `gap-4`, matching the two-line title+description block beside it.
+NOTE (border gating): the international/state-border availability geometry is
+VERIFIED correct — 0 of the bundled Natural Earth border features intersect
+NYC's bbox, so `computeBorderPresent` returns false → the tiles disable. A
+"still enabled" observation is async-timing / stale-PWA-cache, not the logic.
 
 **v980 — body-of-water: fold the DETAILED sea back in (bays no longer read
 "further"), freeze-guarded.** v976 dropped the fragile/slow per-city sea polygon
