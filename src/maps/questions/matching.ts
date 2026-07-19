@@ -30,6 +30,7 @@ import {
 } from "@/maps/api";
 import { hidingZone } from "@/lib/hiderRole";
 import { fetchAreaLandPolygons } from "@/maps/api/coast";
+import { seaFromCoastline } from "@/maps/questions/seaFromCoastline";
 import { majorCityPoints } from "@/maps/data/majorCities";
 import { holedMask, modifyMapData, safeUnion } from "@/maps/geo-utils";
 import { geoSpatialVoronoi } from "@/maps/geo-utils";
@@ -571,28 +572,72 @@ export const determineMatchingBoundary = memoize(
                 if (areaLand) {
                     pushParts(areaLand);
                 } else {
-                    // Fallback: bundled 1:50m coastline closed into land.
-                    const coastFC = await fetchCoastline();
-                    const polys = turf.lineToPolygon(coastFC as any);
-                    if ((polys as any).type === "FeatureCollection") {
-                        for (const f of (polys as any).features) {
-                            if (f.geometry?.type === "Polygon")
-                                collected.push(f);
-                            if (f.geometry?.type === "MultiPolygon") {
-                                for (const ring of f.geometry.coordinates) {
-                                    collected.push(turf.polygon(ring));
-                                }
-                            }
+                    // Fallback: fetchAreaLandPolygons failed (per-city coast
+                    // unavailable / degenerate). The OLD fallback closed the
+                    // bundled 1:50m coastline GLOBALLY, which yields whole
+                    // CONTINENTS — a Manhattan seeker got all of the Americas
+                    // as "one landmass" (37M km²), so EVERY hider matched:
+                    // strictly worse than no answer. Instead build a
+                    // FRAME-BOUNDED coarse land — clip the bundled coastline to
+                    // the play-area frame and close it against the frame (the
+                    // same construction as the body-of-water coarse ocean).
+                    // Coarse (may not resolve a narrow strait like the East
+                    // River), but bounded to the play area, never a continent.
+                    try {
+                        const b = turf.bbox(mapGeoJSON.get()!);
+                        const frameBbox: [number, number, number, number] = [
+                            b[0],
+                            b[1],
+                            b[2],
+                            b[3],
+                        ];
+                        const coastFC = await fetchCoastline();
+                        const pad = 3;
+                        const near = (
+                            coastFC.features as Feature[]
+                        ).filter((f) => {
+                            const g = f.geometry;
+                            if (
+                                !g ||
+                                (g.type !== "LineString" &&
+                                    g.type !== "MultiLineString")
+                            )
+                                return false;
+                            const fb = turf.bbox(f);
+                            return !(
+                                fb[0] > frameBbox[2] + pad ||
+                                fb[2] < frameBbox[0] - pad ||
+                                fb[1] > frameBbox[3] + pad ||
+                                fb[3] < frameBbox[1] - pad
+                            );
+                        }) as Feature<
+                            GeoJSON.LineString | GeoJSON.MultiLineString
+                        >[];
+                        const sea = seaFromCoastline(near, frameBbox, {
+                            lng: question.lng,
+                            lat: question.lat,
+                        });
+                        const frame = turf.bboxPolygon(frameBbox);
+                        if (sea) {
+                            const land = turf.difference(
+                                turf.featureCollection([
+                                    frame as Feature<Polygon>,
+                                    sea as Feature<Polygon | MultiPolygon>,
+                                ]),
+                            );
+                            if (land)
+                                pushParts(
+                                    land as Feature<Polygon | MultiPolygon>,
+                                );
+                            else pushParts(frame as Feature<Polygon>);
+                        } else {
+                            // No sea inside the frame → the whole play area is
+                            // one landmass (a reasonable degraded answer).
+                            pushParts(frame as Feature<Polygon>);
                         }
-                    } else if ((polys as any).geometry?.type === "Polygon") {
-                        collected.push(polys as Feature<Polygon>);
-                    } else if (
-                        (polys as any).geometry?.type === "MultiPolygon"
-                    ) {
-                        for (const ring of (polys as Feature<MultiPolygon>)
-                            .geometry.coordinates) {
-                            collected.push(turf.polygon(ring));
-                        }
+                    } catch {
+                        /* leave `collected` empty → the no-landmass error
+                           below, which is honest (better than a continent). */
                     }
                 }
                 for (const f of collected) {

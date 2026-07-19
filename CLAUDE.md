@@ -428,7 +428,24 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v989`. Use `git log` for the per-version detail;
+build stamp. Current: `v990`. Use `git log` for the per-version detail;
+
+**v990 — same-landmass fallback no longer returns a CONTINENT.** When the
+per-city land path (`fetchAreaLandPolygons`) fails (per-city coast unavailable /
+degenerate), `same-landmass` (`matching.ts`) fell back to closing the bundled
+1:50m coastline GLOBALLY — which yields whole CONTINENTS: a Manhattan seeker got
+all of the Americas (~37M km²) as "one landmass", so EVERY hider matched (verified
+offline). That's strictly worse than no answer. The fallback now builds a
+FRAME-BOUNDED coarse land instead — clip the bundled coastline to the play-area
+frame and close it against the frame via `seaFromCoastline` (the same
+construction as the v987 body-of-water coarse ocean), then land = frame minus
+sea. Verified: NYC now yields ~280 km² bounded land with the seeker correctly
+inside (was 37M km²). Coarse (may not resolve a narrow strait like the East
+River — that's what the per-city path is for), but bounded to the play area and
+never a continent; if `seaFromCoastline`'s guard rejects (seeker-in-sea / no
+in-frame coast) it degrades to "the whole play area is one landmass" (a sane
+degraded answer), and a total failure leaves the honest "couldn't determine your
+landmass" error. The NORMAL per-city path is unchanged.
 
 **v989 — sea-level shows a reference NUMBER (the seeker's elevation).** The
 `sea-level` measuring subtype resolved to `null` in `resolveFamily`
