@@ -28,6 +28,7 @@ import { CacheType } from "@/maps/api/types";
 import { isFountainWaterFeature } from "@/maps/questions/measuring";
 import { MAJOR_CITIES } from "@/maps/data/majorCities";
 import type { APILocations } from "@/maps/schema";
+import { nearestBasemapWater } from "@/maps/api/basemapWater";
 import { fetchPrewarmedAreaWater } from "@/maps/api/water";
 
 /**
@@ -681,6 +682,12 @@ async function fetchNearestWater(
     lat: number,
     lng: number,
 ): Promise<NearestRef | null> {
+    // v998.2: prefer the BASEMAP `water` layer — the SAME source the
+    // body-of-water elimination buffers — so the label distance and the overlay
+    // agree by construction (both read `getBasemapWaterPolys`). Falls back to
+    // the OSM path below only when no map has captured the basemap water yet.
+    const bmw = nearestBasemapWater(lat, lng);
+    if (bmw) return bmw;
     let data: { elements?: unknown[] } | null = await fetchPrewarmedAreaWater();
     if (!data) {
         try {

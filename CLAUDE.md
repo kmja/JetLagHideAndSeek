@@ -428,7 +428,29 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v999`. Use `git log` for the per-version detail;
+build stamp. Current: `v1000`. Use `git log` for the per-version detail;
+
+**v1000 — body-of-water is JUST the map water (drop coastline + OSM + the
+`__waterArea` hack).** The map's `water` layer already contains every shoreline
+(as polygon boundaries), so the separate coastline fetch was redundant — and
+the earlier collapse wasn't "use the map" failing, it was the LABEL still using
+OSM (said 1.0 km) while the elimination used the map (the East River, ~metres):
+they disagreed. Now BOTH read only the basemap water:
+- **Elimination** (`measuring.ts` body-of-water): `getBasemapWaterPolys` returns
+  the basemap water polygons and they're buffered as NORMAL targets — buffering
+  the real water gives the open sea (inside → distance 0 → closer) AND the
+  near-shore land band, and the radius `r` = seeker → nearest water. No
+  coastline, no OSM `natural=water`, no `__waterArea`. Cold fallback (no map has
+  captured water yet) keeps the OSM-water + coastline-lines path.
+- **Label** (`nearestBasemapWater` in `basemapWater.ts`, used first by
+  `fetchNearestWater`): nearest point on any basemap water polygon (0 if inside),
+  named from the tile's `name`/`kind` (else "Shoreline"/"Water"). Reads the SAME
+  polygons the elimination buffers, so the label distance == the buffer radius by
+  construction — the overlay and the label always agree. Falls back to the OSM
+  path only when no basemap water is captured.
+The capture now keeps each water feature's `name`/`kind` so the label can name
+the body. `__waterArea` handling stays in `bufferAndUnion` for any other caller
+but body-of-water no longer uses it.
 
 **v999 — body-of-water fix: basemap water is `__waterArea` (not a buffered
 target), restoring the overlay.** v998 shipped the basemap-water sea but made

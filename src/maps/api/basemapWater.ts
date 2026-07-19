@@ -115,9 +115,16 @@ export function captureBasemapWater(map: MaplibreMap): void {
             const gk = geomKey(g as Polygon | MultiPolygon);
             if (entry.keys.has(gk)) continue;
             entry.keys.add(gk);
+            // Keep the `name`/`kind` from the tile — Protomaps tags named lakes
+            // / rivers, and `kind` distinguishes ocean/lake/river — so the
+            // nearest-water LABEL can name the body (or say "Shoreline"/"Water").
+            const props = (f.properties ?? {}) as Record<string, unknown>;
             entry.polys.push({
                 type: "Feature",
-                properties: {},
+                properties: {
+                    name: typeof props.name === "string" ? props.name : undefined,
+                    kind: typeof props.kind === "string" ? props.kind : undefined,
+                },
                 geometry: g as Polygon | MultiPolygon,
             });
             added = true;
@@ -150,6 +157,67 @@ export function getBasemapWaterPolys(
         }
     }
     return kept.length > 0 ? kept : null;
+}
+
+/**
+ * Nearest basemap-water body to a point — the SAME source the body-of-water
+ * elimination buffers, so the nearest-reference LABEL and the overlay agree by
+ * construction. Returns the closest point on any water polygon (distance 0 if
+ * the point is inside water), its name if the tile carries one (else
+ * "Shoreline" for the sea / "Water"), and the distance in metres. `null` if no
+ * basemap water is captured for the play area yet.
+ */
+export function nearestBasemapWater(
+    lat: number,
+    lng: number,
+): { name: string; lat: number; lng: number; distanceMeters: number } | null {
+    const entry = cache.get(playAreaKey());
+    if (!entry || entry.polys.length === 0) return null;
+    const pt = turf.point([lng, lat]);
+    let best: {
+        name: string;
+        lat: number;
+        lng: number;
+        distanceMeters: number;
+    } | null = null;
+    for (const w of entry.polys) {
+        try {
+            const props = (w.properties ?? {}) as {
+                name?: string;
+                kind?: string;
+            };
+            const name =
+                props.name ||
+                (props.kind === "ocean" || props.kind === "sea"
+                    ? "Shoreline"
+                    : "Water");
+            // Inside the water → distance 0, reference point is the seeker.
+            if (turf.booleanPointInPolygon(pt, w)) {
+                return { name, lat, lng, distanceMeters: 0 };
+            }
+            const line = turf.polygonToLine(w as never) as
+                | GeoJSON.Feature<GeoJSON.LineString | GeoJSON.MultiLineString>
+                | GeoJSON.FeatureCollection;
+            const lines =
+                line.type === "FeatureCollection" ? line.features : [line];
+            for (const l of lines) {
+                const nearest = turf.nearestPointOnLine(l as never, pt);
+                const d = turf.distance(pt, nearest, { units: "meters" });
+                if (!best || d < best.distanceMeters) {
+                    const c = nearest.geometry.coordinates as [number, number];
+                    best = {
+                        name,
+                        lat: c[1],
+                        lng: c[0],
+                        distanceMeters: d,
+                    };
+                }
+            }
+        } catch {
+            /* skip a malformed water polygon */
+        }
+    }
+    return best;
 }
 
 /** True once any basemap water has been captured for the current play area. */

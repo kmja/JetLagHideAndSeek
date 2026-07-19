@@ -531,44 +531,38 @@ export const determineMeasuringBoundary = async (
             return [highSpeedBase(clipped)];
         }
         case "body-of-water": {
-            // v625: named water bodies from OSM (rulebook p11: "any named
-            // body of water … excluding pools"). Replaces the old Natural
-            // Earth 1:50m lakes bundle, which only had ~411 major lakes
-            // worldwide and NO rivers — so at city scale (e.g. Bucharest)
-            // it found nothing. `natural=water` areas (lakes, reservoirs,
-            // ponds, river-areas) come back as polygons; named rivers /
-            // canals mapped as centerlines come back as lines and get the
-            // same thin line-buffer as coastlines/borders. Both feed the
-            // downstream seeker-distance geodesic buffer, so the cut
-            // reflects real shore/bank distance, not a coarse centroid.
-            // The `["name"]` filter enforces "named" and drops most pools
-            // (which are leisure=swimming_pool, not natural=water anyway).
-            // v687: prefer the prewarmed `/api/water/<id>` set (served from
-            // R2 for a warm city, zero live Overpass) fanned over every
-            // play-area relation. On any cold area it returns null and we
-            // fall back to the live poly query below — then warm every area
-            // so the NEXT body-of-water question is served from cache.
+            // v998.2: body-of-water reads ONLY the basemap `water` layer — the
+            // authoritative land/water map we already ship offline (Protomaps
+            // assembled the ocean + bays + lakes + wide rivers as real polygons,
+            // globally correct, including every shoreline as a polygon boundary).
+            // We read those polygons straight off the loaded map
+            // (`getBasemapWaterPolys`, captured by `basemapWater.ts`) and buffer
+            // them by the seeker's nearest-water distance: buffering the real
+            // water polygons gives the open sea (inside → distance 0 → closer)
+            // AND the near-shore land band, and the radius = seeker → nearest
+            // water is EXACTLY what the nearest-reference label shows (it reads
+            // the SAME basemap water via `nearestBasemapWater`). So the overlay
+            // and the label agree by construction — no separate coastline fetch,
+            // no OSM `natural=water`, no `__waterArea` hack, no coastline
+            // assembly / polygonize / flood-fill. The map data IS the answer.
+            const basemapWater = getBasemapWaterPolys(bbox4(bBox));
+            if (basemapWater && basemapWater.length > 0) {
+                return basemapWater;
+            }
+            // COLD FALLBACK (no map has captured the basemap water yet — rare,
+            // since the configure map frames the play area and captures it before
+            // the question is configured): OSM named water + rivers + per-city
+            // coastline lines, buffered. Open water beyond the band reads
+            // "further" until the basemap water lands — which busts the memo (the
+            // `bmw` key) and recomputes. Kept so a cold area still draws SOMETHING.
             const prewarmed = await fetchPrewarmedAreaWater();
             const data =
                 prewarmed ??
                 (await findPlacesInZone(
-                    // MAJOR named water bodies only (v685) — exclude the
-                    // minor/artificial `water=` subtypes that flood a dense
-                    // metro; MUST stay byte-identical to the worker's
-                    // `WATER_FILTERS` and `filterForFamily("body-of-water")`.
                     '["natural"="water"]["name"]["water"!~"pond|basin|pool|fountain|wastewater|moat|tank|ditch"]',
                     undefined,
                     "nwr",
                     "geom",
-                    // v690: NO `["name"]` on the line filter — OSM often
-                    // tags a river's name on only some of its way segments,
-                    // so requiring a name per-segment left gaps where the
-                    // overlay stopped following an obvious river (an unnamed
-                    // `waterway=river` segment of the Sahibi near Delhi).
-                    // Rivers/canals are bodies of water even unnamed; the
-                    // `^(river|canal)$` type filter still excludes
-                    // drains/streams/ditches. Named-only stays on the
-                    // `natural=water` POLYGON filter (unnamed ponds excluded).
                     ['["waterway"~"^(river|canal)$"]'],
                     60,
                 ));
@@ -578,7 +572,6 @@ export const determineMeasuringBoundary = async (
                 (f): f is Feature<Polygon | MultiPolygon> =>
                     (f.geometry?.type === "Polygon" ||
                         f.geometry?.type === "MultiPolygon") &&
-                    // v933: drop fountains mis-tagged as `natural=water`.
                     !isFountainWaterFeature(f),
             );
             const lines = fc.features.filter(
@@ -596,43 +589,6 @@ export const determineMeasuringBoundary = async (
             if (lines.length > 0) {
                 out.push(highSpeedBase(lines));
             }
-            // v998: the SEA area comes from the BASEMAP's own `water` layer —
-            // the authoritative land/water map we already ship offline (Protomaps
-            // assembled the ocean + bays + lakes + wide rivers as real polygons,
-            // globally correct). We read those polygons straight off the loaded
-            // map (`getBasemapWaterPolys`, captured by `basemapWater.ts`) — no
-            // fragile `natural=coastline` line assembly / polygonize / flood-fill,
-            // just the water the map already draws.
-            //
-            // CRITICAL (v998.1): the basemap water is tagged `__waterArea`, so
-            // `bufferAndUnion` unions it in AS-IS (open sea → distance 0 → closer)
-            // but EXCLUDES it from the buffer-radius min. The radius `r` = the
-            // seeker's distance to a BUFFERED target below (coastline lines /
-            // ponds / rivers), which is the SAME shoreline the nearest-reference
-            // label measures — so the near-shore land band matches the label's
-            // "Shoreline N km". Making the basemap water a buffered target instead
-            // (the v998.0 bug) collapsed `r` to the seeker's distance to the
-            // nearest water POLYGON (e.g. the East River, far closer than the
-            // labelled shoreline), shrinking the whole overlay to a sliver.
-            const basemapWater = getBasemapWaterPolys(bbox4(bBox));
-            if (basemapWater && basemapWater.length > 0) {
-                for (const w of basemapWater) {
-                    out.push({
-                        ...w,
-                        properties: {
-                            ...(w.properties ?? {}),
-                            __waterArea: true,
-                        },
-                    } as Feature<Polygon | MultiPolygon>);
-                }
-            }
-            // The coastline LINES are ALWAYS added as a BUFFERED target: they set
-            // the radius to the real shoreline distance (matching the label) AND
-            // cover the near-shore band + narrow tidal channels. Without the
-            // basemap water they're the whole answer (near-shore band only, open
-            // water reads "further" until the basemap water lands — which busts
-            // the memo and recomputes). With it, they set `r` and the basemap
-            // water fills the open sea.
             try {
                 const cityCoastLines = await fetchAreaCoastlineLines();
                 const coastLines =
