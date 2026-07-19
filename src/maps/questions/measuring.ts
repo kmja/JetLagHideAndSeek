@@ -35,6 +35,7 @@ import { fetchPrewarmedRailStationElements } from "@/lib/journey/stations";
 import { bufferAndUnion, bufferPointsUnion } from "@/lib/geometry/client";
 import { filterCoastlineByStraitRule } from "@/maps/questions/coastlineStrait";
 import {
+    basemapCoastLines,
     basemapWaterVersion,
     getBasemapWaterPolys,
 } from "@/maps/api/basemapWater";
@@ -229,26 +230,37 @@ export const determineMeasuringBoundary = async (
             // per-city fetch returns. Falls back to the bundled 1:50m
             // coastline clipped to the frame when per-city coast is
             // unavailable, so nothing breaks.
-            const perCity = await fetchAreaCoastlineLines();
+            // v1001: prefer the BASEMAP ocean shoreline — the boundary of the
+            // basemap `water` ocean/sea/bay polygons (`basemapCoastLines`), the
+            // authoritative sea the map already draws, tile-seams dissolved and
+            // frame edges dropped. Only engages when the local sea is tagged
+            // ocean/sea/bay; otherwise falls through to the per-city OSM
+            // coastline, then the bundled 1:50m — so it never regresses.
+            const basemapCoast = basemapCoastLines(bbox4(bBox));
             let coastLines: Feature[];
-            if (perCity && perCity.length > 0) {
-                // Flatten any MultiLineString into LineStrings so the
-                // highSpeedBase line combiner (which only groups
-                // LineStrings) keeps every segment.
-                coastLines = [];
-                for (const f of perCity) {
-                    const g = f.geometry;
-                    if (g?.type === "LineString") {
-                        coastLines.push(f as Feature);
-                    } else if (g?.type === "MultiLineString") {
-                        for (const part of g.coordinates) {
-                            if (part.length >= 2)
-                                coastLines.push(turf.lineString(part));
+            if (basemapCoast && basemapCoast.length > 0) {
+                coastLines = basemapCoast as Feature[];
+            } else {
+                const perCity = await fetchAreaCoastlineLines();
+                if (perCity && perCity.length > 0) {
+                    // Flatten any MultiLineString into LineStrings so the
+                    // highSpeedBase line combiner (which only groups
+                    // LineStrings) keeps every segment.
+                    coastLines = [];
+                    for (const f of perCity) {
+                        const g = f.geometry;
+                        if (g?.type === "LineString") {
+                            coastLines.push(f as Feature);
+                        } else if (g?.type === "MultiLineString") {
+                            for (const part of g.coordinates) {
+                                if (part.length >= 2)
+                                    coastLines.push(turf.lineString(part));
+                            }
                         }
                     }
+                } else {
+                    coastLines = clipLinesToBbox(await fetchCoastline(), bBox);
                 }
-            } else {
-                coastLines = clipLinesToBbox(await fetchCoastline(), bBox);
             }
             if (coastLines.length === 0) return [turf.multiPolygon([])];
             // v969 (rulebook audit A4): the 2 km strait rule — OSM coastline
@@ -547,7 +559,28 @@ export const determineMeasuringBoundary = async (
             // assembly / polygonize / flood-fill. The map data IS the answer.
             const basemapWater = getBasemapWaterPolys(bbox4(bBox));
             if (basemapWater && basemapWater.length > 0) {
-                return basemapWater;
+                // v1001: SIMPLIFY each water polygon (~30 m, negligible against a
+                // ≥km buffer) before it goes downstream. Raw MVT tile geometry —
+                // the ocean split across dozens of tiles, tens of thousands of
+                // vertices — made the buffer SLOW/HANG (the "overlay never loads"
+                // + the veil timing out and revealing a bare map). Simplified, the
+                // buffer is fast + robust, so the veil holds until the overlay is
+                // ready then lifts with it. Keep the unsimplified poly on a
+                // simplify failure rather than dropping water.
+                const simplified: Feature<Polygon | MultiPolygon>[] = [];
+                for (const w of basemapWater) {
+                    try {
+                        const s = turf.simplify(w, {
+                            tolerance: 0.0003,
+                            highQuality: false,
+                            mutate: false,
+                        }) as Feature<Polygon | MultiPolygon>;
+                        simplified.push(s && s.geometry ? s : w);
+                    } catch {
+                        simplified.push(w);
+                    }
+                }
+                return simplified;
             }
             // COLD FALLBACK (no map has captured the basemap water yet — rare,
             // since the configure map frames the play area and captures it before
@@ -655,7 +688,10 @@ const bufferedDeterminerKey = (question: MeasuringQuestion) =>
         // that ran before the water landed is re-run once it does (a stale
         // waterless result would otherwise stay memo-cached at this position).
         bmw:
-            question.type === "body-of-water" ? basemapWaterVersion.get() : 0,
+            question.type === "body-of-water" ||
+            question.type === "coastline"
+                ? basemapWaterVersion.get()
+                : 0,
     });
 
 /** Collect every point coordinate if EVERY feature is a Point / MultiPoint —

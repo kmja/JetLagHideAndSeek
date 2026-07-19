@@ -28,7 +28,10 @@ import { CacheType } from "@/maps/api/types";
 import { isFountainWaterFeature } from "@/maps/questions/measuring";
 import { MAJOR_CITIES } from "@/maps/data/majorCities";
 import type { APILocations } from "@/maps/schema";
-import { nearestBasemapWater } from "@/maps/api/basemapWater";
+import {
+    basemapCoastLines,
+    nearestBasemapWater,
+} from "@/maps/api/basemapWater";
 import { fetchPrewarmedAreaWater } from "@/maps/api/water";
 
 /**
@@ -580,18 +583,32 @@ async function fetchNearestCoastline(
         distanceMeters: number;
     } | null = null;
 
-    // v778: prefer the DETAILED per-city OSM coastline (prewarmed R2 → live
-    // play-area Overpass) so the label agrees with the elimination, which now
-    // also uses per-city coast. Falls back to scanning the bundled 1:50m
-    // coastline when per-city coast is unavailable.
+    // v1001: prefer the BASEMAP ocean shoreline — the SAME source the coastline
+    // elimination now uses (`basemapCoastLines`), so the label distance agrees
+    // with the cut. Then the detailed per-city OSM coastline, then the bundled
+    // 1:50m — a monotonic fallback chain that never regresses.
     let scanFeatures: GeoJSON.Feature[] | null = null;
-    try {
-        const perCity = await fetchAreaCoastlineLines();
-        if (perCity && perCity.length > 0) {
-            scanFeatures = perCity as unknown as GeoJSON.Feature[];
+    const poly = polyGeoJSON.get();
+    if (poly) {
+        try {
+            const bmc = basemapCoastLines(
+                turf.bbox(poly) as [number, number, number, number],
+            );
+            if (bmc && bmc.length > 0)
+                scanFeatures = bmc as unknown as GeoJSON.Feature[];
+        } catch {
+            /* fall through to OSM coast */
         }
-    } catch {
-        /* fall through to the bundled coastline */
+    }
+    if (!scanFeatures) {
+        try {
+            const perCity = await fetchAreaCoastlineLines();
+            if (perCity && perCity.length > 0) {
+                scanFeatures = perCity as unknown as GeoJSON.Feature[];
+            }
+        } catch {
+            /* fall through to the bundled coastline */
+        }
     }
 
     if (!scanFeatures) {

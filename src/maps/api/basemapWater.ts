@@ -220,6 +220,167 @@ export function nearestBasemapWater(
     return best;
 }
 
+/**
+ * LAND parts from the basemap water — the play-area frame MINUS the basemap
+ * water, split into its connected polygons (= the distinct LANDMASSES within
+ * the frame). Used by `same-landmass` (matching): the polygon containing the
+ * seeker is their landmass, so a river/harbour that the map draws (NYC's East
+ * River) correctly splits Manhattan / Brooklyn+Queens / Bronx / Staten Island.
+ *
+ * Robust + fast: the water is SIMPLIFIED (~30 m) and unioned incrementally, then
+ * `turf.difference(frame, water)`. Returns:
+ *   - `Feature<Polygon>[]` (≥1) — the land parts;
+ *   - `[]` — the frame is entirely water (degenerate; caller decides);
+ *   - `null` — no basemap water captured / geometry failed → caller falls back.
+ */
+export function basemapLandParts(
+    bbox: [number, number, number, number],
+): Feature<Polygon>[] | null {
+    const polys = getBasemapWaterPolys(bbox);
+    if (!polys || polys.length === 0) return null;
+    try {
+        const frame = turf.bboxPolygon(bbox);
+        let water: Feature<Polygon | MultiPolygon> | null = null;
+        for (const w of polys) {
+            let s: Feature<Polygon | MultiPolygon> = w;
+            try {
+                s = turf.simplify(w, {
+                    tolerance: 0.0003,
+                    highQuality: false,
+                    mutate: false,
+                }) as Feature<Polygon | MultiPolygon>;
+                if (!s || !s.geometry) s = w;
+            } catch {
+                s = w;
+            }
+            if (!water) {
+                water = s;
+            } else {
+                try {
+                    const u = turf.union(
+                        turf.featureCollection([water, s]),
+                    ) as Feature<Polygon | MultiPolygon> | null;
+                    if (u && u.geometry) water = u;
+                } catch {
+                    /* keep the accumulator, skip this piece */
+                }
+            }
+        }
+        if (!water) return [frame as Feature<Polygon>];
+        const land = turf.difference(
+            turf.featureCollection([frame as Feature<Polygon>, water]),
+        ) as Feature<Polygon | MultiPolygon> | null;
+        if (!land || !land.geometry) return [];
+        const parts: Feature<Polygon>[] = [];
+        if (land.geometry.type === "Polygon") {
+            parts.push(land as Feature<Polygon>);
+        } else {
+            for (const ring of (land.geometry as MultiPolygon).coordinates) {
+                parts.push(turf.polygon(ring));
+            }
+        }
+        return parts;
+    } catch {
+        return null;
+    }
+}
+
+/**
+ * The OCEAN SHORELINE as lines, from the basemap water — the `coastline`
+ * measuring subtype's input. "Coast" is where land meets the SEA (not a lake),
+ * so we take only the ocean/sea/bay water (by `kind`), union it (which DISSOLVES
+ * the interior tile-seam edges), take the boundary, and DROP the segments lying
+ * on the play-area frame edge (open sea continuing past the frame — not a real
+ * shore). Returns `null` when no ocean-kind water is captured (a purely inland
+ * area, or a city whose sea isn't tagged ocean/sea/bay) → the caller falls back
+ * to the OSM coastline, so this never regresses.
+ */
+export function basemapCoastLines(
+    bbox: [number, number, number, number],
+): Feature<GeoJSON.LineString>[] | null {
+    const polys = getBasemapWaterPolys(bbox);
+    if (!polys || polys.length === 0) return null;
+    const ocean = polys.filter((p) => {
+        const kind = (p.properties as { kind?: string } | null)?.kind ?? "";
+        return /^(ocean|sea|bay)$/.test(kind);
+    });
+    if (ocean.length === 0) return null;
+    try {
+        let sea: Feature<Polygon | MultiPolygon> | null = null;
+        for (const w of ocean) {
+            let s: Feature<Polygon | MultiPolygon> = w;
+            try {
+                s = turf.simplify(w, {
+                    tolerance: 0.0003,
+                    highQuality: false,
+                    mutate: false,
+                }) as Feature<Polygon | MultiPolygon>;
+                if (!s || !s.geometry) s = w;
+            } catch {
+                s = w;
+            }
+            if (!sea) sea = s;
+            else {
+                try {
+                    const u = turf.union(
+                        turf.featureCollection([sea, s]),
+                    ) as Feature<Polygon | MultiPolygon> | null;
+                    if (u && u.geometry) sea = u;
+                } catch {
+                    /* keep the accumulator */
+                }
+            }
+        }
+        if (!sea) return null;
+        const boundary = turf.polygonToLine(sea as never) as
+            | GeoJSON.Feature<GeoJSON.LineString | GeoJSON.MultiLineString>
+            | GeoJSON.FeatureCollection;
+        const lineFeats =
+            boundary.type === "FeatureCollection"
+                ? boundary.features
+                : [boundary];
+        const [minLng, minLat, maxLng, maxLat] = bbox;
+        const EPS = 1e-6;
+        const onFrame = (p: number[]): boolean =>
+            Math.abs(p[0] - minLng) < EPS ||
+            Math.abs(p[0] - maxLng) < EPS ||
+            Math.abs(p[1] - minLat) < EPS ||
+            Math.abs(p[1] - maxLat) < EPS;
+        const out: Feature<GeoJSON.LineString>[] = [];
+        for (const lf of lineFeats) {
+            const g = lf.geometry;
+            const rings: number[][][] =
+                g?.type === "LineString"
+                    ? [g.coordinates as number[][]]
+                    : g?.type === "MultiLineString"
+                      ? (g.coordinates as number[][][])
+                      : [];
+            for (const coords of rings) {
+                // Keep only the runs of the shoreline that are NOT on the frame
+                // edge (both endpoints on the same frame side → a frame segment).
+                let run: number[][] = [];
+                for (let i = 0; i < coords.length - 1; i++) {
+                    const a = coords[i];
+                    const b = coords[i + 1];
+                    const frameSeg = onFrame(a) && onFrame(b);
+                    if (frameSeg) {
+                        if (run.length >= 2)
+                            out.push(turf.lineString(run));
+                        run = [];
+                    } else {
+                        if (run.length === 0) run.push(a);
+                        run.push(b);
+                    }
+                }
+                if (run.length >= 2) out.push(turf.lineString(run));
+            }
+        }
+        return out.length > 0 ? out : null;
+    } catch {
+        return null;
+    }
+}
+
 /** True once any basemap water has been captured for the current play area. */
 export function hasBasemapWater(): boolean {
     const entry = cache.get(playAreaKey());

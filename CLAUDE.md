@@ -428,7 +428,39 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v1000`. Use `git log` for the per-version detail;
+build stamp. Current: `v1001`. Use `git log` for the per-version detail;
+
+**v1001 — body-of-water reliability + two more map-based migrations
+(same-landmass, coastline).**
+- **Body-of-water "overlay never loads" / bare-map reveal fixed.** The configure
+  veil gates on `impact !== null`, so a bare-map reveal meant the buffer tripped
+  the veil TIMEOUT, and "never loads" meant it hung/returned null — both because
+  buffering the RAW MVT ocean (dozens of tiles, tens of thousands of vertices)
+  was slow/fragile. `measuring.ts` now SIMPLIFIES each basemap water polygon
+  (~30 m, negligible vs a ≥km buffer) before it goes downstream, so the buffer is
+  fast + robust; the veil holds until the overlay is ready then lifts with it.
+- **`same-landmass` (matching) → basemap water** (`basemapLandParts`): land = the
+  play-area frame MINUS the basemap water, split into connected polygons (the
+  distinct landmasses). The polygon containing the seeker is their landmass, so
+  NYC's East River / harbour correctly split Manhattan / Brooklyn+Queens / Bronx /
+  Staten Island — the SAME authoritative water the map draws. Replaces the
+  fragile `seaFromCoastline` assembly + the global-continent fallback (the v990
+  "entire Americas" bug). Falls through to the per-city OSM land + frame-bounded
+  coarse land when no map has captured the water yet.
+- **`coastline` (measuring) → basemap ocean** (`basemapCoastLines`): the ocean
+  SHORELINE = the boundary of the basemap water ocean/sea/bay polygons (`kind`),
+  unioned (dissolves the tile-seam edges) with the frame edges dropped. Fed into
+  the existing 2 km strait-rule + buffer pipeline, and the nearest-coast LABEL
+  (`fetchNearestCoastline`) reads the same source so label == cut. Gated: only
+  engages when the local sea is tagged ocean/sea/bay; otherwise falls through to
+  the per-city OSM coastline → bundled 1:50m, so it never regresses.
+- **`same-street` deliberately NOT migrated** — Protomaps generalizes the `roads`
+  layer by zoom (minor/residential streets only at z13-14+), so reading streets
+  off a zoomed-out configure map would MISS small roads. The prewarmed
+  `/api/streets` set is complete + Overpass-free for warm cities, so the basemap
+  would be a downgrade. Left as-is.
+The `basemap-water` capture now also records each water feature's `kind` (for the
+ocean filter) alongside `name`.
 
 **v1000 — body-of-water is JUST the map water (drop coastline + OSM + the
 `__waterArea` hack).** The map's `water` layer already contains every shoreline
