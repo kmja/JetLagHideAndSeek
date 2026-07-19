@@ -428,7 +428,27 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v990`. Use `git log` for the per-version detail;
+build stamp. Current: `v991`. Use `git log` for the per-version detail;
+
+**v991 — same-street question: no more per-question LIVE Overpass (reliability
+over speed).** The `same-street-or-path` matching question fired a
+POSITION-KEYED `way["highway"](around:500,lat,lng)` query for step 1 — the exact
+coords make a unique query string → guaranteed R2 cache MISS → LIVE Overpass on
+EVERY same-street question (the rate-limit-and-fail risk the user flagged; same
+anti-pattern as v640's `around:GPS`). Rebuilt so the WHOLE question is computed
+CLIENT-SIDE from ONE CACHEABLE fetch: `findPlacesInZone("[highway]")` is a
+poly-scoped query the worker caches in R2, so a warm play area serves every
+same-street question Overpass-free. Nearest way (named OR unnamed), the same-name
+union, and the unnamed intersection-to-intersection segment (rulebook p162) all
+derive from that single fetch — the unnamed-segment intersection logic was
+extracted into a pure `unnamedSegmentFromElements(way, seekerPt, otherWays)` that
+reads shared node ids from the cached highway set instead of its own targeted
+`way(id)→node(w)→way(bn)` query. The old small `around:500` live query survives
+ONLY as a degenerate fallback when the area fetch returns nothing (a huge/failed
+area) — the rare path, not the per-question default. Speed is not crucial (the
+area fetch is heavier), reliability is: after one successful fetch it's an R2 hit
+forever. NOT prewarmed yet (a `/api/streets/<id>` endpoint like water/coast is
+the follow-up to make even the FIRST fetch Overpass-free for starred cities).
 
 **v990 — same-landmass fallback no longer returns a CONTINENT.** When the
 per-city land path (`fetchAreaLandPolygons`) fails (per-city coast unavailable /

@@ -186,28 +186,27 @@ interface NearbyWay {
  * different OSM way at a non-intersection also terminates the segment —
  * conservative, and rare for the short unnamed service ways this covers.
  */
-async function unnamedStreetSegmentBoundary(
+/**
+ * The pure core of `unnamedStreetSegmentBoundary`: given the seeker's nearest
+ * unnamed way + a set of OTHER highway way-elements (each with a `nodes` id
+ * array), compute the intersection-bracketed segment around the seeker's
+ * nearest point and return its 25 m buffer. No network — the caller supplies
+ * the other ways (either from a targeted live query or, v991, from the ONE
+ * cacheable all-highways area fetch). Returns null on any degeneracy.
+ */
+function unnamedSegmentFromElements(
     way: NearbyWay,
     seekerPt: Feature<Point>,
-): Promise<Feature<any> | null> {
+    otherWayElements: Array<{ type?: string; id?: number; nodes?: number[] }>,
+): Feature<any> | null {
     try {
         if (way.geom.length < 2 || way.nodes.length !== way.geom.length) {
             return null;
         }
-        const q = `
-[out:json][timeout:30];
-way(${way.id});
-node(w);
-way(bn)["highway"];
-out body;
-`;
-        const data = await (
-            await import("@/maps/api/overpass")
-        ).getOverpassData(q);
         const otherNodeIds = new Set<number>();
-        for (const el of (data as { elements?: any[] }).elements ?? []) {
+        for (const el of otherWayElements) {
             if (el?.type !== "way" || el.id === way.id) continue;
-            for (const n of (el.nodes as number[]) ?? []) otherNodeIds.add(n);
+            for (const n of el.nodes ?? []) otherNodeIds.add(n);
         }
         // Boundary vertex indices: the endpoints + every shared node.
         const boundaryIdx: number[] = [];
@@ -682,75 +681,121 @@ export const determineMatchingBoundary = memoize(
                 // The matching boundary is the geometry of every OSM
                 // way sharing the seeker's nearest-street name.
                 //
-                // Two-step Overpass: (1) find the nearest highway way to
-                // the seeker via a small around: query; (2) NAMED way →
-                // fetch every way with that exact name inside the play
-                // area + 50 km pad, union, return as the matching
-                // polygon. v970 (rulebook audit B): an UNNAMED way is
-                // "considered to start or end wherever it has an
-                // intersection" (rulebook p162) — computed for real now
-                // (`unnamedStreetSegmentBoundary`), instead of the old
-                // "couldn't determine" error.
+                // v991 — RELIABILITY over speed. The old design fired a
+                // position-keyed `way["highway"](around:500,lat,lng)` query
+                // for step 1, which embeds the exact coords → a unique query
+                // string → guaranteed R2 cache MISS → LIVE Overpass on EVERY
+                // same-street question (the rate-limit-and-fail risk the user
+                // flagged; same anti-pattern as v640's `around:GPS`). Now the
+                // WHOLE question is computed CLIENT-SIDE from ONE CACHEABLE
+                // area fetch: `findPlacesInZone("[highway]")` is a poly-scoped
+                // query the worker caches in R2, so a warm play area serves
+                // every same-street question Overpass-free. Nearest way (named
+                // OR unnamed), same-name union, and the unnamed
+                // intersection-to-intersection segment (rulebook p162) all come
+                // from that single fetch — no per-question live query.
                 const seekerLat = question.lat;
                 const seekerLng = question.lng;
-                // Step 1: nearest highway (named or not). v342: fetch
-                // GEOMETRY (out geom, not out tags) so we can compute the
-                // TRUE nearest by point-to-line distance rather than
-                // trusting Overpass's element order — which isn't
-                // distance-sorted and was the fragile bit flagged in v340.
-                const nearbyQuery = `
+                const seekerPt = turf.point([seekerLng, seekerLat]);
+
+                // ONE cacheable fetch: every highway way in the play area,
+                // with geometry + node ids (`out geom`).
+                const rawHighways = await findPlacesInZone(
+                    '["highway"]',
+                    undefined,
+                    "way",
+                    "geom",
+                );
+                const elements = (
+                    (rawHighways as { elements?: any[] }).elements ?? []
+                ).filter(
+                    (el) =>
+                        el?.type === "way" &&
+                        Array.isArray(el.geometry) &&
+                        el.geometry.length >= 2,
+                );
+
+                const findNearest = (
+                    els: any[],
+                ): {
+                    streetName: string | null;
+                    nearestWay: NearbyWay | null;
+                } => {
+                    let streetName: string | null = null;
+                    let nearestWay: NearbyWay | null = null;
+                    let bestDist = Infinity;
+                    for (const el of els) {
+                        const geom = el?.geometry as
+                            | Array<{ lat: number; lon: number }>
+                            | undefined;
+                        if (!geom || geom.length < 2) continue;
+                        try {
+                            const line = turf.lineString(
+                                geom.map((p) => [p.lon, p.lat]),
+                            );
+                            const d = turf.pointToLineDistance(seekerPt, line, {
+                                units: "meters",
+                            });
+                            if (d < bestDist) {
+                                bestDist = d;
+                                streetName = el?.tags?.name ?? null;
+                                nearestWay = {
+                                    id: el.id as number,
+                                    geom,
+                                    nodes: (el.nodes as number[]) ?? [],
+                                };
+                            }
+                        } catch {
+                            /* skip malformed way */
+                        }
+                    }
+                    return { streetName, nearestWay };
+                };
+
+                let { streetName, nearestWay } = findNearest(elements);
+                // Other highway ways used for unnamed-segment intersection
+                // detection — the SAME cached set (no extra query).
+                let otherWays: any[] = elements;
+
+                // Degenerate fallback ONLY (the cache query returned nothing
+                // — a huge/failed area): the old small live `around:500`
+                // query, so an uncurated/failed area still works. This is the
+                // rare path, not the per-question default.
+                if (!nearestWay) {
+                    const nearbyData = await (
+                        await import("@/maps/api/overpass")
+                    ).getOverpassData(`
 [out:json][timeout:30];
 way["highway"](around:500,${seekerLat},${seekerLng});
 out geom;
-`;
-                const nearbyData = await (
-                    await import("@/maps/api/overpass")
-                ).getOverpassData(nearbyQuery);
-                const seekerPt = turf.point([seekerLng, seekerLat]);
-                let streetName: string | null = null;
-                let nearestWay: NearbyWay | null = null;
-                let bestDist = Infinity;
-                for (const el of (nearbyData as { elements?: any[] })
-                    .elements ?? []) {
-                    const geom = el?.geometry as
-                        | Array<{ lat: number; lon: number }>
-                        | undefined;
-                    if (!geom || geom.length < 2) continue;
-                    try {
-                        const line = turf.lineString(
-                            geom.map((p) => [p.lon, p.lat]),
-                        );
-                        const d = turf.pointToLineDistance(seekerPt, line, {
-                            units: "meters",
-                        });
-                        if (d < bestDist) {
-                            bestDist = d;
-                            streetName = el?.tags?.name ?? null;
-                            nearestWay = {
-                                id: el.id as number,
-                                geom,
-                                nodes: (el.nodes as number[]) ?? [],
-                            };
-                        }
-                    } catch {
-                        /* skip malformed way */
-                    }
+`);
+                    const liveEls = (
+                        (nearbyData as { elements?: any[] }).elements ?? []
+                    ).filter(
+                        (el) =>
+                            el?.type === "way" &&
+                            Array.isArray(el.geometry) &&
+                            el.geometry.length >= 2,
+                    );
+                    ({ streetName, nearestWay } = findNearest(liveEls));
+                    otherWays = liveEls;
                 }
+
                 if (!nearestWay) {
                     if (silent) return undefined;
-                    toast.error(
-                        "No street or path within 500 m of your location.",
-                    );
+                    toast.error("No street or path found near your location.");
                     throw new Error("No nearby street");
                 }
                 if (!streetName) {
                     // Unnamed way: the matching region is the segment of
                     // THIS way between the intersections bracketing the
                     // seeker's nearest point (way endpoints count as
-                    // boundaries too), buffered like the named case.
-                    const segBoundary = await unnamedStreetSegmentBoundary(
+                    // boundaries too), buffered like the named case —
+                    // computed from the SAME cached highway set.
+                    const segBoundary = unnamedSegmentFromElements(
                         nearestWay,
                         seekerPt,
+                        otherWays,
                     );
                     if (!segBoundary) {
                         if (silent) return undefined;
@@ -762,15 +807,13 @@ out geom;
                     boundary = segBoundary;
                     break;
                 }
-                // Step 2: all matching ways inside the play area.
-                const wayFeatures = osmtogeojson(
-                    await findPlacesInZone(
-                        `["highway"]["name"="${streetName.replace(/"/g, '\\"')}"]`,
-                        undefined,
-                        "way",
-                        "geom",
+                // Every way sharing the nearest street's name — filtered from
+                // the SAME cached fetch (no per-name live query).
+                const wayFeatures = osmtogeojson({
+                    elements: otherWays.filter(
+                        (el) => el?.tags?.name === streetName,
                     ),
-                ).features.filter(
+                } as never).features.filter(
                     (f): f is Feature<any> =>
                         f.geometry?.type === "LineString" ||
                         f.geometry?.type === "MultiLineString",
