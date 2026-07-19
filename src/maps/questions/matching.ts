@@ -29,10 +29,6 @@ import {
     trainLineNodeFinder,
 } from "@/maps/api";
 import { hidingZone } from "@/lib/hiderRole";
-import {
-    basemapLandParts,
-    ensureBasemapWaterForArea,
-} from "@/maps/api/basemapWater";
 import { fetchAreaLandPolygons } from "@/maps/api/coast";
 import {
     fetchPrewarmedAreaStreets,
@@ -572,45 +568,19 @@ export const determineMatchingBoundary = memoize(
                     }
                 };
 
-                // v1001: prefer the BASEMAP's own land/water — the play-area
-                // frame minus the basemap `water` layer, split into landmasses
-                // (`basemapLandParts`). This is the authoritative land/water the
-                // map already draws (the same source body-of-water uses), so
-                // NYC's East River / harbour correctly split the boroughs — no
-                // fragile OSM `natural=coastline` assembly (`seaFromCoastline`)
-                // and no risk of the global-continent fallback. Falls through to
-                // the per-city OSM land + the frame-bounded coarse land below
-                // when no map has captured the basemap water yet.
-                let usedBasemapLand = false;
-                try {
-                    const frameB = turf.bbox(mapGeoJSON.get()!);
-                    const frameBb: [number, number, number, number] = [
-                        frameB[0],
-                        frameB[1],
-                        frameB[2],
-                        frameB[3],
-                    ];
-                    // v1002: deterministically read the basemap water from the
-                    // pmtiles before deriving the land (no map/idle race).
-                    await ensureBasemapWaterForArea(frameBb);
-                    const landParts = basemapLandParts(frameBb);
-                    if (landParts && landParts.length > 0) {
-                        for (const p of landParts) collected.push(p);
-                        usedBasemapLand = true;
-                    }
-                } catch {
-                    /* fall through to the OSM path */
-                }
-
-                const areaLand = usedBasemapLand
-                    ? null
-                    : await fetchAreaLandPolygons({
-                          lat: question.lat,
-                          lng: question.lng,
-                      });
-                if (usedBasemapLand) {
-                    /* already populated `collected` from the basemap */
-                } else if (areaLand) {
+                // v1008: reverted to the established per-city OSM land path
+                // (`fetchAreaLandPolygons`). The v1001 `basemapLandParts`
+                // migration regressed this to a hard error ("are you in a body of
+                // water?") — the basemap water (captured off a partly-loaded map,
+                // or the disabled headless read) could put the seeker's point on
+                // the water side of `frame − water`, so no land part contained
+                // them. The OSM land path is the reliable one; the frame-bounded
+                // coarse land (v990) remains the fallback when it's unavailable.
+                const areaLand = await fetchAreaLandPolygons({
+                    lat: question.lat,
+                    lng: question.lng,
+                });
+                if (areaLand) {
                     pushParts(areaLand);
                 } else {
                     // Fallback: fetchAreaLandPolygons failed (per-city coast

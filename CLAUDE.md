@@ -428,7 +428,32 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v1007`. Use `git log` for the per-version detail;
+build stamp. Current: `v1008`. Use `git log` for the per-version detail;
+
+**v1008 — REVERT the speculative basemap-water changes that regressed
+body-of-water + same-landmass to NO overlay / a hard error.** An audit of the
+diff since the user's "better than ever" (v1000) showed every "reliability"
+change layered on top REGRESSED the working state (v1001 was the last build that
+actually deployed — basemapTiles.ts broke the build for v1002-v1005, so the
+regressions only went live at v1006). Backed out:
+- **body-of-water**: dropped v1001's `turf.simplify` (real MVT ocean geometry can
+  self-intersect after a radial-distance simplify → the buffer drops the sea) and
+  v1002's headless pmtiles read (untestable offline; it REPLACED the working
+  `querySourceFeatures` capture with geometry that over-loaded / broke the
+  buffer). Back to v1000: RAW captured basemap water, buffered as-is — the state
+  the user confirmed worked.
+- **same-landmass**: reverted the v1001 `basemapLandParts` migration (frame minus
+  basemap water) back to the established per-city OSM land (`fetchAreaLandPolygons`)
+  + frame-bounded coarse fallback. The basemap water could put the seeker's point
+  on the water side → no land part contained them → the "are you in a body of
+  water?" error.
+- **coastline** + the nearest-coast LABEL: reverted `basemapCoastLines` back to
+  the per-city OSM coastline.
+The headless-read machinery (`basemapTiles.ts`, `ensureBasemapWaterForArea`) is
+left in place but DORMANT (nothing calls it) — it needs on-device validation
+before being re-enabled, not another blind ship. LESSON: stop layering
+speculative, offline-untestable "reliability" changes onto a surface the user
+just confirmed works.
 
 **v1007 — thermometer arrow drag-handle + body-of-water no-overlay regression
 fixed.**

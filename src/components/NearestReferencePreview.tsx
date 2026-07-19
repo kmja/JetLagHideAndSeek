@@ -28,11 +28,7 @@ import { CacheType } from "@/maps/api/types";
 import { isFountainWaterFeature } from "@/maps/questions/measuring";
 import { MAJOR_CITIES } from "@/maps/data/majorCities";
 import type { APILocations } from "@/maps/schema";
-import {
-    basemapCoastLines,
-    ensureBasemapWaterForArea,
-    nearestBasemapWater,
-} from "@/maps/api/basemapWater";
+import { nearestBasemapWater } from "@/maps/api/basemapWater";
 import { fetchPrewarmedAreaWater } from "@/maps/api/water";
 
 /**
@@ -584,27 +580,13 @@ async function fetchNearestCoastline(
         distanceMeters: number;
     } | null = null;
 
-    // v1001: prefer the BASEMAP ocean shoreline — the SAME source the coastline
-    // elimination now uses (`basemapCoastLines`), so the label distance agrees
-    // with the cut. Then the detailed per-city OSM coastline, then the bundled
-    // 1:50m — a monotonic fallback chain that never regresses.
+    // v778/v1008: the DETAILED per-city OSM coastline (prewarmed R2 → live
+    // play-area Overpass) so the label agrees with the elimination, which uses
+    // the same per-city coast. Falls back to the bundled 1:50m coastline when
+    // per-city coast is unavailable. (The v1001 basemap-ocean source was
+    // reverted along with the rest of the basemap-water elimination changes.)
     let scanFeatures: GeoJSON.Feature[] | null = null;
-    const poly = polyGeoJSON.get();
-    if (poly) {
-        try {
-            await ensureBasemapWaterForArea(
-                turf.bbox(poly) as [number, number, number, number],
-            );
-            const bmc = basemapCoastLines(
-                turf.bbox(poly) as [number, number, number, number],
-            );
-            if (bmc && bmc.length > 0)
-                scanFeatures = bmc as unknown as GeoJSON.Feature[];
-        } catch {
-            /* fall through to OSM coast */
-        }
-    }
-    if (!scanFeatures) {
+    {
         try {
             const perCity = await fetchAreaCoastlineLines();
             if (perCity && perCity.length > 0) {
@@ -707,17 +689,6 @@ async function fetchNearestWater(
     // body-of-water elimination buffers — so the label distance and the overlay
     // agree by construction (both read `getBasemapWaterPolys`). Falls back to
     // the OSM path below only when no map has captured the basemap water yet.
-    // v1002: read it deterministically from the pmtiles first.
-    const wPoly = polyGeoJSON.get();
-    if (wPoly) {
-        try {
-            await ensureBasemapWaterForArea(
-                turf.bbox(wPoly) as [number, number, number, number],
-            );
-        } catch {
-            /* fall through — capture / OSM covers us */
-        }
-    }
     const bmw = nearestBasemapWater(lat, lng);
     if (bmw) return bmw;
     let data: { elements?: unknown[] } | null = await fetchPrewarmedAreaWater();
