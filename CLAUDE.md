@@ -428,7 +428,29 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v991`. Use `git log` for the per-version detail;
+build stamp. Current: `v992`. Use `git log` for the per-version detail;
+
+**v992 — same-street is PREWARMED (Overpass-free for warm cities) via a new
+`/api/streets/<id>` endpoint.** Follow-up to v991, which moved same-street off
+the position-keyed `around:500` live query onto ONE cacheable `[highway]` poly
+query — but the FIRST fetch in a cold area was still live Overpass. Now the
+NAMED-highway geometry is prewarmed by the SAME relation-id pattern as
+`/api/coast` / `/api/water`: **`GET /api/streets/<relationId>`**
+(`handleStreetsByRelation`) derives the boundary extent server-side and rebuilds
+`buildStreetsBboxQuery` (`STREET_FILTERS` = `["highway"]["name"]`, 2 km pad,
+`[timeout:180]`, `out geom`) — served from R2. Warmed per-city by the cron
+(**Phase 2f**, `prewarmStreetsForCity`, opt-out `STREET_PREWARM_ENABLED="false"`),
+the laptop (`streetQuery`, byte-identical, `--skip-streets`, `/api/reference-filters`
+sync via `streetFilters`), and on-demand `?warm=1` (`warmRelationStreets`).
+Client (`src/maps/api/streets.ts`): `fetchPrewarmedAreaStreets()` fans the
+endpoint over every play-area relation and returns raw elements (geometry + node
+ids + tags); `matching.ts` same-street reads it FIRST — nearest NAMED street
+within 120 m → union the same-name ways, entirely Overpass-free — and falls back
+to the v991 live cacheable `[highway]` poly query (firing `?warm=1` so the NEXT
+game is warm) for the unnamed-nearest / cold cases, then the degenerate
+`around:500`. Named-only (the unnamed footway/service mass excluded) keeps the
+prewarm feasible; the client's live path still handles unnamed nearest. NOT in
+the star gate yet (like water/coast).
 
 **v991 — same-street question: no more per-question LIVE Overpass (reliability
 over speed).** The `same-street-or-path` matching question fired a

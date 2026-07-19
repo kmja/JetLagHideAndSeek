@@ -195,6 +195,13 @@ export const WATER_BY_RELATION_BASE = `${JLHS_WORKER_BASE}/api/water`;
  *  like NYC). `?warm=1` triggers a background warm. See handleCoastByRelation
  *  in overpass-cache/src/index.ts. */
 export const COAST_BY_RELATION_BASE = `${JLHS_WORKER_BASE}/api/coast`;
+/** Base URL for the relation-id-keyed prewarmed NAMED-highway GEOMETRY
+ *  (v992). Mirrors COAST_BY_RELATION_BASE. The matching same-street question
+ *  reads it to find the seeker's nearest named street + union same-name
+ *  segments Overpass-free (the old design fired a position-keyed
+ *  `around:500` LIVE query per question). `?warm=1` triggers a background
+ *  warm. See handleStreetsByRelation in overpass-cache/src/index.ts. */
+export const STREETS_BY_RELATION_BASE = `${JLHS_WORKER_BASE}/api/streets`;
 /** Base URL for the relation-id-keyed prewarmed admin-boundary geometry
  *  (v830), per OSM admin_level: `${ADMIN_BY_RELATION_BASE}/<relationId>/<level>`.
  *  The matching zone / letter-zone / admin-division question reads it so a

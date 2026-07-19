@@ -30,6 +30,10 @@ import {
 } from "@/maps/api";
 import { hidingZone } from "@/lib/hiderRole";
 import { fetchAreaLandPolygons } from "@/maps/api/coast";
+import {
+    fetchPrewarmedAreaStreets,
+    requestStreetsWarmAll,
+} from "@/maps/api/streets";
 import { seaFromCoastline } from "@/maps/questions/seaFromCoastline";
 import { majorCityPoints } from "@/maps/data/majorCities";
 import { holedMask, modifyMapData, safeUnion } from "@/maps/geo-utils";
@@ -698,28 +702,12 @@ export const determineMatchingBoundary = memoize(
                 const seekerLng = question.lng;
                 const seekerPt = turf.point([seekerLng, seekerLat]);
 
-                // ONE cacheable fetch: every highway way in the play area,
-                // with geometry + node ids (`out geom`).
-                const rawHighways = await findPlacesInZone(
-                    '["highway"]',
-                    undefined,
-                    "way",
-                    "geom",
-                );
-                const elements = (
-                    (rawHighways as { elements?: any[] }).elements ?? []
-                ).filter(
-                    (el) =>
-                        el?.type === "way" &&
-                        Array.isArray(el.geometry) &&
-                        el.geometry.length >= 2,
-                );
-
                 const findNearest = (
                     els: any[],
                 ): {
                     streetName: string | null;
                     nearestWay: NearbyWay | null;
+                    bestDist: number;
                 } => {
                     let streetName: string | null = null;
                     let nearestWay: NearbyWay | null = null;
@@ -749,8 +737,74 @@ export const determineMatchingBoundary = memoize(
                             /* skip malformed way */
                         }
                     }
-                    return { streetName, nearestWay };
+                    return { streetName, nearestWay, bestDist };
                 };
+
+                // v992: PREWARMED named-highway set first (R2, Overpass-free).
+                // The common case — the seeker is near a named street — is
+                // served entirely from cache: find the nearest named street +
+                // union every way sharing its name. Only used when a named
+                // street is genuinely NEAR (else the seeker may be on an
+                // UNNAMED way the named-only set can't see → fall to the live
+                // all-highways path below, which detects unnamed ways).
+                const NEAR_NAMED_STREET_M = 120;
+                try {
+                    const prewarmed = await fetchPrewarmedAreaStreets();
+                    if (prewarmed && prewarmed.length > 0) {
+                        const near = findNearest(prewarmed);
+                        if (
+                            near.streetName &&
+                            near.nearestWay &&
+                            near.bestDist <= NEAR_NAMED_STREET_M
+                        ) {
+                            const wayFeatures = osmtogeojson({
+                                elements: prewarmed.filter(
+                                    (el) => el?.tags?.name === near.streetName,
+                                ),
+                            } as never).features.filter(
+                                (f): f is Feature<any> =>
+                                    f.geometry?.type === "LineString" ||
+                                    f.geometry?.type === "MultiLineString",
+                            );
+                            if (wayFeatures.length > 0) {
+                                const buffered = turf.buffer(
+                                    turf.featureCollection(wayFeatures),
+                                    25,
+                                    { units: "meters" },
+                                );
+                                if (buffered) {
+                                    boundary = turf.combine(
+                                        buffered as any,
+                                    ).features[0];
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                } catch {
+                    /* prewarm miss / error — fall through to the live path */
+                }
+
+                // ONE cacheable live fetch: every highway way in the play area,
+                // with geometry + node ids (`out geom`). Poly-scoped →
+                // worker → R2, so it's served from cache after the first fetch
+                // (and we warm the prewarm endpoint so the NEXT game skips
+                // even this). Covers named AND unnamed nearest.
+                requestStreetsWarmAll();
+                const rawHighways = await findPlacesInZone(
+                    '["highway"]',
+                    undefined,
+                    "way",
+                    "geom",
+                );
+                const elements = (
+                    (rawHighways as { elements?: any[] }).elements ?? []
+                ).filter(
+                    (el) =>
+                        el?.type === "way" &&
+                        Array.isArray(el.geometry) &&
+                        el.geometry.length >= 2,
+                );
 
                 let { streetName, nearestWay } = findNearest(elements);
                 // Other highway ways used for unnamed-segment intersection

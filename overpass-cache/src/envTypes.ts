@@ -61,6 +61,10 @@ export interface Env {
      *  Set to "false" to skip; the client then falls back to the bundled
      *  1:50m coastline for the sea, as before. */
     COAST_PREWARM_ENABLED?: string;
+    /** Feature flag for the per-city NAMED-highway prewarm (v992, Phase 2f).
+     *  Set to "false" to skip; the matching same-street question then falls
+     *  back to a live cacheable `[highway]` poly query. */
+    STREET_PREWARM_ENABLED?: string;
     /** Feature flag for the per-city ADMIN-boundary prewarm (v830, Phase
      *  2e). Set to "false" to skip; the matching admin-division question
      *  then warms its levels on-demand via `?warm=1` on first use. */

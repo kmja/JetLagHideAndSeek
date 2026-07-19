@@ -685,6 +685,32 @@ export default {
             }
         }
 
+        // Phase 2f: NAMED-highway geometry, per-city (v992). The matching
+        // same-street question reads `/api/streets/<id>` to find the nearest
+        // named street + union same-name segments Overpass-free (the old
+        // design fired a position-keyed `around:500` LIVE query per question).
+        // Isolated per-city (heavy — all named highways in the bbox), same as
+        // coast/water; skip-if-fresh; opt-out via STREET_PREWARM_ENABLED="false".
+        if (env.STREET_PREWARM_ENABLED !== "false") {
+            for (const city of refCities) {
+                const slotOk = await waitForOverpassSlot(`streets ${city.name}`);
+                if (!slotOk) {
+                    console.warn(
+                        `[prewarm] streets ${city.name} skipped — slot wait exceeded cap`,
+                    );
+                    continue;
+                }
+                try {
+                    const r = await prewarmStreetsForCity(env, city, ttlMs);
+                    if (r.status === "stored") {
+                        console.log(`[prewarm] streets ${city.name}: stored`);
+                    }
+                } catch (e) {
+                    console.warn(`[prewarm] streets ${city.name} threw:`, e);
+                }
+            }
+        }
+
         // Phase 2e: ADMIN-boundary geometry, per-city per-level (v830). The
         // matching zone / letter-zone / admin-division question reads
         // `/api/admin/<id>/<level>` so a warm city serves the containing
@@ -1240,6 +1266,35 @@ async function handleRequest(
                 );
             }
             return handleCoastByRelation(request, env, cors, relId);
+        }
+        if (url.pathname.startsWith("/api/streets/")) {
+            // /api/streets/<relationId>[?warm=1] (v992) — the prewarmed NAMED
+            // highway geometry for a play area, mirroring /api/coast. The
+            // matching same-street question finds the nearest named street +
+            // unions same-name segments from this set, Overpass-free.
+            const relId = parseInt(
+                url.pathname.slice("/api/streets/".length),
+                10,
+            );
+            if (!Number.isFinite(relId) || relId <= 0) {
+                return new Response("bad relation id", {
+                    status: 400,
+                    headers: cors,
+                });
+            }
+            if (url.searchParams.get("warm") === "1") {
+                ctx.waitUntil(
+                    warmRelationStreets(env, relId).catch((e) =>
+                        console.warn(`warm streets r${relId} threw:`, e),
+                    ),
+                );
+                return jsonResponse(
+                    { status: "warming", relationId: relId },
+                    202,
+                    cors,
+                );
+            }
+            return handleStreetsByRelation(request, env, cors, relId);
         }
         if (url.pathname.startsWith("/api/admin/")) {
             // /api/admin/<relationId>/<level>[?warm=1] (v830) — the
@@ -2598,6 +2653,8 @@ function handleReferenceFilters(cors: HeadersInit): Response {
             waterPadKm: WATER_PAD_KM,
             coastFilters: COAST_FILTERS,
             coastPadKm: COAST_PAD_KM,
+            streetFilters: STREET_FILTERS,
+            streetPadKm: STREET_PAD_KM,
             adminPadKm: ADMIN_PAD_KM,
         },
         200,
@@ -3520,6 +3577,160 @@ async function prewarmCoastForCity(
         city,
         ttlMs,
         "coast",
+    );
+}
+
+/**
+ * GET /api/streets/<relationId> — the prewarmed NAMED-highway geometry for a
+ * play area, by stable relation-id key (v992). The matching same-street
+ * question reads this to find the seeker's nearest named street + union every
+ * way sharing its name, entirely client-side — so a warm city serves the
+ * question Overpass-free (the old design fired a position-keyed
+ * `way["highway"](around:500,…)` LIVE query per question, the rate-limit risk).
+ * Mirrors `handleCoastByRelation` exactly; read-only, any miss returns
+ * `{ elements: [] }` so the client falls back to its live poly query.
+ */
+async function handleStreetsByRelation(
+    request: Request,
+    env: Env,
+    cors: HeadersInit,
+    relationId: number,
+): Promise<Response> {
+    if (request.method !== "GET") {
+        return new Response("Method not allowed", {
+            status: 405,
+            headers: cors,
+        });
+    }
+    const ext = await canonicalReferenceExtent(env, {
+        relationId,
+        name: "",
+    } as CityEntry);
+    if (!ext) {
+        return jsonResponse({ elements: [], cache: "no-boundary" }, 200, cors);
+    }
+    const query = buildStreetsBboxQuery(ext);
+    const cacheKey = await r2KeyForQuery(query);
+
+    const cacheApiKey = new Request(
+        `${new URL(request.url).origin}/api/interpreter?data=${encodeURIComponent(query)}`,
+        { method: "GET" },
+    );
+    const edgeCache = caches.default;
+    const edgeHit = await edgeCache.match(cacheApiKey);
+    if (edgeHit)
+        return serveEdgeHitNormalized(edgeHit, cors, "EDGE_HIT_RELATION");
+
+    let r2Hit: R2ObjectBody | null = null;
+    try {
+        r2Hit = await env.CACHE.get(`overpass/${cacheKey}`);
+    } catch (e) {
+        console.warn("streets-by-relation: R2 get failed:", e);
+    }
+    if (r2Hit) {
+        const cachedAt = parseInt(r2Hit.customMetadata?.cachedAt ?? "0", 10);
+        const age = cachedAt ? Date.now() - cachedAt : 0;
+        return buildR2Response(r2Hit, cors, "R2_HIT_RELATION", age);
+    }
+    return jsonResponse({ elements: [], cache: "miss" }, 200, cors);
+}
+
+/** Background warm of one relation's named-highway geometry, keyed
+ *  canonically so a later GET /api/streets/<id> hits it (v992). Mirrors
+ *  `warmRelationCoast`. */
+async function warmRelationStreets(
+    env: Env,
+    relationId: number,
+): Promise<void> {
+    const ttlMs =
+        (parseInt(env.CACHE_TTL_DAYS, 10) || 30) * 24 * 60 * 60 * 1000;
+
+    const boundaryQuery = singleRelationQuery(relationId);
+    const boundaryKey = await r2KeyForQuery(boundaryQuery);
+    let boundaryObj: R2ObjectBody | null = null;
+    try {
+        boundaryObj = await env.CACHE.get(`overpass/${boundaryKey}`);
+    } catch {
+        /* miss */
+    }
+    if (!boundaryObj) {
+        if (!(await waitForOverpassSlot(`warm-boundary(st) r${relationId}`))) {
+            return;
+        }
+        const up = await upstreamSemaphore.run(() =>
+            fetchFromMirrorChainWithRetry(boundaryQuery),
+        );
+        if (!up) return;
+        const ok = await streamStoreNoTee(env, `overpass/${boundaryKey}`, up, {
+            kind: "boundary",
+            warmedBy: "on-add-streets",
+            sourceRelationId: String(relationId),
+        });
+        if (!ok) return;
+        try {
+            boundaryObj = await env.CACHE.get(`overpass/${boundaryKey}`);
+        } catch {
+            return;
+        }
+        if (!boundaryObj) return;
+    }
+
+    let ext: [number, number, number, number] | null = null;
+    try {
+        const text = await readR2Text(boundaryObj);
+        if (text) ext = extentFromBoundaryJson(JSON.parse(text));
+    } catch {
+        /* unparseable boundary — give up */
+    }
+    if (!ext) return;
+
+    const streetsQuery = buildStreetsBboxQuery(ext);
+    const streetsKey = await r2KeyForQuery(streetsQuery);
+    try {
+        const head = await env.CACHE.head(`overpass/${streetsKey}`);
+        if (head) {
+            const cachedAt = parseInt(
+                head.customMetadata?.cachedAt ?? "0",
+                10,
+            );
+            if (cachedAt && Date.now() - cachedAt < ttlMs) return; // fresh
+        }
+    } catch {
+        /* head miss — warm below */
+    }
+    if (!(await waitForOverpassSlot(`warm-streets r${relationId}`))) return;
+    const up = await upstreamSemaphore.run(() =>
+        fetchFromMirrorChainWithRetry(streetsQuery),
+    );
+    if (!up) return;
+    const body = await up.text();
+    if (isAbortedOverpassText(body)) return;
+    try {
+        await compressAndStoreString(env, streetsKey, body, {
+            kind: "streets",
+            warmedBy: "on-add",
+            sourceRelationId: String(relationId),
+        });
+    } catch (e) {
+        console.warn(`warm streets r${relationId} store failed:`, e);
+    }
+}
+
+/** Per-city named-highway geometry — isolated (its own heavy query, never
+ *  batched), same as coast/water. Mirrors `prewarmCoastForCity`. */
+async function prewarmStreetsForCity(
+    env: Env,
+    city: CityEntry,
+    ttlMs: number,
+): Promise<{ status: string }> {
+    const ext = await canonicalReferenceExtent(env, city);
+    if (!ext) return { status: "skipped-no-extent" };
+    return prewarmQuery(
+        env,
+        buildStreetsBboxQuery(ext),
+        city,
+        ttlMs,
+        "streets",
     );
 }
 
@@ -5005,6 +5216,32 @@ function buildCoastBboxQuery(
 ): string {
     const bboxFilter = buildBboxFilter(extent, COAST_PAD_KM);
     const body = COAST_FILTERS.map((f) => `way${f};`).join("\n");
+    return `
+[out:json][timeout:180]${bboxFilter};
+(
+${body}
+);
+out geom;
+`;
+}
+
+/** NAMED highway ways for the matching same-street question (v992). The
+ *  question keys on the geometry of every OSM way sharing the seeker's
+ *  nearest-street NAME, so we prewarm the named highway set — much lighter
+ *  than ALL highways (the unnamed footway/service mass is excluded; the
+ *  client falls to a live cacheable `[highway]` poly query for the rare
+ *  unnamed-nearest case). `out geom` gives geometry + node ids + tags, so the
+ *  client finds the nearest named way and unions the same-name segments
+ *  entirely client-side. Kept byte-identical to `buildStreetsQuery` in
+ *  laptop-prewarm.mjs. */
+const STREET_FILTERS: string[] = ['["highway"]["name"]'];
+const STREET_PAD_KM = 2;
+
+function buildStreetsBboxQuery(
+    extent: [number, number, number, number],
+): string {
+    const bboxFilter = buildBboxFilter(extent, STREET_PAD_KM);
+    const body = STREET_FILTERS.map((f) => `way${f};`).join("\n");
     return `
 [out:json][timeout:180]${bboxFilter};
 (
@@ -7700,6 +7937,7 @@ async function handleAdminInspectEncoding(
     else if (kind === "stations") query = buildAreaStationsBboxQuery(ext);
     else if (kind === "water") query = buildWaterBboxQuery(ext);
     else if (kind === "coast") query = buildCoastBboxQuery(ext);
+    else if (kind === "streets") query = buildStreetsBboxQuery(ext);
     else if (kind === "metro") query = metroRoutesQuery(ext);
     else if (kind === "transit-routes") query = transitRoutesQuery(ext);
     else if (kind.startsWith("transit-"))

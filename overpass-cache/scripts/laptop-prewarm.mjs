@@ -17,7 +17,7 @@
  *     [--cold-only] [--skip-starred] [--adjacents] \
  *     [--skip-discover] [--skip-boundaries] [--skip-references] \
  *     [--skip-transit] [--skip-hsr] [--skip-photon] [--skip-adjacent] \
- *     [--skip-water] [--skip-admin] \
+ *     [--skip-water] [--skip-admin] [--skip-streets] \
  *     [--skip-one-ring] [--one-ring-top N] [--one-ring-max-per-city N] \
  *     [--skip-tile-packs] [--master-pmtiles URL] [--pmtiles-bin path] \
  *     [--audit-encoding [--repair]] [--force] [--delay-ms 2000]
@@ -233,6 +233,10 @@ let DO_WATER = !args["skip-water"];
 // admin-division question (served by /api/admin/<id>/<level>). Rides the
 // refs gate; --skip-admin to drop (the client warms levels on-demand).
 let DO_ADMIN = !args["skip-admin"];
+// v992: warm the NAMED-highway geometry for the matching same-street question
+// (served by /api/streets/<id>). Rides the refs gate; --skip-streets to drop
+// (the client falls back to its live cacheable poly query).
+let DO_STREETS = !args["skip-streets"];
 let DO_PHOTON = !args["skip-photon"];
 // v440: warm the wizard's "extend play area" adjacent-search queries
 // per city (topological adjacency, admin-level, adjacent band, transit
@@ -707,6 +711,19 @@ let PAD_KM_COAST = 2;
 function coastQuery(extent) {
     const bb = bboxFilter(extent, PAD_KM_COAST);
     const body = COAST_FILTERS.map((f) => `way${f};`).join("\n");
+    return `\n[out:json][timeout:180]${bb};\n(\n${body}\n);\nout geom;\n`;
+}
+
+// EXACT byte-for-byte mirror of STREET_FILTERS + buildStreetsBboxQuery in
+// overpass-cache/src/index.ts (v992 — NAMED highways, 2 km pad, timeout:180,
+// `out geom`). The matching same-street question reads /api/streets/<id>; the
+// R2 key hashes this exact string, and the worker read endpoint rebuilds it
+// from the boundary extent — so this MUST match the worker builder.
+let STREET_FILTERS = ['["highway"]["name"]'];
+let PAD_KM_STREET = 2;
+function streetQuery(extent) {
+    const bb = bboxFilter(extent, PAD_KM_STREET);
+    const body = STREET_FILTERS.map((f) => `way${f};`).join("\n");
     return `\n[out:json][timeout:180]${bb};\n(\n${body}\n);\nout geom;\n`;
 }
 
@@ -2112,6 +2129,41 @@ async function processCity(city) {
         }
     }
 
+    // Per-city NAMED-highway geometry (v992). The matching same-street
+    // question reads /api/streets/<id> to find the nearest named street +
+    // union same-name segments Overpass-free (the old design fired a
+    // position-keyed `around:500` LIVE query per question). Heavy (all named
+    // highways in the bbox), isolated like coast/water; rides the DO_STREETS
+    // gate (default on; --skip-streets to drop).
+    if (refExtent && DO_REFS && DO_STREETS) {
+        const q = streetQuery(refExtent);
+        if (await isFresh(q, "streets")) {
+            console.log(`  ⤼ streets already cached — skipping`);
+        } else {
+            const res = await fetchOverpass(q, "streets");
+            if (res) {
+                const parsed = safeJSON(res.text);
+                if (parsed) {
+                    try {
+                        const r = await uploadToWorker({
+                            query: q,
+                            bodyText: res.text,
+                            kind: "streets",
+                            sourceName: city.name,
+                            sourceRelationId: String(city.relationId),
+                        });
+                        console.log(
+                            `  ✓ streets stored (${r.rawBytes} B raw → ${r.gzipBytes} B gz in ${res.ms} ms, ${parsed.elements?.length ?? 0} elements)`,
+                        );
+                    } catch (e) {
+                        console.warn(`  ✗ streets upload: ${e.message}`);
+                    }
+                }
+                await sleep(DELAY_MS);
+            }
+        }
+    }
+
     // Per-city ADMIN-boundary geometry, one query per level (v830). The
     // matching zone / letter-zone / admin-division question reads
     // /api/admin/<id>/<level>; warming the common tier levels (4/6/7/8)
@@ -3372,6 +3424,14 @@ async function syncReferenceFilters() {
         (f) => f,
     );
     if (nextCoast) COAST_FILTERS = nextCoast;
+    const nextStreet = applyList(
+        "street",
+        data.streetFilters,
+        STREET_FILTERS,
+        (f) => f,
+        (f) => f,
+    );
+    if (nextStreet) STREET_FILTERS = nextStreet;
     const applyPad = (label, remote, local, set) => {
         if (typeof remote !== "number" || !Number.isFinite(remote)) return;
         if (remote !== local) {
@@ -3392,6 +3452,9 @@ async function syncReferenceFilters() {
     });
     applyPad("coast", data.coastPadKm, PAD_KM_COAST, (v) => {
         PAD_KM_COAST = v;
+    });
+    applyPad("street", data.streetPadKm, PAD_KM_STREET, (v) => {
+        PAD_KM_STREET = v;
     });
     applyPad("admin", data.adminPadKm, PAD_KM_ADMIN, (v) => {
         PAD_KM_ADMIN = v;
