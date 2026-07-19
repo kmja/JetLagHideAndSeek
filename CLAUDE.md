@@ -428,7 +428,27 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v979`. Use `git log` for the per-version detail;
+build stamp. Current: `v980`. Use `git log` for the per-version detail;
+
+**v980 — body-of-water: fold the DETAILED sea back in (bays no longer read
+"further"), freeze-guarded.** v976 dropped the fragile/slow per-city sea polygon
+for a coarse 1:50m ocean (frame minus bundled land) to kill the ~10 s freeze —
+but the 1:50m coastline is too coarse to resolve a metro's bays, so NYC's Lower
+Bay / harbour / Jamaica Bay sat OUTSIDE the coarse ocean and rendered "further
+from water" (impossible — open water IS water). v980 re-adds the DETAILED
+per-city sea (`fetchAreaCoastlineLines` → `seaFromCoast` worker, v897 per-face
+right-of-way labelling, seeker-not-in-sea guarded) as the primary sea source,
+with two guards that make it a SAFE monotonic improvement over the coarse
+fallback: (1) the sea is built OFF the main thread (worker), (2) it's simplified
+to ~220 m AND gated on a **vertex cap** (`SEA_VERTEX_CAP` = 4000) before it
+enters the arcgis geodesic buffer — the raw tens-of-thousands-vertex harbour
+coastline is what froze the buffer, so if even the simplified sea is still too
+dense we SKIP it and fall back to the coarse 1:50m ocean (the pre-v980 no-freeze
+behaviour, never a regression). The coastline LINES band (near-shore + narrow
+tidal channels) is unchanged. So: warm coastal metros whose simplified sea fits
+the cap get correct bays; anything heavier degrades to the coarse ocean rather
+than freezing. Still main-thread-buffered (arcgis can't go in a worker), just
+bounded — a further win would be to union the RAW sea instead of buffering it.
 
 **v979 — false "couldn't send" banner during heavy question load + endgame
 card copy/gate.**

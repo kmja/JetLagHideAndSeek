@@ -32,8 +32,12 @@ import {
     requestWaterWarmAll,
 } from "@/maps/api/water";
 import { fetchPrewarmedRailStationElements } from "@/lib/journey/stations";
-import { bufferPointsUnion } from "@/lib/geometry/client";
+import {
+    bufferPointsUnion,
+    seaFromCoast as seaFromCoastViaWorker,
+} from "@/lib/geometry/client";
 import { filterCoastlineByStraitRule } from "@/maps/questions/coastlineStrait";
+import { seaFromCoastline } from "@/maps/questions/seaFromCoastline";
 import { majorCityPoints } from "@/maps/data/majorCities";
 import {
     arcBufferToPoint,
@@ -625,9 +629,86 @@ export const determineMeasuringBoundary = async (
             // fragile sea polygon.
             try {
                 const seeker = { lng: question.lng, lat: question.lat };
+                let seaAdded = false;
 
-                // (a) Coarse ocean AREA.
+                // (a) DETAILED sea AREA from the per-city OSM coastline (v980).
+                // The coarse 1:50m ocean (a-fallback below) is too coarse to
+                // resolve a metro's bays — NYC's Lower Bay / harbour / Jamaica
+                // Bay stayed OUTSIDE the coarse ocean and read "further from
+                // water", which is impossible (open water IS water). The
+                // detailed OSM coastline resolves them. `seaFromCoast` builds
+                // the sea polygon OFF the main thread (v879 worker + v897
+                // per-face right-of-way labelling, seeker-not-in-sea guarded →
+                // null on any inversion/degeneracy). We then SIMPLIFY it to
+                // ~220 m BEFORE it enters the arcgis buffer: a raw harbour
+                // coastline is tens of thousands of vertices and froze the
+                // buffer (the v976 removal), but simplified it's a few hundred
+                // vertices — negligible against a km-scale buffer, and the open
+                // bay shape survives. Narrow tidal channels lost to
+                // simplification are still covered by the coastline LINES band
+                // (b). Falls back to the coarse ocean when the detailed sea is
+                // unavailable/degenerate.
                 if (bBox) {
+                    try {
+                        const coastLines = await fetchAreaCoastlineLines();
+                        if (coastLines && coastLines.length > 0) {
+                            const frame = bBox as [
+                                number,
+                                number,
+                                number,
+                                number,
+                            ];
+                            let sea: Feature<Polygon | MultiPolygon> | null =
+                                null;
+                            try {
+                                sea = await seaFromCoastViaWorker(
+                                    coastLines,
+                                    frame,
+                                    seeker,
+                                );
+                            } catch {
+                                sea = seaFromCoastline(
+                                    coastLines,
+                                    frame,
+                                    seeker,
+                                );
+                            }
+                            if (sea && turf.area(sea as any) > 0) {
+                                let seaOut = sea;
+                                try {
+                                    const s = turf.simplify(sea as any, {
+                                        tolerance: 0.002,
+                                        highQuality: false,
+                                        mutate: false,
+                                    }) as Feature<Polygon | MultiPolygon>;
+                                    if (turf.area(s as any) > 0) seaOut = s;
+                                } catch {
+                                    /* keep the un-simplified sea */
+                                }
+                                // Guard the arcgis buffer: only feed it the sea
+                                // when its vertex count is BOUNDED. A raw/under-
+                                // simplified harbour coastline is what froze the
+                                // buffer (v976); if even the simplified sea is
+                                // still too dense, skip it and fall to the coarse
+                                // ocean below — worst case is the pre-v980
+                                // no-freeze behaviour, never a regression.
+                                if (countCoords(seaOut) <= SEA_VERTEX_CAP) {
+                                    out.push(seaOut);
+                                    seaAdded = true;
+                                }
+                            }
+                        }
+                    } catch (e) {
+                        console.warn(
+                            "body-of-water detailed sea failed:",
+                            e,
+                        );
+                    }
+                }
+
+                // (a-fallback) Coarse ocean AREA (1:50m) — only when the
+                // detailed sea above wasn't available.
+                if (!seaAdded && bBox) {
                     try {
                         const coastFC = await fetchCoastline();
                         const frame = turf.bboxPolygon(bBox as any);
@@ -758,6 +839,25 @@ export const determineMeasuringBoundary = async (
 
 // v933: extracted so the self-evicting wrapper below can address a memo
 // entry by its exact key (mirrors matching.ts's matchingBoundaryMemoKey).
+/** Max vertices of the simplified detailed-sea polygon we'll feed to the
+ *  arcgis geodesic buffer (v980). Above this, buffering risks the multi-second
+ *  main-thread freeze the coarse-ocean fallback was introduced to avoid, so we
+ *  skip the detailed sea and fall back to the coarse ocean instead. */
+const SEA_VERTEX_CAP = 4000;
+
+/** Total coordinate count of a polygon/multipolygon feature (bounded walk). */
+function countCoords(f: Feature<Polygon | MultiPolygon>): number {
+    const g = f.geometry;
+    let n = 0;
+    if (g.type === "Polygon") {
+        for (const ring of g.coordinates) n += ring.length;
+    } else if (g.type === "MultiPolygon") {
+        for (const poly of g.coordinates)
+            for (const ring of poly) n += ring.length;
+    }
+    return n;
+}
+
 const bufferedDeterminerKey = (question: MeasuringQuestion) =>
     // v376: lightweight playAreaSignature instead of stringifying the
     // whole polygon — see matching.ts memo key for the rationale.
