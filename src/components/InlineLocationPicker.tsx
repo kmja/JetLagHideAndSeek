@@ -423,6 +423,36 @@ export function InlineLocationPicker({
         longitude,
     ]);
 
+    // v981: a MEASURING reference field can be hundreds/thousands of points
+    // (NYC parks). Rendering them as React <Marker>s froze the main thread —
+    // so measuring plots them as ONE GPU `circle` layer (like the hiding-zones
+    // dots) that handles any count with zero React overhead. The buffered
+    // closer/further region (the actual answer) is drawn separately; these
+    // dots are just the density hint. Matching/tentacles keep the labelled
+    // icon markers (few after the border/reach filter). Uses the FULL
+    // candidate set (not the capped `visibleCandidates`) since the GPU doesn't
+    // care about count.
+    const measuringDotsFC = useMemo(() => {
+        if (
+            impactMode !== "measuring" ||
+            !candidatePoints ||
+            candidatePoints.length === 0
+        ) {
+            return null;
+        }
+        return {
+            type: "FeatureCollection",
+            features: candidatePoints.map((c) => ({
+                type: "Feature",
+                properties: {},
+                geometry: {
+                    type: "Point",
+                    coordinates: [c.lng, c.lat],
+                },
+            })),
+        } as GeoJSON.FeatureCollection;
+    }, [impactMode, candidatePoints]);
+
     const [gpsState, setGpsState] = useState<"unknown" | "granted" | "denied">(
         "unknown",
     );
@@ -1174,7 +1204,43 @@ export function InlineLocationPicker({
                         Falls through to nothing when we have no icon for
                         the subtype (radius/tentacles don't render points
                         anyway). */}
-                    {impactMode && candidateIcon && visibleCandidates &&
+                    {/* v981: measuring reference field as ONE GPU circle
+                        layer (any count, no React-marker freeze). */}
+                    {measuringDotsFC && (
+                        <Source
+                            id="impact-candidate-dots"
+                            type="geojson"
+                            data={measuringDotsFC}
+                        >
+                            <Layer
+                                id="impact-candidate-dots-layer"
+                                type="circle"
+                                paint={{
+                                    "circle-radius": [
+                                        "interpolate",
+                                        ["linear"],
+                                        ["zoom"],
+                                        9,
+                                        1.6,
+                                        13,
+                                        2.8,
+                                        16,
+                                        4,
+                                    ],
+                                    "circle-color": darkBasemap
+                                        ? "hsl(0, 0%, 88%)"
+                                        : "hsl(0, 0%, 28%)",
+                                    "circle-opacity": 0.75,
+                                    "circle-stroke-width": 0.6,
+                                    "circle-stroke-color": darkBasemap
+                                        ? "hsl(0, 0%, 15%)"
+                                        : "hsl(0, 0%, 100%)",
+                                }}
+                            />
+                        </Source>
+                    )}
+                    {impactMode && impactMode !== "measuring" && candidateIcon &&
+                        visibleCandidates &&
                         visibleCandidates.map((c, i) => {
                             const Icon = candidateIcon;
                             return (

@@ -17,10 +17,7 @@ import {
     DrawerTitle,
     DrawerTrigger,
 } from "@/components/ui/drawer";
-import {
-    deepColor,
-    QuestionOverlayCard,
-} from "@/components/questionOverlayCard";
+import { QuestionOverlayCard } from "@/components/questionOverlayCard";
 import { adminDivisionName, adminTierToOsmLevel } from "@/lib/adminDivisions";
 import { CATEGORIES, type CategoryId } from "@/lib/categories";
 import {
@@ -1164,12 +1161,7 @@ export const AddQuestionDialog = ({
                                             </button>
                                             <div className="min-w-0 flex-1">
                                                 <DrawerTitle
-                                                    className="font-poppins font-extrabold uppercase tracking-tight text-xl leading-none"
-                                                    style={{
-                                                        color: deepColor(
-                                                            meta.color,
-                                                        ),
-                                                    }}
+                                                    className="font-poppins font-extrabold uppercase tracking-tight text-xl leading-none text-foreground"
                                                 >
                                                     {meta.label}
                                                 </DrawerTitle>

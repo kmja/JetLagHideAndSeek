@@ -428,7 +428,32 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v981`. Use `git log` for the per-version detail;
+build stamp. Current: `v982`. Use `git log` for the per-version detail;
+
+**v982 — ROOT-CAUSE: bundled-geojson fetches were double-slashed (broke border
+gate + same-landmass + coastline fallback) + measuring dots on GPU + neutral
+picker header.**
+- **The big one — `//file.geojson` bug.** `fetchCoastline` / `fetchBorders0Land`
+  / `fetchBorders1States` / lakes built their URL as
+  `import.meta.env.BASE_URL + "/coastline50.geojson"`. `BASE_URL` is `"/"`, so
+  that's `"//coastline50.geojson"` — a PROTOCOL-RELATIVE url that resolves to
+  the bogus host `https://coastline50.geojson/` and always FAILED (the geometry
+  worker used the correct no-leading-slash form, which is why worker paths
+  worked). This silently broke EVERY bundled-dataset consumer: the measuring
+  **international/state-border availability gate** (fetch threw → null → tile
+  stayed enabled — the repeated "border not disabled" report; matching's admin
+  gate worked because it's Overpass-based), **same-landmass**'s global-coastline
+  fallback (→ no overlay), the **coastline** subtype's fallback, body-of-water's
+  coarse-ocean fallback, and the lakes mask. Fixed to
+  `BASE_URL + "coastline50.geojson"` (single slash). One-line-per-file fix, big
+  blast radius.
+- **Measuring candidate dots → ONE GPU `circle` layer** (`InlineLocationPicker`)
+  instead of hundreds of React `<Marker>`s — THAT was the measuring park freeze
+  (not the buffer, off-thread since v978). `measuringDotsFC` feeds a single
+  `circle` layer that renders any count with zero React overhead; matching /
+  tentacles keep the labelled icon markers (few after the border/reach filter).
+- **Subtype-picker header** uses the normal `text-foreground`, not the category
+  colour (the green "MEASURING" etc.).
 
 **v981 — measuring park FREEZE root cause (marker cap) + toaster removal +
 back-arrow styling.**

@@ -762,7 +762,7 @@ export const fetchCoastline = async () => {
     // internal step of body-of-water / coastline / same-landmass just read as
     // noise (and leaked an implementation detail to the user).
     const response = await cacheFetch(
-        import.meta.env.BASE_URL + "/coastline50.geojson",
+        import.meta.env.BASE_URL + "coastline50.geojson",
         undefined,
         CacheType.PERMANENT_CACHE,
     );
@@ -806,7 +806,7 @@ export const fetchBorders0Land = async () => {
     // measuring elimination AND (silently) by the subtype-availability gate,
     // so a user-facing toaster here is noise.
     const response = await cacheFetch(
-        import.meta.env.BASE_URL + "/borders0_50m.geojson",
+        import.meta.env.BASE_URL + "borders0_50m.geojson",
         undefined,
         CacheType.PERMANENT_CACHE,
     );
@@ -815,7 +815,7 @@ export const fetchBorders0Land = async () => {
 
 export const fetchBorders1States = async () => {
     const response = await cacheFetch(
-        import.meta.env.BASE_URL + "/borders1_50m.geojson",
+        import.meta.env.BASE_URL + "borders1_50m.geojson",
         undefined,
         CacheType.PERMANENT_CACHE,
     );
@@ -824,7 +824,7 @@ export const fetchBorders1States = async () => {
 
 export const fetchLakes = async () => {
     const response = await cacheFetch(
-        import.meta.env.BASE_URL + "/lakes50.geojson",
+        import.meta.env.BASE_URL + "lakes50.geojson",
         "Fetching lake data...",
         CacheType.PERMANENT_CACHE,
     );
