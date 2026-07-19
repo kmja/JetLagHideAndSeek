@@ -91,6 +91,7 @@ import { activeTilePackId } from "@/lib/tilePack";
 import { cn } from "@/lib/utils";
 import { holedMaskViaWorker } from "@/lib/geometry/client";
 import { applyQuestionsToMapGeoData } from "@/maps";
+import { attachBasemapWaterCapture } from "@/maps/api/basemapWater";
 import { clearCache } from "@/maps/api";
 import { CacheType } from "@/maps/api/types";
 import { spoofPickMode } from "@/lib/debugGpsSpoof";
@@ -665,6 +666,9 @@ export function Map({ className }: MapProps) {
         if (inner) {
             mapContext.set(createMapShim(inner));
             installMissingImageHandler(inner);
+            // v998: keep the basemap water (ocean/lakes) captured for the
+            // body-of-water elimination — this map frames the play area.
+            attachBasemapWaterCapture(inner as unknown as maplibregl.Map);
         }
         setMapLoaded(true);
         onTilesLoad();

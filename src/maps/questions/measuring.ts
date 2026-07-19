@@ -32,13 +32,12 @@ import {
     requestWaterWarmAll,
 } from "@/maps/api/water";
 import { fetchPrewarmedRailStationElements } from "@/lib/journey/stations";
-import {
-    bufferAndUnion,
-    bufferPointsUnion,
-    seaFromCoast,
-} from "@/lib/geometry/client";
+import { bufferAndUnion, bufferPointsUnion } from "@/lib/geometry/client";
 import { filterCoastlineByStraitRule } from "@/maps/questions/coastlineStrait";
-import { seaFromCoastline } from "@/maps/questions/seaFromCoastline";
+import {
+    basemapWaterVersion,
+    getBasemapWaterPolys,
+} from "@/maps/api/basemapWater";
 import { majorCityPoints } from "@/maps/data/majorCities";
 import {
     arcBufferToPoint,
@@ -597,90 +596,40 @@ export const determineMeasuringBoundary = async (
             if (lines.length > 0) {
                 out.push(highSpeedBase(lines));
             }
-            // v985: fold in the SEA robustly. Earlier versions built a
-            // per-city sea POLYGON (seaFromCoastline) and buffered/unioned it —
-            // both froze the app (main thread) AND, once moved off-thread, the
-            // turf.union of that many-vertex polygon TIMED OUT the worker, so
-            // the whole body-of-water buffer returned null and NO overlay drew.
-            // Robust approach: add the per-city coastline as LINES only. Buffered
-            // by the seeker distance (downstream) a coastline line covers the
-            // near-shore band on both sides AND narrow tidal channels / rivers
-            // (the East River, the Hudson) — cheap and reliable. Wide OPEN water
-            // beyond the buffer band isn't covered as area (a known limitation
-            // vs. a full sea polygon), but the overlay always renders now.
-            try {
-                const cityCoastLines = await fetchAreaCoastlineLines();
-                const coastLines =
-                    cityCoastLines && cityCoastLines.length > 0
-                        ? cityCoastLines
-                        : clipLinesToBbox(await fetchCoastline(), bBox);
-                if (coastLines.length > 0) out.push(highSpeedBase(coastLines));
-            } catch (e) {
-                console.warn("body-of-water coastline band failed:", e);
-            }
-            // v993: fold the SEA in as an AREA from the DETAILED prewarmed OSM
-            // coast (the user's ask — use the detailed coast/inlets/bays we
-            // already prewarm via `/api/coast/<id>`, not the crude coarse 1:50m
-            // ocean, which drew a jagged polygon that didn't follow the real
-            // shoreline). `seaFromCoast` runs OFF the main thread (worker); we
-            // SIMPLIFY the result heavily (≈150 m, invisible against a
-            // hundreds-of-metres water buffer) so the downstream UNBUFFERED
-            // union in `bufferAndUnion` stays fast — the raw harbour sea is
-            // tens of thousands of vertices, the historical union-timeout
-            // cause (v980-v985). Tagged `__waterArea` so the buffer step unions
-            // it AS-IS and excludes it from the buffer radius. Falls back to the
-            // COARSE 1:50m ocean (few vertices, instant, main-thread) if the
-            // detailed sea is unavailable/rejected — a monotonic improvement,
-            // never worse than v987.
-            let seaArea: Feature<Polygon | MultiPolygon> | null = null;
-            try {
-                const detailedCoast = await fetchAreaCoastlineLines();
-                if (detailedCoast && detailedCoast.length > 0) {
-                    const detailedSea = await seaFromCoast(
-                        detailedCoast as Feature[],
-                        bbox4(bBox),
-                        { lat: question.lat, lng: question.lng },
-                    );
-                    if (detailedSea) {
-                        try {
-                            seaArea = turf.simplify(detailedSea, {
-                                tolerance: 0.0015,
-                                highQuality: false,
-                                mutate: false,
-                            }) as Feature<Polygon | MultiPolygon>;
-                        } catch {
-                            seaArea = detailedSea;
-                        }
-                    }
-                }
-            } catch {
-                /* detailed sea unavailable — coarse fallback below */
-            }
-            if (!seaArea) {
+            // v998: the SEA comes from the BASEMAP's own `water` layer — the
+            // authoritative land/water map we already ship offline (Protomaps
+            // assembled the ocean + bays + lakes + wide rivers as real polygons,
+            // globally correct). We read those polygons straight off the loaded
+            // map (`getBasemapWaterPolys`, captured by `basemapWater.ts`) and add
+            // them as NORMAL buffered targets — buffering the accurate ocean
+            // boundary by the seeker's nearest-water distance gives BOTH the open
+            // sea (distance 0 → closer) AND the near-shore land band (within the
+            // distance → closer), and the min-distance naturally equals the
+            // shoreline distance the nearest-reference label shows. This throws
+            // away ALL the fragile `natural=coastline` line assembly / polygonize
+            // / flood-fill that kept mislabeling NYC's harbour: no reconstruction,
+            // just the water the map already draws.
+            const basemapWater = getBasemapWaterPolys(bbox4(bBox));
+            if (basemapWater && basemapWater.length > 0) {
+                out.push(...basemapWater);
+            } else {
+                // FALLBACK (no map has captured the basemap water yet — rare, the
+                // configure map captures it for the current question): fold in the
+                // per-city coastline as LINES, buffered by the seeker distance so
+                // the near-shore band + narrow tidal channels are covered. Open
+                // water beyond the band reads "further" until the basemap water
+                // lands (which busts the memo and recomputes — see the memo key).
                 try {
-                    const coarseCoast = clipLinesToBbox(
-                        await fetchCoastline(),
-                        bBox,
-                    );
-                    if (coarseCoast.length > 0) {
-                        seaArea = seaFromCoastline(
-                            coarseCoast as Feature<
-                                GeoJSON.LineString | GeoJSON.MultiLineString
-                            >[],
-                            bbox4(bBox),
-                            { lng: question.lng, lat: question.lat },
-                        );
-                    }
+                    const cityCoastLines = await fetchAreaCoastlineLines();
+                    const coastLines =
+                        cityCoastLines && cityCoastLines.length > 0
+                            ? cityCoastLines
+                            : clipLinesToBbox(await fetchCoastline(), bBox);
+                    if (coastLines.length > 0)
+                        out.push(highSpeedBase(coastLines));
                 } catch (e) {
-                    console.warn("body-of-water coarse ocean failed:", e);
+                    console.warn("body-of-water coastline band failed:", e);
                 }
-            }
-            if (seaArea) {
-                seaArea.properties = {
-                    ...(seaArea.properties ?? {}),
-                    __waterArea: true,
-                };
-                out.push(seaArea);
             }
             if (out.length === 0) return [turf.multiPolygon([])];
             return out;
@@ -733,6 +682,12 @@ const bufferedDeterminerKey = (question: MeasuringQuestion) =>
         // v346: manual reference invalidates the memo so toggling it
         // recomputes the buffer from the picked point.
         manualReference: (question as any).manualReference,
+        // v998: body-of-water reads the basemap `water` layer, captured off a
+        // map as tiles load. Fold the capture version into the key so a compute
+        // that ran before the water landed is re-run once it does (a stale
+        // waterless result would otherwise stay memo-cached at this position).
+        bmw:
+            question.type === "body-of-water" ? basemapWaterVersion.get() : 0,
     });
 
 /** Collect every point coordinate if EVERY feature is a Point / MultiPoint —

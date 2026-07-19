@@ -428,7 +428,53 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v997`. Use `git log` for the per-version detail;
+build stamp. Current: `v998`. Use `git log` for the per-version detail;
+
+**v998 — body-of-water sea from the BASEMAP's own water layer (throw away
+coastline assembly) + `--capitals-first` prewarm.**
+- **The land/water map is the basemap we already ship.** Every prior sea attempt
+  (v976–v997) reconstructed the ocean from OSM `natural=coastline` LINES —
+  polygonize / flood-fill / raster — and every one mislabeled NYC's harbour
+  because coastline assembly on dense real data is fundamentally fragile (and
+  un-testable offline). The Protomaps basemap in our offline pmtiles ALREADY
+  carries a `water` source-layer: the ocean, bays, lakes and wide rivers as real
+  polygons, correctly assembled globally by Protomaps' pipeline. That IS the
+  authoritative land/water map. `src/maps/api/basemapWater.ts`
+  (`captureBasemapWater` / `getBasemapWaterPolys` / `attachBasemapWaterCapture`)
+  reads those polygons straight off a loaded MapLibre map via
+  `querySourceFeatures("protomaps", {sourceLayer:"water"})` — the SAME pattern
+  the hider POI overlay uses for `pois` — accumulating them across map `idle`s
+  (tiles load progressively) into a per-play-area cache. The configure map, the
+  seeker map and the hider map all attach a capture on load, so the current
+  question's play-area water is captured before its elimination runs.
+- **body-of-water now buffers the REAL water.** `measuring.ts` body-of-water
+  pushes the basemap water polygons as NORMAL buffered targets (alongside OSM
+  `natural=water` + rivers): buffering the accurate ocean boundary by the
+  seeker's nearest-water distance gives BOTH the open sea (distance 0 → closer)
+  AND the near-shore land band (within the distance → closer), and the
+  min-distance naturally equals the shoreline distance the nearest-reference
+  label shows — no `__waterArea` special-case, no coastline lines, no
+  `seaFromCoast`/`seaFromCoastline`/polygonize/flood-fill. FALLBACK (no map has
+  captured water yet — rare): the per-city coastline LINES buffered (near-shore
+  band only, open water reads "further" until the basemap water lands, which
+  busts the memo). The memo key folds in a `basemapWaterVersion` so a compute
+  that ran before the water arrived is re-run once it does; `questionImpact.ts`'s
+  measuring effect depends on the same version so the preview fills the sea in.
+  The measuring preview shares `measuringDraftBuffer`, so preview == elimination.
+- **`--capitals-first` prewarm flag** (`laptop-prewarm.mjs`): with
+  `--priority-regions`, warm each priority region's NATIONAL capital (Paris,
+  Berlin, Madrid, Rome, Amsterdam, Vienna, Stockholm, …) BEFORE that region's
+  other cities, so EU/Nordic capitals light up early instead of only after the
+  whole US/GB/CA long tail. `CAPITAL_BY_COUNTRY` maps ISO country → capital name
+  (matched against the reconciled world-cities.json names); capitals order among
+  themselves by region tier, non-capitals keep the region-tier + population
+  order. Opt-in (leaves a running warm's order unchanged unless passed).
+- Progress check for starred primaries + adjacents:
+  `GET /admin/adjacent-curation-status?secret=…&scope=seed&top=60&limit=200`
+  (auth via `?secret=` or `Authorization: Bearer`) — runs the real R2-key
+  boundary/refs/stations checks per city on the primary AND every adjacent, and
+  reports `{targets, probed, fullyCached, stampedFully, cities:[{name,
+  primaryCached, neighboursCurated, adjacentsCurated, fullyCached, …}]}`.
 
 **v997 — body-of-water sea: ray-cast raster → RASTER FLOOD-FILL 2-COLORING
 (fixes the v996 noise) + measuring reference ICONS restored + `useRaster`

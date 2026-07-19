@@ -197,6 +197,33 @@ const PRIORITY_REGIONS = (() => {
         .map((s) => s.trim().toUpperCase())
         .filter((s) => /^[A-Z]{2}$/.test(s));
 })();
+// v998: `--capitals-first` warms each priority region's NATIONAL CAPITAL
+// before any of that region's other cities — so EU/Nordic capitals (Paris,
+// Berlin, Madrid, Rome, Amsterdam, Vienna, Stockholm, …) light up early
+// instead of only after the whole US/GB/CA long tail. Capitals still order
+// among themselves by the region tier below; non-capitals keep the existing
+// region-tier + population order. Opt-in (leaves a running warm's order
+// unchanged unless you pass it). Names match world-cities.json's reconciled
+// (Photon) city names + ISO country.
+const CAPITAL_BY_COUNTRY = {
+    US: "Washington", CA: "Ottawa", GB: "London", IE: "Dublin",
+    AU: "Canberra", NZ: "Wellington",
+    DE: "Berlin", FR: "Paris", ES: "Madrid", IT: "Rome", NL: "Amsterdam",
+    BE: "Brussels", AT: "Vienna", CH: "Bern", PT: "Lisbon",
+    SE: "Stockholm", NO: "Oslo", DK: "Copenhagen", FI: "Helsinki",
+    IS: "Reykjavik",
+};
+const CAPITALS_FIRST = !!args["capitals-first"];
+const normCityName = (s) =>
+    String(s ?? "")
+        .toLowerCase()
+        .normalize("NFD")
+        .replace(/[̀-ͯ]/g, "")
+        .replace(/[^a-z]/g, "");
+const isCapitalCity = (c) => {
+    const cap = c.country ? CAPITAL_BY_COUNTRY[c.country] : undefined;
+    return cap != null && normCityName(c.name) === normCityName(cap);
+};
 // v684: after warming, call POST /admin/verify-city per city so the star
 // (`fullyCuratedAt`) is stamped IMMEDIATELY instead of waiting for the cron
 // to happen to pick that city. On by default; --skip-verify to drop.
@@ -1217,8 +1244,15 @@ function orderByPriorityRegions(cities, regions) {
     const rank = new Map(regions.map((c, i) => [c, i]));
     const rankOf = (c) =>
         c.country && rank.has(c.country) ? rank.get(c.country) : Infinity;
+    // v998: with --capitals-first, a priority region's capital sorts ahead of
+    // ALL non-capitals (capital tier 0), then capitals order by region rank;
+    // non-capitals keep region-rank + population. Without the flag, capital
+    // tier is uniform so the old order is exactly preserved.
+    const capTier = (c) =>
+        CAPITALS_FIRST && rankOf(c) !== Infinity && isCapitalCity(c) ? 0 : 1;
     return [...cities].sort(
         (a, b) =>
+            capTier(a) - capTier(b) ||
             rankOf(a) - rankOf(b) ||
             (b.population ?? -1) - (a.population ?? -1),
     );

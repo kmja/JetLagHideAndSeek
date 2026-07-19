@@ -52,6 +52,7 @@ import { iconForSubtype } from "@/lib/subtypes";
 import { resolvedTheme } from "@/lib/theme";
 import { cn } from "@/lib/utils";
 import { holedMask } from "@/maps";
+import { attachBasemapWaterCapture } from "@/maps/api/basemapWater";
 import { trainLineForPoint } from "@/maps/questions/matching";
 
 import { ConfigureDialogContext } from "./configureDialogContext";
@@ -948,6 +949,13 @@ export function InlineLocationPicker({
                         onLoad();
                         registerImpactPatterns(e.target);
                         setMapReady(true);
+                        // v998: read the basemap `water` layer for the sea in
+                        // body-of-water (this configure map frames the play
+                        // area, so it captures the ocean/lakes for the current
+                        // question).
+                        attachBasemapWaterCapture(
+                            e.target as unknown as import("maplibre-gl").Map,
+                        );
                     }}
                     onIdle={onIdle}
                     mapStyle={mapStyle}

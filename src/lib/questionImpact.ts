@@ -44,6 +44,7 @@ import {
     questionFinishedMapData,
 } from "@/lib/context";
 import { LOCATION_FIRST_TAG } from "@/maps/api";
+import { basemapWaterVersion } from "@/maps/api/basemapWater";
 import { seaLevelRegion } from "@/maps/api/elevation";
 import { matchingDraftRegion } from "@/maps/questions/matching";
 import { measuringDraftBuffer } from "@/maps/questions/measuring";
@@ -366,6 +367,10 @@ export function useQuestionImpact(
     // Full (unmasked) area for filtering candidate SITES — see the hook doc.
     const fullPlayArea = useFullPlayAreaPolygon();
     const [tick, setTick] = useState(0);
+    // v998: body-of-water reads the basemap `water` layer, captured off a map
+    // as tiles load. Re-run the effect when a capture lands so the preview
+    // fills in the sea once it's available (the first compute may run before).
+    const $waterVersion = useStore(basemapWaterVersion);
 
     // Warm the family cache if it isn't already (point families only;
     // city / measuring-geom / matching-region are bundled / line- or
@@ -550,7 +555,7 @@ export function useQuestionImpact(
             cancelled = true;
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [mode, family?.kind, type, playArea, lat, lng, tick]);
+    }, [mode, family?.kind, type, playArea, lat, lng, tick, $waterVersion]);
 
     // The real full-geometry region for the current (type, position) is
     // ready (measuring-geom / water). Drives both `loading` and the

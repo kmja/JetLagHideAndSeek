@@ -59,6 +59,7 @@ import { setSpoofAtPoint } from "@/lib/debugSpoofArea";
 import { holedMaskViaWorker } from "@/lib/geometry/client";
 import { findZoneAtPoint } from "@/lib/journey/stations";
 import { SAT_TILE_BASE } from "@/maps/api/constants";
+import { attachBasemapWaterCapture } from "@/maps/api/basemapWater";
 import { CurseInbox } from "@/components/CurseInbox";
 import { EndgameOverlay } from "@/components/EndgameOverlay";
 import { fadePaint } from "@/lib/mapPaint";
@@ -688,7 +689,12 @@ export function HiderBackgroundMap() {
                    archive caps at z15, so z16 is one level of
                    overzoom freedom and that's all. */
                 maxZoom={16}
-                onLoad={(e) => installMissingImageHandler(e.target)}
+                onLoad={(e) => {
+                    installMissingImageHandler(e.target);
+                    attachBasemapWaterCapture(
+                        e.target as unknown as import("maplibre-gl").Map,
+                    );
+                }}
                 // Panning the map turns Follow Me OFF (and stops the
                 // auto-recenter that would otherwise fight the pan). Only a
                 // USER drag fires this, not the follow-me `easeTo`. (v891)
