@@ -428,7 +428,12 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v1003`. Use `git log` for the per-version detail;
+build stamp. Current: `v1004`. Use `git log` for the per-version detail;
+
+**v1004 — closer/further overlay: − is closer, + is further.** Corrects the
+v1003 mapping — minus = LESS distance (closer, the "yes"/lighter region), plus =
+MORE distance (further, the "no"/darker region). Swapped the two
+`makePatternImage` symbols + the `isYes` shade check in lockstep.
 
 **v1003 — measuring closer/further overlay uses +/− instead of </>.** The
 configure-card impact overlay's measuring tile patterns (`registerImpactPatterns`

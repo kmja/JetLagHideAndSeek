@@ -746,11 +746,12 @@ export function InlineLocationPicker({
     // with different consequences". Neutral grey backgrounds
     // carry the equals / not-equals glyph in a contrasting tone.
     //
-    // v392: same neutral treatment for measuring — + (closer) and −
+    // v392: same neutral treatment for measuring — − (closer) and +
     // (further), comparing distance-to-nearest-X. Was red/green, which
-    // again read as success/fail; v1003 swapped the </> arrows for +/−
-    // (clearer "closer = plus, further = minus"). Lighter grey for the "yes"
-    // region (closer / same nearest), darker for "no" (further / different).
+    // again read as success/fail; v1003 swapped the </> arrows for −/+ —
+    // minus = LESS distance (closer), plus = MORE distance (further).
+    // Lighter grey for the "yes" region (closer / same nearest), darker for
+    // "no" (further / different).
     const registerImpactPatterns = (map: maplibregl.Map) => {
         if (!map.hasImage("match-yes-pattern")) {
             map.addImage("match-yes-pattern", makePatternImage("="), {
@@ -763,12 +764,12 @@ export function InlineLocationPicker({
             });
         }
         if (!map.hasImage("measure-yes-pattern")) {
-            map.addImage("measure-yes-pattern", makePatternImage("+"), {
+            map.addImage("measure-yes-pattern", makePatternImage("−"), {
                 pixelRatio: 2,
             });
         }
         if (!map.hasImage("measure-no-pattern")) {
-            map.addImage("measure-no-pattern", makePatternImage("−"), {
+            map.addImage("measure-no-pattern", makePatternImage("+"), {
                 pixelRatio: 2,
             });
         }
@@ -1637,9 +1638,9 @@ function makePatternImage(
     }
     // Backdrop colour shades the two regions differently so the
     // border between the "yes" and "no" sides reads at a glance even
-    // before the glyph is parsed. Yes (= / +) → lighter, no (≠ / −) →
+    // before the glyph is parsed. Yes (= / −) → lighter, no (≠ / +) →
     // darker, both neutral. Glyph colour flips to keep contrast.
-    const isYes = symbol === "=" || symbol === "+";
+    const isYes = symbol === "=" || symbol === "−";
     ctx.fillStyle = isYes
         ? "rgba(148, 163, 184, 0.55)"
         : "rgba(71, 85, 105, 0.6)";
