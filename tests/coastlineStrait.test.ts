@@ -87,15 +87,19 @@ describe("filterCoastlineByStraitRule", () => {
         expect(out!.length).toBe(0);
     });
 
-    it("drops a fully-interior small lake ring (no ocean-grade coastline)", () => {
-        // A closed ring entirely inside the frame — a small lake. v996's
-        // ray-cast raster now RESOLVES this (the old polygonize-based
-        // `seaFromCoastline` degenerated → null; documented limitation): the
-        // ring interior is water (a ray to the outside seeker crosses it once).
-        // The lake is sub-2 km, so the strait rule erodes it away → no
-        // ocean-grade water → the lake shore is NOT coastline → `[]`. (A real
-        // great lake / open sea crosses the frame edge and qualifies via the
-        // frame-touch branch — covered by the open-sea test above.)
+    it("returns null for a fully-interior lake ring (polygonize limitation → caller falls back)", () => {
+        // A closed ring entirely inside the frame — a lake with no frame-edge
+        // contact. The strait rule uses the PRECISE polygonize path (its 1 km
+        // erosion/dilation needs smooth geometry, so it deliberately does NOT
+        // use the blocky raster flood-fill that body-of-water/same-landmass
+        // use). On a fully-interior ring polygonize degenerates (the outer face
+        // gets mislabeled and trips the seeker-in-sea guard) → `seaFromCoastline`
+        // returns null → the strait filter returns null. The caller
+        // (`measuring.ts` coastline subtype) then falls back to the UNfiltered
+        // coastline lines, which is the safe documented behaviour. (A real great
+        // lake / open sea crosses the frame edge and is handled by the open-sea
+        // test above; body-of-water's raster path resolves interior water via
+        // its own useRaster build.)
         const ring = coast([
             [0.1, 0.37],
             [0.37, 0.37],
@@ -105,8 +109,7 @@ describe("filterCoastlineByStraitRule", () => {
         ]);
         const seeker = { lng: 0.45, lat: 0.45 };
         const out = filterCoastlineByStraitRule([ring], FRAME, seeker);
-        expect(out).not.toBeNull();
-        expect(out!.length).toBe(0);
+        expect(out).toBeNull();
     });
 
     it("returns null for empty input (caller falls back to unfiltered)", () => {

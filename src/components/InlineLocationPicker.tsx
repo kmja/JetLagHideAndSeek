@@ -220,6 +220,10 @@ export function InlineLocationPicker({
     disabled?: boolean;
 }) {
     const mapRef = useRef<MapRef | null>(null);
+    // v997: gate the measuring-icon `addImage` registration on the map actually
+    // being loaded — the effect below runs while the map is still initialising,
+    // so without this it bailed at `!map` and never re-ran (icons stayed dots).
+    const [mapReady, setMapReady] = useState(false);
     const $maskData = useStore(questionFinishedMapData);
     const $playArea = useStore(mapGeoLocation);
     const $satellite = useStore(satelliteView);
@@ -893,7 +897,7 @@ export function InlineLocationPicker({
             return;
         }
         const map = mapRef.current?.getMap();
-        if (!map) return;
+        if (!map || !mapReady) return;
         const key = `measure-ref-${impactType}-${darkBasemap ? "d" : "l"}`;
         let cancelled = false;
         const register = async () => {
@@ -919,7 +923,7 @@ export function InlineLocationPicker({
             cancelled = true;
             map.off("styledata", onStyle);
         };
-    }, [impactMode, impactType, candidateIcon, darkBasemap]);
+    }, [impactMode, impactType, candidateIcon, darkBasemap, mapReady]);
 
     return (
         <div className="space-y-2">
@@ -943,6 +947,7 @@ export function InlineLocationPicker({
                         installMissingImageHandler(e.target);
                         onLoad();
                         registerImpactPatterns(e.target);
+                        setMapReady(true);
                     }}
                     onIdle={onIdle}
                     mapStyle={mapStyle}

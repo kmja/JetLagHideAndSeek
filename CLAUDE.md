@@ -428,7 +428,43 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v996`. Use `git log` for the per-version detail;
+build stamp. Current: `v997`. Use `git log` for the per-version detail;
+
+**v997 — body-of-water sea: ray-cast raster → RASTER FLOOD-FILL 2-COLORING
+(fixes the v996 noise) + measuring reference ICONS restored + `useRaster`
+gating.**
+- **Sea build corrected.** v996's ray-cast raster (cell→seeker crossing parity)
+  was fast but NOISY on convoluted coasts — a ray to the seeker grazes a
+  crinkled shoreline at shallow angles and miscounts crossings, giving a patchy
+  overlay ("fast this time, but not correct"). Replaced with a **raster
+  FLOOD-FILL 2-COLORING** in `rasterSea`: rasterize the clipped coastline into
+  gap-free WALL cells (dense ½-cell segment sampling so a wall never leaks),
+  label the connected components of non-wall cells (BFS 4-conn), build component
+  ADJACENCY across walls (two distinct component labels among a wall cell's
+  8-neighbours are separated by that wall → a land↔water FLIP), then 2-COLOUR
+  from the KNOWN-land seeker's component and emit the water cells as unioned
+  run-rectangles. Purely topological — winding-independent, immune to the
+  ray-count noise AND to `turf.polygonize` failure (the v994 root cause), and
+  correct for islands (each landmass is its own component coloured via the flip
+  chain). Validated offline on synthetic open-coast / island / two-rivers /
+  diagonal cases (all correct after the gap-free dense wall sampling).
+- **`useRaster` is now GATED.** Body-of-water + same-landmass (the worker
+  `seaFromCoast` / `landFromCoast` ops) pass `{useRaster: true}` — they only
+  need a topologically-correct sea (open water = closer). The `coastline` 2 km
+  strait rule (`coastlineStrait.ts`) does NOT — its 1 km erosion/dilation needs
+  SMOOTH geometry, so it keeps the PRECISE polygonize path (the raster's blocky
+  shore would break the morphological opening; the strait-rule tests confirm
+  polygonize is right there, and a fully-interior lake ring is a documented
+  polygonize limitation on that path → null → the caller falls back to
+  unfiltered lines).
+- **Measuring reference ICONS restored (v988 regression).** The
+  `rasterizeIconBadge` → `addImage` → symbol-layer path (park / museum / any
+  measuring subtype glyph) silently fell back to plain circle DOTS because the
+  registration effect bailed at `!map` while the configure map was still
+  initialising and — its deps not including map-readiness — never re-ran. Now
+  `InlineLocationPicker` tracks a `mapReady` state (set in the map's `onLoad`)
+  and the icon effect depends on it, so the glyph registers once the map exists;
+  it still degrades to dots on a genuine rasterize failure, as designed.
 
 **v996 — body-of-water sea: ROBUST ray-cast raster replaces the fragile
 polygonize (`seaFromCoastline`).** v994's seeker-seeded flood-fill was correct in

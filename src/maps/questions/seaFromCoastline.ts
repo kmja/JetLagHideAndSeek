@@ -36,6 +36,14 @@ export function seaFromCoastline(
     coastlineLines: Feature<LineString | MultiLineString>[],
     frameBbox: [number, number, number, number], // [minLng, minLat, maxLng, maxLat]
     seeker: { lng: number; lat: number },
+    // v996: `useRaster` picks the ROBUST raster flood-fill as the PRIMARY sea
+    // build — used by body-of-water + same-landmass (the worker `seaFromCoast`/
+    // `landFromCoast` ops), which just need a topologically-correct sea (open
+    // water = closer) and where polygonize keeps failing on dense metros.
+    // WITHOUT it (the default) the PRECISE polygonize path is primary — used by
+    // the `coastline` 2 km strait rule (`coastlineStrait.ts`), which erodes the
+    // sea by 1 km and so needs smooth (not blocky) geometry.
+    opts?: { useRaster?: boolean },
 ): Feature<Polygon | MultiPolygon> | null {
     try {
         // 1. No coastline → nothing to do.
@@ -73,19 +81,20 @@ export function seaFromCoastline(
         // 4. No coast inside the frame → caller handles the inland case.
         if (clippedSegments.length === 0) return null;
 
-        // 4b. PRIMARY sea build — the ROBUST ray-cast raster (v996). This
+        // 4b. PRIMARY sea build — the ROBUST raster flood-fill (v996). This
         //     replaced turf.polygonize + face flood-fill as the primary method:
         //     polygonize is notoriously fragile on dense real-world coastline
         //     (NYC's harbour + tidal rivers as many separate `natural=coastline`
         //     ways), failing to node the linework into clean faces — so no sea
         //     was produced and open water wrongly read "further" even though the
-        //     coastline BAND drew fine. The raster needs NO polygonize: a grid
-        //     cell is WATER iff the segment from its centre to the KNOWN-land
-        //     seeker crosses the coastline an ODD number of times (each crossing
-        //     flips land↔water). Winding-independent and correct for islands.
-        //     The polygonize/flood-fill path below remains as a fallback for the
-        //     rare case the raster can't build a usable sea.
-        {
+        //     coastline BAND drew fine. `rasterSea` needs NO polygonize: it
+        //     rasterizes the coast into wall cells, labels the non-wall
+        //     components, and 2-colours them from the KNOWN-land seeker (a
+        //     coastline wall between two components is a land↔water flip).
+        //     Topological, winding-independent, correct for islands. The old
+        //     polygonize/flood-fill path below remains as a fallback. Gated on
+        //     `useRaster` so the coastline strait rule keeps the precise path.
+        if (opts?.useRaster) {
             const rastered = rasterSea(clippedSegments, frameBbox, seeker);
             if (rastered && rastered.geometry) {
                 let ra = 0;
@@ -446,33 +455,20 @@ export function seaFromCoastline(
     }
 }
 
-/** Do open segments p→q and a→b cross? (proper intersection, endpoints
- *  excluded via strict sign change on both sides). */
-function segmentsCross(
-    p: Position,
-    q: Position,
-    a: Position,
-    b: Position,
-): boolean {
-    const side = (o: Position, A: Position, B: Position): number =>
-        Math.sign(
-            (B[0] - A[0]) * (o[1] - A[1]) - (B[1] - A[1]) * (o[0] - A[0]),
-        );
-    return (
-        side(a, b, p) !== side(a, b, q) && side(p, q, a) !== side(p, q, b)
-    );
-}
-
 /**
- * v996: ROBUST sea polygon via a ray-cast raster — no `turf.polygonize` (which
- * is fragile on dense real-world coastline). A grid cell is WATER iff the
- * segment from its centre to the KNOWN-land seeker crosses the coastline an ODD
- * number of times (each crossing flips land↔water; the seeker is land, so an
- * odd count means the cell is on the opposite = water side). Correct for
- * islands (a ray through an island loop crosses it twice = even = land). The
- * water cells are merged into horizontal run-rectangles and unioned into a
- * (blocky) polygon — fine for OPEN water, which is all this supplies; the
- * near-shore precision comes from the separately-buffered coastline lines.
+ * v996: ROBUST sea polygon via a RASTER FLOOD-FILL 2-COLORING — no
+ * `turf.polygonize` (fragile on dense real-world coastline) and no long
+ * cell-to-seeker rays (noisy on convoluted coasts — the v996-initial ray-cast
+ * miscounted crossings at grazing angles, giving a patchy overlay). Instead:
+ * rasterize the coastline into WALL cells (gap-free), label the connected
+ * components of non-wall cells, then 2-COLOUR the components — the seeker's
+ * component is LAND, and any component separated from it by a coastline wall is
+ * the opposite colour (flip). This is purely topological: winding-independent,
+ * immune to the ray-count noise, and correct for islands (each landmass is its
+ * own component, coloured via the flip chain). The water cells merge into
+ * horizontal run-rectangles unioned into a (blocky) polygon — fine for OPEN
+ * water, which is all this supplies; the buffered coastline lines give the
+ * precise near-shore.
  */
 function rasterSea(
     clippedSegments: Position[][],
@@ -484,51 +480,140 @@ function rasterSea(
         const wDeg = maxLng - minLng;
         const hDeg = maxLat - minLat;
         if (!(wDeg > 0) || !(hDeg > 0)) return null;
-        const flat: [Position, Position][] = [];
-        for (const seg of clippedSegments) {
-            for (let i = 0; i < seg.length - 1; i++) {
-                flat.push([seg[i], seg[i + 1]]);
-            }
-        }
-        if (flat.length === 0) return null;
-        // ADAPTIVE resolution — the cost is O(cells × segments). Pick N so
-        // N² × segments stays under a fixed op budget, clamped [32, 80], so a
-        // dense metro coastline (thousands of segments) can't run away (this
-        // also runs on the main thread for the `coastline` subtype).
-        const OP_BUDGET = 9_000_000;
+        let segCount = 0;
+        for (const seg of clippedSegments) segCount += Math.max(0, seg.length - 1);
+        if (segCount === 0) return null;
+        // Resolution: bounded so a dense metro coast (thousands of segments)
+        // can't run away (this also runs main-thread for the coastline subtype).
         const N = Math.max(
-            32,
-            Math.min(80, Math.floor(Math.sqrt(OP_BUDGET / flat.length))),
+            40,
+            Math.min(96, Math.floor(Math.sqrt(12_000_000 / segCount))),
         );
         const cols = wDeg >= hDeg ? N : Math.max(8, Math.round((N * wDeg) / hDeg));
         const rows = hDeg >= wDeg ? N : Math.max(8, Math.round((N * hDeg) / wDeg));
         const cw = wDeg / cols;
         const ch = hDeg / rows;
-        // Nudge the seeker slightly so a ray never runs exactly along a segment.
-        const sk: Position = [seeker.lng + 1e-7, seeker.lat + 1e-7];
-        const water: boolean[][] = [];
-        for (let r = 0; r < rows; r++) {
-            water[r] = [];
-            for (let c = 0; c < cols; c++) {
-                const ctr: Position = [
-                    minLng + (c + 0.5) * cw,
-                    minLat + (r + 0.5) * ch,
-                ];
-                let cnt = 0;
-                for (const [a, b] of flat) {
-                    if (segmentsCross(ctr, sk, a, b)) cnt++;
+        const cxOf = (lng: number) => Math.floor((lng - minLng) / cw);
+        const cyOf = (lat: number) => Math.floor((lat - minLat) / ch);
+
+        // 1. Rasterize the coastline into WALL cells. Dense (½-cell) sampling
+        //    so a wall never has a gap the flood-fill could leak through.
+        const wall: Uint8Array[] = [];
+        for (let r = 0; r < rows; r++) wall[r] = new Uint8Array(cols);
+        for (const seg of clippedSegments) {
+            for (let i = 0; i < seg.length - 1; i++) {
+                const a = seg[i];
+                const b = seg[i + 1];
+                const steps = Math.max(
+                    2,
+                    Math.ceil(
+                        (Math.abs(b[0] - a[0]) / cw +
+                            Math.abs(b[1] - a[1]) / ch) *
+                            2,
+                    ),
+                );
+                for (let s = 0; s <= steps; s++) {
+                    const t = s / steps;
+                    const c = cxOf(a[0] + t * (b[0] - a[0]));
+                    const r = cyOf(a[1] + t * (b[1] - a[1]));
+                    if (r >= 0 && r < rows && c >= 0 && c < cols) wall[r][c] = 1;
                 }
-                water[r][c] = (cnt & 1) === 1;
             }
         }
-        // Merge water cells into horizontal run-rectangles (fewer union inputs).
+
+        // 2. Label connected components of NON-wall cells (4-connectivity).
+        const comp: Int32Array[] = [];
+        for (let r = 0; r < rows; r++) comp[r] = new Int32Array(cols).fill(-1);
+        let nc = 0;
+        const stack: number[] = [];
+        for (let r0 = 0; r0 < rows; r0++) {
+            for (let c0 = 0; c0 < cols; c0++) {
+                if (wall[r0][c0] || comp[r0][c0] !== -1) continue;
+                comp[r0][c0] = nc;
+                stack.length = 0;
+                stack.push(r0, c0);
+                while (stack.length) {
+                    const cc = stack.pop() as number;
+                    const cr = stack.pop() as number;
+                    const nbrs = [
+                        [cr + 1, cc],
+                        [cr - 1, cc],
+                        [cr, cc + 1],
+                        [cr, cc - 1],
+                    ];
+                    for (const [nr, nnc] of nbrs) {
+                        if (nr < 0 || nr >= rows || nnc < 0 || nnc >= cols)
+                            continue;
+                        if (wall[nr][nnc] || comp[nr][nnc] !== -1) continue;
+                        comp[nr][nnc] = nc;
+                        stack.push(nr, nnc);
+                    }
+                }
+                nc++;
+            }
+        }
+        if (nc === 0) return null;
+
+        // 3. Component adjacency ACROSS walls: for each wall cell, any two
+        //    distinct component labels among its 8-neighbours are separated by
+        //    that wall → adjacent (a flip in the 2-colouring).
+        const adj: Set<number>[] = Array.from(
+            { length: nc },
+            () => new Set<number>(),
+        );
+        for (let r = 0; r < rows; r++) {
+            for (let c = 0; c < cols; c++) {
+                if (!wall[r][c]) continue;
+                const labs: number[] = [];
+                for (let dr = -1; dr <= 1; dr++) {
+                    for (let dc = -1; dc <= 1; dc++) {
+                        const nr = r + dr;
+                        const nnc = c + dc;
+                        if (nr < 0 || nr >= rows || nnc < 0 || nnc >= cols)
+                            continue;
+                        const l = comp[nr][nnc];
+                        if (l >= 0 && !labs.includes(l)) labs.push(l);
+                    }
+                }
+                for (let i = 0; i < labs.length; i++) {
+                    for (let j = i + 1; j < labs.length; j++) {
+                        adj[labs[i]].add(labs[j]);
+                        adj[labs[j]].add(labs[i]);
+                    }
+                }
+            }
+        }
+
+        // 4. 2-COLOUR from the seeker's component (LAND = 0); flip across each
+        //    adjacency. Water = colour 1.
+        const seedC = comp[
+            Math.min(rows - 1, Math.max(0, cyOf(seeker.lat)))
+        ][Math.min(cols - 1, Math.max(0, cxOf(seeker.lng)))];
+        const color = new Int8Array(nc).fill(-1);
+        if (seedC >= 0) {
+            color[seedC] = 0;
+            const q: number[] = [seedC];
+            while (q.length) {
+                const u = q.shift() as number;
+                for (const v of adj[u]) {
+                    if (color[v] === -1) {
+                        color[v] = color[u] ^ 1;
+                        q.push(v);
+                    }
+                }
+            }
+        }
+
+        // 5. Water cells → horizontal run-rectangles → union (blocky sea).
         const rects: Feature<Polygon>[] = [];
+        const isWater = (r: number, c: number): boolean =>
+            !wall[r][c] && comp[r][c] >= 0 && color[comp[r][c]] === 1;
         for (let r = 0; r < rows; r++) {
             let c = 0;
             while (c < cols) {
-                if (water[r][c]) {
+                if (isWater(r, c)) {
                     let c2 = c;
-                    while (c2 < cols && water[r][c2]) c2++;
+                    while (c2 < cols && isWater(r, c2)) c2++;
                     rects.push(
                         turf.bboxPolygon([
                             minLng + c * cw,

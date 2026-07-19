@@ -182,10 +182,12 @@ function holedMaskImpl(p: HoledMaskPayload): Feature | null {
 function landFromCoastImpl(
     p: LandFromCoastPayload,
 ): Feature<Polygon | MultiPolygon> | null {
-    const sea = seaFromCoastline(p.lines as never, p.bbox, {
-        lng: p.seeker.lng,
-        lat: p.seeker.lat,
-    });
+    const sea = seaFromCoastline(
+        p.lines as never,
+        p.bbox,
+        { lng: p.seeker.lng, lat: p.seeker.lat },
+        { useRaster: true }, // v996: robust raster for same-landmass
+    );
     if (!sea) return null;
     try {
         const frame = bboxPolygon(p.bbox);
@@ -426,10 +428,12 @@ self.onmessage = async (e: MessageEvent<InMessage>) => {
             // landFromCoast, minus the world-frame difference. `null` on any
             // degeneracy (caller falls back to the coarse sea).
             const p = msg.payload;
-            const result = seaFromCoastline(p.lines as never, p.bbox, {
-                lng: p.seeker.lng,
-                lat: p.seeker.lat,
-            });
+            const result = seaFromCoastline(
+                p.lines as never,
+                p.bbox,
+                { lng: p.seeker.lng, lat: p.seeker.lat },
+                { useRaster: true },
+            );
             self.postMessage({ id, ok: true, result });
         } else if (type === "holedMask") {
             const result = holedMaskImpl(msg.payload);
