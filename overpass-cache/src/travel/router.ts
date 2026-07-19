@@ -36,8 +36,57 @@ import * as swiss from "./adapters/swiss";
 import * as tfl from "./adapters/tfl";
 import * as trafiklab from "./adapters/trafiklab";
 import * as transitous from "./adapters/transitous";
-import { walkingJourney } from "./adapters/walking";
+import { walkingJourney, walkingSeconds } from "./adapters/walking";
 import type { Journey, PlanRequest, TravelMode } from "./types";
+
+/**
+ * Clamp an implausibly-long ACCESS (first) or EGRESS (last) walk leg to the
+ * straight-line walking estimate. A transit planner (MOTIS) routes the access
+ * walk to its GTFS stop coordinate — often a few hundred metres off the nearest
+ * entrance, or a far end of a long station — so a 200 m straight-line gap can
+ * come back as a 10-min walk, which is jarring next to the direct-station card's
+ * honest 3-min estimate. Only the first/last walk legs are touched (a mid-trip
+ * transfer walk is constrained by both stops' schedules); a scheduled transit
+ * leg's clock is FIXED, so clamping the access walk means "leave later" (move
+ * its departAt) and clamping the egress walk means "arrive earlier" (move its
+ * arriveAt) — the transit legs never move. Only shortens (never lengthens), and
+ * only when the routed walk exceeds 2.2× the estimate AND 4 min, so normal
+ * walks are untouched.
+ */
+export function clampAccessEgressWalks(journey: Journey): Journey {
+    const legs = journey.legs;
+    if (!legs || legs.length < 2) return journey; // walk-only trip: leave it
+    const hasTransit = legs.some((l) => l.mode !== "walk");
+    if (!hasTransit) return journey;
+    const CLAMP_MIN_SEC = 240;
+    const CLAMP_FACTOR = 2.2;
+    const out = legs.map((l) => ({ ...l }));
+    const first = out[0];
+    if (first.mode === "walk") {
+        const est = walkingSeconds(first.from, first.to);
+        const actual = (first.arriveAt - first.departAt) / 1000;
+        if (est > 0 && actual > Math.max(est * CLAMP_FACTOR, CLAMP_MIN_SEC)) {
+            first.departAt = first.arriveAt - Math.round(est * 1000);
+        }
+    }
+    const last = out[out.length - 1];
+    if (last.mode === "walk") {
+        const est = walkingSeconds(last.from, last.to);
+        const actual = (last.arriveAt - last.departAt) / 1000;
+        if (est > 0 && actual > Math.max(est * CLAMP_FACTOR, CLAMP_MIN_SEC)) {
+            last.arriveAt = last.departAt + Math.round(est * 1000);
+        }
+    }
+    const departAt = out[0].departAt;
+    const arriveAt = out[out.length - 1].arriveAt;
+    return {
+        ...journey,
+        legs: out,
+        departAt,
+        arriveAt,
+        durationMin: Math.max(1, Math.round((arriveAt - departAt) / 60000)),
+    };
+}
 
 /**
  * True if every transit leg in `journey` uses a mode the request allows.
@@ -431,7 +480,11 @@ export async function dispatchPlan(
         if (journey && !journeyModesAllowed(journey, req.modes)) {
             journey = null;
         }
-        if (journey) return { source: adapter.id, journey };
+        if (journey)
+            return {
+                source: adapter.id,
+                journey: clampAccessEgressWalks(journey),
+            };
     }
     // Unreachable in practice (walking is always a candidate), but
     // keep the type honest.

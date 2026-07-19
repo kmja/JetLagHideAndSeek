@@ -428,7 +428,22 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v985`. Use `git log` for the per-version detail;
+build stamp. Current: `v986`. Use `git log` for the per-version detail;
+
+**v986 — trip planner: clamp implausible ACCESS/EGRESS walk legs (worker).**
+MOTIS routes the access walk to its GTFS stop coordinate — sometimes a few
+hundred metres off the nearest entrance / a far end of a long station — so a
+~200 m straight-line gap could come back as a 10-min access walk, jarring next
+to the direct-station card's honest 3-min estimate (the reported "walk to 66 St
+is 3 min here but 10 min inside the Grand Central trip"). `dispatchPlan`
+(`overpass-cache/src/travel/router.ts`) now runs `clampAccessEgressWalks` on the
+returned journey: the FIRST and LAST legs, if they're walks whose routed
+duration exceeds 2.2× the straight-line estimate AND 4 min, are shortened to the
+estimate — the access walk by moving its `departAt` later (you leave later), the
+egress walk by moving its `arriveAt` earlier (you arrive sooner). Transit legs'
+schedules never move (only the first/last walk); mid-trip transfer walks are
+left alone. Worker-side, auto-deploys with the overpass-cache build; validated
+in production (sandbox can't reach MOTIS).
 
 **v985 — body-of-water: drop the fragile sea POLYGON entirely (reliable
 overlay).** The sea polygon (`seaFromCoastline`) was the recurring failure: it
