@@ -154,24 +154,33 @@ const ensured = new Map<string, Promise<void>>();
  * race. This is the AUTHORITATIVE source: once it succeeds it marks the cache
  * entry `headless`, the `querySourceFeatures` capture stops writing, and the
  * sync readers (`getBasemapWaterPolys` / `basemapLandParts` / `basemapCoastLines`
- * / `nearestBasemapWater`) return this set. Awaited by the body-of-water /
- * same-landmass / coastline consumers before they read, so the geometry is
- * ready when the elimination runs (fixing the "reveals before ready / never
- * loads" fragility). Memoised per play area; every failure is a silent no-op so
- * the capture path still covers it.
+ * / `nearestBasemapWater`) return this set. Consumers await it before they read,
+ * but the await is BOUNDED (v1007): a slow pmtiles read (the huge master archive
+ * directory, many tile fetches) must never block the overlay past the configure
+ * veil's timeout — it caused body-of-water to show NO overlay. The populate keeps
+ * running in the background regardless and bumps the version when done, so the
+ * elimination recomputes with the deterministic set once it lands; meanwhile the
+ * `querySourceFeatures` capture (or the cold OSM fallback) covers the first
+ * paint. Memoised per play area; every failure is a silent no-op.
  */
+const ENSURE_AWAIT_CAP_MS = 2500;
 export function ensureBasemapWaterForArea(
     bbox: [number, number, number, number],
 ): Promise<void> {
     const key = playAreaKey();
     if (key === "none") return Promise.resolve();
-    const existing = ensured.get(key);
-    if (existing) return existing;
-    const run = (async () => {
+    let run = ensured.get(key);
+    if (run) return capAwait(run);
+    run = (async () => {
         const url = pmtilesUrl.get();
         if (!url) return;
+        // v1007: read at a LOWER zoom (fewer, larger tiles → fewer polygons →
+        // a far lighter downstream buffer, which is what over-loaded and timed
+        // the overlay out). Water needs no fine detail — we simplify + buffer by
+        // kilometres anyway.
         const feats = await fetchBasemapLayerPolys(url, bbox, "water", {
-            targetZoom: 12,
+            targetZoom: 11,
+            maxTiles: 16,
         });
         if (!feats || feats.length === 0) return;
         let entry = cache.get(key);
@@ -213,7 +222,18 @@ export function ensureBasemapWaterForArea(
         ensured.delete(key);
     });
     ensured.set(key, run);
-    return run;
+    return capAwait(run);
+}
+
+/** Resolve when `run` finishes OR after the cap — whichever first — so a slow
+ *  read never blocks the caller past the veil timeout. `run` keeps going. */
+function capAwait(run: Promise<void>): Promise<void> {
+    return Promise.race([
+        run,
+        new Promise<void>((resolve) =>
+            setTimeout(resolve, ENSURE_AWAIT_CAP_MS),
+        ),
+    ]);
 }
 
 /**

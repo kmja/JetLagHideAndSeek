@@ -11,9 +11,9 @@ import {
 import { useEffect, useMemo, useRef, useState } from "react";
 import MapGL, {
     Layer,
-    type MapLayerMouseEvent,
     type MapRef,
     Marker,
+    type MarkerDragEvent,
     Source,
 } from "react-map-gl/maplibre";
 
@@ -25,22 +25,18 @@ import { resolvedTheme } from "@/lib/theme";
 import { cn } from "@/lib/utils";
 
 /**
- * v1005: thermometer configure preview.
+ * v1005/v1007: thermometer configure preview.
  *
  * A thermometer's answer is DIRECTIONAL: the seeker walks the chosen distance D
- * in some direction, then the hider says "hotter" (you got closer) or "colder"
- * (you got further). Geometrically that splits the map along the perpendicular
- * BISECTOR of [start, end] — a line D/2 from the start, perpendicular to the
- * travel direction. A plain circle can't show that, so this preview draws:
- *
- *   • the endpoint ring (radius D — where you could end up), faint + dashed;
- *   • the D/2 bisector CUT for a chosen travel direction;
- *   • the two half-planes tinted — WARM (hotter, toward travel) vs COOL (colder);
- *   • an arrow + HOTTER / COLDER labels.
- *
- * The direction is the seeker's to choose by walking, so it's a preview aid:
- * defaults toward the play-area centre and is TAP-to-aim. The map REFRAMES
- * (animated) whenever the distance changes so the ring always fits.
+ * in some direction, then the hider says "hotter" (closer) or "colder"
+ * (further). Geometrically that splits the map along the perpendicular BISECTOR
+ * of [start, end] — a line D/2 from the start, perpendicular to travel. So the
+ * preview draws an ARROW from the start (length = the chosen distance) whose
+ * tip is a DRAG HANDLE — drag it around to aim your travel direction — plus the
+ * D/2 cut and the two half-planes tinted WARM (hotter) / COOL (colder). The map
+ * pans/zooms normally; only the handle changes the aim (the distance is fixed by
+ * the carousel, so the handle orbits at radius D). Direction defaults toward the
+ * play-area centre; it's a planning aid, not saved on the question.
  */
 export function ThermometerPreviewMap({
     lat,
@@ -63,7 +59,7 @@ export function ThermometerPreviewMap({
     const km = radiusMeters / 1000;
 
     // Default travel direction: toward the play-area centre (a sensible guess
-    // for where the hider is), else north. The seeker can tap to re-aim.
+    // for where the hider is), else north. The seeker drags the handle to aim.
     const defaultBearing = useMemo(() => {
         try {
             if (!$poly) return 0;
@@ -79,23 +75,23 @@ export function ThermometerPreviewMap({
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [$poly, lat, lng]);
     const [bearing, setBearing] = useState<number>(defaultBearing);
-    // Re-seed the aim when the default changes (play area / start moved) — but
-    // keep a user's manual aim within a session (tracked by `aimed`).
     const aimed = useRef(false);
     useEffect(() => {
         if (!aimed.current) setBearing(defaultBearing);
     }, [defaultBearing]);
 
-    const ring = useMemo(
-        () =>
-            turfCircle([lng, lat], km, {
+    // The arrow tip (drag handle) — always at distance D, only the angle moves.
+    const tip = useMemo(() => {
+        try {
+            return turfDestination(turfPoint([lng, lat]), km, bearing, {
                 units: "kilometers",
-                steps: 64,
-            }),
-        [lat, lng, km],
-    );
+            }).geometry.coordinates as [number, number];
+        } catch {
+            return [lng, lat] as [number, number];
+        }
+    }, [lat, lng, km, bearing]);
 
-    // The bisector cut + the two tinted half-planes for the current bearing.
+    // Bisector cut + the two tinted half-planes for the current bearing.
     const { cutLine, hotterHalf, colderHalf, arrow, hotterAt, colderAt } =
         useMemo(() => {
             try {
@@ -103,7 +99,6 @@ export function ThermometerPreviewMap({
                 const mid = turfDestination(start, km / 2, bearing, {
                     units: "kilometers",
                 });
-                // Perpendicular bisector, extended well past the ring.
                 const L = km * 20;
                 const left = turfDestination(mid, L, bearing - 90, {
                     units: "kilometers",
@@ -126,9 +121,6 @@ export function ThermometerPreviewMap({
                 const cR = turfDestination(right, depth, bearing + 180, {
                     units: "kilometers",
                 }).geometry.coordinates;
-                const end = turfDestination(start, km, bearing, {
-                    units: "kilometers",
-                });
                 return {
                     cutLine: {
                         type: "Feature" as const,
@@ -159,16 +151,13 @@ export function ThermometerPreviewMap({
                         properties: {},
                         geometry: {
                             type: "LineString" as const,
-                            coordinates: [
-                                [lng, lat],
-                                end.geometry.coordinates,
-                            ],
+                            coordinates: [[lng, lat], tip],
                         },
                     },
-                    hotterAt: turfDestination(start, km * 0.72, bearing, {
+                    hotterAt: turfDestination(start, km * 0.62, bearing, {
                         units: "kilometers",
                     }).geometry.coordinates as [number, number],
-                    colderAt: turfDestination(start, km * 0.72, bearing + 180, {
+                    colderAt: turfDestination(start, km * 0.62, bearing + 180, {
                         units: "kilometers",
                     }).geometry.coordinates as [number, number],
                 };
@@ -182,12 +171,9 @@ export function ThermometerPreviewMap({
                     colderAt: null,
                 };
             }
-        }, [lat, lng, km, bearing]);
+        }, [lat, lng, km, bearing, tip]);
 
-    const dot = useMemo(
-        () => turfPoint([lng, lat]),
-        [lat, lng],
-    );
+    const dot = useMemo(() => turfPoint([lng, lat]), [lat, lng]);
     const mapStyle = useMemo(
         () =>
             buildStyle(
@@ -203,26 +189,32 @@ export function ThermometerPreviewMap({
         const map = mapRef.current?.getMap();
         if (!map) return;
         try {
-            const bb = turfBbox(ring) as [number, number, number, number];
+            // Frame a circle of radius D around the start so the whole arrow
+            // fits at any aim (don't render the circle — the arrow shows D).
+            const frame = turfCircle([lng, lat], km, {
+                units: "kilometers",
+                steps: 16,
+            });
+            const bb = turfBbox(frame) as [number, number, number, number];
             map.fitBounds(
                 [
                     [bb[0], bb[1]],
                     [bb[2], bb[3]],
                 ],
-                { padding: 26, animate, duration: animate ? 500 : 0 },
+                { padding: 40, animate, duration: animate ? 500 : 0 },
             );
         } catch {
-            /* degenerate bbox */
+            /* degenerate */
         }
     };
 
-    // Reframe (animated) whenever the ring changes — the distance carousel.
+    // Reframe (animated) whenever the distance changes so the arrow always fits.
     useEffect(() => {
         fit(true);
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [km, lat, lng]);
 
-    const handleClick = (e: MapLayerMouseEvent) => {
+    const onHandleDrag = (e: MarkerDragEvent) => {
         try {
             const b = turfBearing(
                 turfPoint([lng, lat]),
@@ -235,7 +227,6 @@ export function ThermometerPreviewMap({
         }
     };
 
-    // Warm (hotter) + cool (colder) tints; brighter on the dark basemap.
     const WARM = "#f97316"; // orange-500
     const COOL = "#38bdf8"; // sky-400
 
@@ -251,15 +242,9 @@ export function ThermometerPreviewMap({
                 initialViewState={{ longitude: lng, latitude: lat, zoom: 12 }}
                 mapStyle={mapStyle}
                 attributionControl={false}
-                dragPan={false}
                 dragRotate={false}
-                scrollZoom={false}
-                doubleClickZoom={false}
-                touchZoomRotate={false}
-                keyboard={false}
+                touchPitch={false}
                 onLoad={() => fit(false)}
-                onClick={handleClick}
-                cursor="crosshair"
                 style={{ width: "100%", height: "100%" }}
             >
                 {colderHalf && (
@@ -301,27 +286,13 @@ export function ThermometerPreviewMap({
                         />
                     </Source>
                 )}
-                <Source id="thermo-ring-src" type="geojson" data={ring}>
-                    <Layer
-                        id="thermo-ring-line"
-                        type="line"
-                        paint={{
-                            "line-color": PLAY_AREA_COLOR,
-                            "line-width": 2,
-                            "line-dasharray": [3, 2],
-                            "line-opacity": 0.9,
-                        }}
-                    />
-                </Source>
                 {arrow && (
                     <Source id="thermo-arrow-src" type="geojson" data={arrow}>
                         <Layer
                             id="thermo-arrow-line"
                             type="line"
-                            paint={{
-                                "line-color": WARM,
-                                "line-width": 3,
-                            }}
+                            layout={{ "line-cap": "round" }}
+                            paint={{ "line-color": WARM, "line-width": 4 }}
                         />
                     </Source>
                 )}
@@ -359,9 +330,40 @@ export function ThermometerPreviewMap({
                         </span>
                     </Marker>
                 )}
+                {/* Draggable arrow-head handle at the tip. Rotates to the aim;
+                    drag it around the start to change direction. */}
+                <Marker
+                    longitude={tip[0]}
+                    latitude={tip[1]}
+                    anchor="center"
+                    rotationAlignment="map"
+                    rotation={bearing}
+                    draggable
+                    onDrag={onHandleDrag}
+                >
+                    <div className="flex items-center justify-center w-9 h-9 rounded-full bg-[#ea580c] border-2 border-white shadow-lg cursor-grab active:cursor-grabbing touch-none">
+                        {/* Arrow points "up" (north) by default; the Marker's
+                            rotation aims it along the travel bearing. */}
+                        <svg
+                            width="18"
+                            height="18"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            aria-hidden="true"
+                        >
+                            <path
+                                d="M12 4 L12 20 M12 4 L6 11 M12 4 L18 11"
+                                stroke="#ffffff"
+                                strokeWidth="2.6"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                            />
+                        </svg>
+                    </div>
+                </Marker>
             </MapGL>
             <div className="pointer-events-none absolute bottom-1.5 left-1/2 -translate-x-1/2 px-2 py-0.5 rounded-full bg-black/55 text-white text-[10px] font-medium">
-                Tap the map to aim your travel direction
+                Drag the arrow to aim your travel direction
             </div>
         </div>
     );

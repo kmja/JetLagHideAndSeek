@@ -428,7 +428,29 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v1006`. Use `git log` for the per-version detail;
+build stamp. Current: `v1007`. Use `git log` for the per-version detail;
+
+**v1007 — thermometer arrow drag-handle + body-of-water no-overlay regression
+fixed.**
+- **Body-of-water showed NO overlay again.** v1002 made the elimination `await`
+  the headless pmtiles read, and that read (up to 24 z12 tiles, decoded on the
+  main thread, possibly from the huge master archive) is slow enough to blow the
+  configure veil's timeout → bare map / no overlay; the extra z12 polygons also
+  over-loaded the buffer. Fixes in `basemapWater.ts`: (a) the `ensureBasemapWaterForArea`
+  await is now BOUNDED (`capAwait`, 2.5 s) — a slow read never blocks the overlay,
+  the populate keeps running in the background and bumps the version when done so
+  the elimination recomputes with the deterministic set once it lands, and the
+  `querySourceFeatures` capture (or the cold OSM fallback) covers the first paint;
+  (b) the headless read drops to zoom 11 / ≤16 tiles (fewer, larger tiles → far
+  fewer polygons → a much lighter buffer). Water needs no fine detail (simplify +
+  km-scale buffer).
+- **Thermometer preview: draggable arrow handle + pan/zoom, circle removed.** The
+  `ThermometerPreviewMap` map now pans/zooms normally, and the travel ARROW's tip
+  is a DRAG HANDLE (an arrowhead that rotates to the aim) — drag it around the
+  start to change direction. The distance stays fixed by the carousel, so the
+  handle orbits at radius D and the arrow LENGTH shows the distance (the separate
+  distance circle was removed as redundant). The D/2 cut + warm/cool half-planes
+  + HOTTER/COLDER labels track the aim live; the map reframes on distance change.
 
 **v1006 — CI build fix: ambient decls for `@mapbox/vector-tile` + `pbf`.** The
 v1002 headless MVT decoder imports two libs that ship NO TypeScript
