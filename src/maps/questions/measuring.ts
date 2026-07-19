@@ -674,25 +674,43 @@ export const determineMeasuringBoundary = async (
                                 );
                             }
                             if (sea && turf.area(sea as any) > 0) {
-                                let seaOut = sea;
-                                try {
-                                    const s = turf.simplify(sea as any, {
-                                        tolerance: 0.002,
-                                        highQuality: false,
-                                        mutate: false,
-                                    }) as Feature<Polygon | MultiPolygon>;
-                                    if (turf.area(s as any) > 0) seaOut = s;
-                                } catch {
-                                    /* keep the un-simplified sea */
+                                // v983: PROGRESSIVELY simplify until the sea
+                                // fits the arcgis-buffer vertex cap, instead of
+                                // a single fixed tolerance that a dense harbour
+                                // (NYC) blew past → the sea was SKIPPED → the
+                                // coarse 1:50m ocean (which misses the bays) →
+                                // open water still read "further" (the reported
+                                // bug). Coarser tolerances still preserve the
+                                // km-wide OPEN bays (the answer geometry); the
+                                // narrow tidal channels they drop are covered by
+                                // the coastline LINES band (b). Only if even the
+                                // coarsest (~1.1 km) sea is over the cap do we
+                                // skip it and fall to the coarse ocean.
+                                let seaOut: Feature<
+                                    Polygon | MultiPolygon
+                                > | null =
+                                    countCoords(sea) <= SEA_VERTEX_CAP
+                                        ? sea
+                                        : null;
+                                for (const tol of [0.002, 0.004, 0.008, 0.012]) {
+                                    if (seaOut) break;
+                                    try {
+                                        const s = turf.simplify(sea as any, {
+                                            tolerance: tol,
+                                            highQuality: false,
+                                            mutate: false,
+                                        }) as Feature<Polygon | MultiPolygon>;
+                                        if (
+                                            turf.area(s as any) > 0 &&
+                                            countCoords(s) <= SEA_VERTEX_CAP
+                                        ) {
+                                            seaOut = s;
+                                        }
+                                    } catch {
+                                        /* try the next tolerance */
+                                    }
                                 }
-                                // Guard the arcgis buffer: only feed it the sea
-                                // when its vertex count is BOUNDED. A raw/under-
-                                // simplified harbour coastline is what froze the
-                                // buffer (v976); if even the simplified sea is
-                                // still too dense, skip it and fall to the coarse
-                                // ocean below — worst case is the pre-v980
-                                // no-freeze behaviour, never a regression.
-                                if (countCoords(seaOut) <= SEA_VERTEX_CAP) {
+                                if (seaOut) {
                                     out.push(seaOut);
                                     seaAdded = true;
                                 }

@@ -428,7 +428,17 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v982`. Use `git log` for the per-version detail;
+build stamp. Current: `v983`. Use `git log` for the per-version detail;
+
+**v983 — body-of-water open water: progressive sea simplification (fit the
+buffer cap).** v980's single 220 m sea simplification could still blow past the
+`SEA_VERTEX_CAP`, so a dense harbour (NYC) SKIPPED the detailed sea and fell to
+the coarse 1:50m ocean — which misses the bays, so open water read "further"
+(impossible). The sea now simplifies PROGRESSIVELY (0.002° → 0.004° → 0.008° →
+0.012°) until it fits the cap; coarser tolerances still preserve the km-wide
+OPEN bays (the narrow tidal channels they drop are covered by the coastline
+LINES band), so the sea is included far more often. Only if even the coarsest
+(~1.3 km) sea is over the cap do we fall to the coarse ocean.
 
 **v982 — ROOT-CAUSE: bundled-geojson fetches were double-slashed (broke border
 gate + same-landmass + coastline fallback) + measuring dots on GPU + neutral
