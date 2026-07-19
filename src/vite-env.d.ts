@@ -24,3 +24,11 @@ declare module "*?raw" {
     const content: string;
     export default content;
 }
+
+/** v1006: `@mapbox/vector-tile` + `pbf` (the headless MVT decoder,
+ *  `basemapTiles.ts`) ship no TypeScript declarations, and the DefinitelyTyped
+ *  `@types/*` packages don't resolve cleanly under strict pnpm — so tsc failed
+ *  the CI build with TS7016. Declare them as ambient `any` modules; the
+ *  decoder's runtime is validated on-device. */
+declare module "@mapbox/vector-tile";
+declare module "pbf";

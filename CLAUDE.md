@@ -428,7 +428,20 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v1005`. Use `git log` for the per-version detail;
+build stamp. Current: `v1006`. Use `git log` for the per-version detail;
+
+**v1006 — CI build fix: ambient decls for `@mapbox/vector-tile` + `pbf`.** The
+v1002 headless MVT decoder imports two libs that ship NO TypeScript
+declarations, and the DefinitelyTyped `@types/*` packages don't resolve cleanly
+under the CI's strict `pnpm install --frozen-lockfile` (non-hoisted) — so
+`tsc --noEmit` failed the Cloudflare build with TS7016 (`v1002`-`v1005` all
+failed to deploy). Local `tsc` passed only because the dev `node_modules` was
+hoisted. Fixed by declaring both as ambient `any` modules in `src/vite-env.d.ts`
+(`declare module "@mapbox/vector-tile"; declare module "pbf";`); the decoder's
+runtime is validated on-device regardless. LESSON (reinforcing v795): after ANY
+dependency change, run a FULL `pnpm install` (re-link to strict) before trusting
+a local `tsc`/build — a hoisted dev tree hides missing declarations + resolution
+gaps that the CI's frozen-lockfile install surfaces.
 
 **v1005 — thermometer configure dialog: radar-parity + directional hotter/colder
 preview.**
