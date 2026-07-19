@@ -32,7 +32,11 @@ import {
     requestWaterWarmAll,
 } from "@/maps/api/water";
 import { fetchPrewarmedRailStationElements } from "@/lib/journey/stations";
-import { bufferAndUnion, bufferPointsUnion } from "@/lib/geometry/client";
+import {
+    bufferAndUnion,
+    bufferPointsUnion,
+    seaFromCoast,
+} from "@/lib/geometry/client";
 import { filterCoastlineByStraitRule } from "@/maps/questions/coastlineStrait";
 import { seaFromCoastline } from "@/maps/questions/seaFromCoastline";
 import { majorCityPoints } from "@/maps/data/majorCities";
@@ -614,41 +618,69 @@ export const determineMeasuringBoundary = async (
             } catch (e) {
                 console.warn("body-of-water coastline band failed:", e);
             }
-            // v987: fold OPEN water back in as an AREA. v985 dropped the sea
-            // entirely (only the coastline LINES band), so open water beyond
-            // the ~seeker-distance band read "further" — impossible, since open
-            // water IS water (the reported Hudson / harbour bug). Rebuild the
-            // COARSE ocean from the bundled 1:50m coastline (few vertices →
-            // cheap `seaFromCoastline` on the main thread; NOT the heavy
-            // detailed-OSM sea whose union timed out the worker in v980-v985).
-            // Tag it `__waterArea` so the downstream buffer step unions it in
-            // AS-IS (unbuffered) and excludes it from the buffer radius — the
-            // detailed coastline LINES above still fill the narrow tidal
-            // channels (East River) the coarse ocean is too coarse to resolve.
-            // Degrades to lines-only if the coarse sea is unavailable/rejected.
+            // v993: fold the SEA in as an AREA from the DETAILED prewarmed OSM
+            // coast (the user's ask — use the detailed coast/inlets/bays we
+            // already prewarm via `/api/coast/<id>`, not the crude coarse 1:50m
+            // ocean, which drew a jagged polygon that didn't follow the real
+            // shoreline). `seaFromCoast` runs OFF the main thread (worker); we
+            // SIMPLIFY the result heavily (≈150 m, invisible against a
+            // hundreds-of-metres water buffer) so the downstream UNBUFFERED
+            // union in `bufferAndUnion` stays fast — the raw harbour sea is
+            // tens of thousands of vertices, the historical union-timeout
+            // cause (v980-v985). Tagged `__waterArea` so the buffer step unions
+            // it AS-IS and excludes it from the buffer radius. Falls back to the
+            // COARSE 1:50m ocean (few vertices, instant, main-thread) if the
+            // detailed sea is unavailable/rejected — a monotonic improvement,
+            // never worse than v987.
+            let seaArea: Feature<Polygon | MultiPolygon> | null = null;
             try {
-                const coarseCoast = clipLinesToBbox(
-                    await fetchCoastline(),
-                    bBox,
-                );
-                if (coarseCoast.length > 0) {
-                    const sea = seaFromCoastline(
-                        coarseCoast as Feature<
-                            GeoJSON.LineString | GeoJSON.MultiLineString
-                        >[],
+                const detailedCoast = await fetchAreaCoastlineLines();
+                if (detailedCoast && detailedCoast.length > 0) {
+                    const detailedSea = await seaFromCoast(
+                        detailedCoast as Feature[],
                         bbox4(bBox),
-                        { lng: question.lng, lat: question.lat },
+                        { lat: question.lat, lng: question.lng },
                     );
-                    if (sea) {
-                        sea.properties = {
-                            ...(sea.properties ?? {}),
-                            __waterArea: true,
-                        };
-                        out.push(sea);
+                    if (detailedSea) {
+                        try {
+                            seaArea = turf.simplify(detailedSea, {
+                                tolerance: 0.0015,
+                                highQuality: false,
+                                mutate: false,
+                            }) as Feature<Polygon | MultiPolygon>;
+                        } catch {
+                            seaArea = detailedSea;
+                        }
                     }
                 }
-            } catch (e) {
-                console.warn("body-of-water coarse ocean failed:", e);
+            } catch {
+                /* detailed sea unavailable — coarse fallback below */
+            }
+            if (!seaArea) {
+                try {
+                    const coarseCoast = clipLinesToBbox(
+                        await fetchCoastline(),
+                        bBox,
+                    );
+                    if (coarseCoast.length > 0) {
+                        seaArea = seaFromCoastline(
+                            coarseCoast as Feature<
+                                GeoJSON.LineString | GeoJSON.MultiLineString
+                            >[],
+                            bbox4(bBox),
+                            { lng: question.lng, lat: question.lat },
+                        );
+                    }
+                } catch (e) {
+                    console.warn("body-of-water coarse ocean failed:", e);
+                }
+            }
+            if (seaArea) {
+                seaArea.properties = {
+                    ...(seaArea.properties ?? {}),
+                    __waterArea: true,
+                };
+                out.push(seaArea);
             }
             if (out.length === 0) return [turf.multiPolygon([])];
             return out;
@@ -758,15 +790,37 @@ const bufferedDeterminer = memoize(
         // turf (`bufferAndUnion`), the same region arcgis would produce. Falls
         // back to arcgis below if the worker is unavailable or returns null.
         if (question.type === "body-of-water") {
+            const feats = placeData as Feature[];
             try {
                 const merged = await bufferAndUnion(
-                    placeData as Feature[],
+                    feats,
                     question.lat,
                     question.lng,
                 );
                 if (merged) return merged;
             } catch {
-                /* worker unavailable — fall through to arcgis below */
+                /* worker unavailable / union timed out — retry below */
+            }
+            // v993: if the union failed (most likely a timeout on the detailed
+            // sea polygon), retry WITHOUT the heavy `__waterArea` sea so a
+            // sea-union timeout degrades to a partial overlay (ponds + rivers +
+            // coastline-lines band) instead of NO overlay at all.
+            const noSea = feats.filter(
+                (f) =>
+                    (f.properties as { __waterArea?: boolean })?.__waterArea !==
+                    true,
+            );
+            if (noSea.length > 0 && noSea.length < feats.length) {
+                try {
+                    const merged = await bufferAndUnion(
+                        noSea,
+                        question.lat,
+                        question.lng,
+                    );
+                    if (merged) return merged;
+                } catch {
+                    /* fall through to arcgis below */
+                }
             }
         }
 

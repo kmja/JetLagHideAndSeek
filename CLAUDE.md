@@ -428,7 +428,26 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v992`. Use `git log` for the per-version detail;
+build stamp. Current: `v993`. Use `git log` for the per-version detail;
+
+**v993 — body-of-water sea uses the DETAILED prewarmed coast (not the crude
+coarse ocean).** v987 folded open water back in as an area but used the coarse
+bundled 1:50m ocean — a jagged ~13-vertex polygon that didn't follow the real
+shoreline (the "wrong in weird ways" bays/inlets). We ALREADY prewarm the
+detailed OSM coast (`/api/coast/<id>`), so the sea is now built from THAT:
+`fetchAreaCoastlineLines()` → **`seaFromCoast`** (the off-main-thread worker op,
+v984) → **`turf.simplify` ≈150 m** (invisible against a hundreds-of-metres water
+buffer, but keeps the downstream UNBUFFERED union fast — the raw harbour sea is
+tens of thousands of vertices, the historical union-timeout cause of v980-v985).
+Tagged `__waterArea` so `bufferAndUnion` unions it AS-IS and excludes it from the
+buffer radius (v987). Falls back to the coarse 1:50m ocean (v987) if the detailed
+sea is unavailable/rejected — monotonic, never worse. **Union-timeout safety
+net:** `bufferedDeterminer`'s body-of-water branch now RETRIES `bufferAndUnion`
+WITHOUT the `__waterArea` sea if the first union fails, so a sea-union timeout
+degrades to a partial overlay (ponds + rivers + coastline-lines band) instead of
+NO overlay (the v982-v985 "no overlay" regression). Detailed coast is prewarmed
+for warm cities, so this is Overpass-free there; a cold coastal city fetches it
+live once (then warm).
 
 **v992 — same-street is PREWARMED (Overpass-free for warm cities) via a new
 `/api/streets/<id>` endpoint.** Follow-up to v991, which moved same-street off
