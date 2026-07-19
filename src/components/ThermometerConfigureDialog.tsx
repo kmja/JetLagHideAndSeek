@@ -1,17 +1,20 @@
 import { useStore } from "@nanostores/react";
-import { ChevronLeft, ChevronRight, Loader2, Thermometer } from "lucide-react";
+import { ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "react-toastify";
 
+import {
+    QuestionOverlayCard,
+    summarizeQuestion,
+} from "@/components/questionOverlayCard";
+import { ThermometerPreviewMap } from "@/components/ThermometerPreviewMap";
 import { Button } from "@/components/ui/button";
 import {
     Dialog,
     DialogContent,
-    DialogDescription,
     DialogHeader,
     DialogTitle,
 } from "@/components/ui/dialog";
-import { ZonePreviewMap } from "@/components/ZonePreviewMap";
 import {
     addQuestion,
     lastKnownPosition,
@@ -191,16 +194,24 @@ export function ThermometerConfigureDialog({
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
             <DialogContent className="max-w-md">
-                <DialogHeader>
-                    <DialogTitle className="flex items-center gap-2">
-                        <Thermometer className="w-5 h-5 text-primary" />
-                        New thermometer
-                    </DialogTitle>
-                    <DialogDescription>
-                        Pick how far you&apos;ll travel before sending the
-                        question.
-                    </DialogDescription>
+                {/* v1005: header restyled to the shared question-card chrome
+                    (solid category-colour icon block + big label), matching the
+                    radar/configure dialogs. The visible title is the card; a
+                    visually-hidden DialogTitle keeps Radix a11y happy. */}
+                <DialogHeader className="sr-only">
+                    <DialogTitle>New thermometer</DialogTitle>
                 </DialogHeader>
+                <QuestionOverlayCard
+                    categoryId="thermometer"
+                    summary={summarizeQuestion({
+                        id: "thermometer",
+                        data: {},
+                    })}
+                    flat
+                />
+                <p className="mt-2 text-sm text-muted-foreground">
+                    Pick how far you&apos;ll travel before sending the question.
+                </p>
                 {/* v987: distance CAROUSEL (matches the radar picker) — one
                     prominent target at a time, prev/next cycles the presets.
                     A repeat-used preset (rulebook p65) shows the N× badge; the
@@ -264,16 +275,16 @@ export function ThermometerConfigureDialog({
                         </div>
                     );
                 })()}
-                {/* Travel-distance map: a circle of the chosen distance around
-                    your current position, so you can see how far you'll have
-                    to move to finish the thermometer. */}
+                {/* v1005: directional hotter/colder preview — the endpoint ring
+                    + the D/2 bisector cut for a tapped travel direction, with
+                    the warm (hotter) / cool (colder) half-planes. Reframes as
+                    the distance changes so the ring always fits. */}
                 <div className="mt-3">
                     {$gps && current ? (
-                        <ZonePreviewMap
+                        <ThermometerPreviewMap
                             lat={$gps.lat}
                             lng={$gps.lng}
                             radiusMeters={Math.round(current.km * 1000)}
-                            padding={18}
                             className="w-full aspect-[4/3] rounded-lg overflow-hidden border border-border"
                         />
                     ) : (

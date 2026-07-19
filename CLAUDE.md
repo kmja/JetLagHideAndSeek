@@ -428,7 +428,26 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v1004`. Use `git log` for the per-version detail;
+build stamp. Current: `v1005`. Use `git log` for the per-version detail;
+
+**v1005 — thermometer configure dialog: radar-parity + directional hotter/colder
+preview.**
+- **Header restyled to the shared question-card chrome** — the plain
+  "New thermometer" title became the `QuestionOverlayCard` (solid yellow
+  category icon block + big label + prompt), matching the radar/configure
+  dialogs (a visually-hidden `DialogTitle` keeps Radix a11y happy).
+- **Directional hotter/colder preview** (`ThermometerPreviewMap`, replaces the
+  plain `ZonePreviewMap` circle) — a thermometer's answer splits the map along
+  the perpendicular BISECTOR of [start, end] (a line D/2 from the start,
+  perpendicular to travel), so a circle can't convey it. The preview draws the
+  endpoint RING (radius D) + the D/2 cut for a chosen travel direction + the
+  two half-planes tinted WARM (hotter, toward travel) / COOL (colder) with
+  HOTTER/COLDER labels + a travel arrow. Direction defaults toward the
+  play-area centre and is TAP-to-aim (the seeker picks it by walking, so it's a
+  planning aid, not saved on the question).
+- **Reframes on distance change** — the map `fitBounds`-animates to the new ring
+  whenever the carousel distance changes, so the ring always fits (the old
+  `ZonePreviewMap` only fit once on load, so a big 15 km circle never showed).
 
 **v1004 — closer/further overlay: − is closer, + is further.** Corrects the
 v1003 mapping — minus = LESS distance (closer, the "yes"/lighter region), plus =
