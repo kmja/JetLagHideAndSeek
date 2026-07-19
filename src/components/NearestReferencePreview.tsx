@@ -8,6 +8,8 @@ import { fetchPrewarmedRailStationElements } from "@/lib/journey/stations";
 import { cn } from "@/lib/utils";
 import { fetchCoastline, LOCATION_FIRST_TAG } from "@/maps/api";
 import { fetchAreaCoastlineLines } from "@/maps/api/coast";
+import { buildElevationField } from "@/maps/api/elevation";
+import { resolvedUnits } from "@/lib/units";
 import { pointInPlayArea } from "@/maps/geo-utils/playAreaIndex";
 import {
     findPlacesInZone,
@@ -50,6 +52,10 @@ export interface NearestRef {
     lat: number;
     lng: number;
     distanceMeters: number;
+    /** v988: overrides the distance readout for reference "questions" that
+     *  aren't a distance-to-a-place — e.g. sea-level shows the seeker's own
+     *  elevation ("12 m above sea level") instead of a distanceMeters. */
+    detail?: string;
 }
 
 export type NearestRefState =
@@ -68,6 +74,7 @@ type ResolvedFamily =
     | { kind: "rail-station"; broad: boolean }
     | { kind: "water" }
     | { kind: "highspeed-rail" }
+    | { kind: "sea-level" }
     | null;
 
 /**
@@ -129,6 +136,10 @@ export function resolveFamily(typeRaw: string): ResolvedFamily {
     }
     if (stripped === "highspeed-measure-shinkansen")
         return { kind: "highspeed-rail" };
+    // v988: sea-level's "reference" is the seeker's OWN elevation, not a
+    // distance to a place — the preview shows metres/feet above/below sea
+    // level (rulebook: closer to sea level = smaller |elevation|).
+    if (stripped === "sea-level") return { kind: "sea-level" };
     // Named water bodies — nearest is the true closest point on any
     // shore or river/canal line (fetchNearestWater), computed from the
     // SAME full `out geom` geometry the measuring elimination buffers, so
@@ -288,12 +299,21 @@ export function NearestReferencePreview({
                         <span className="font-inter-tight font-bold text-foreground">
                             {state.ref.name}
                         </span>
-                        {mode === "measuring" && (
-                            <span className="inline-flex items-center gap-1 text-muted-foreground tabular-nums">
-                                <Ruler className="w-3 h-3" />
-                                {formatDistance(state.ref.distanceMeters)}
-                            </span>
-                        )}
+                        {mode === "measuring" &&
+                            (state.ref.detail ? (
+                                // v988: a non-distance reference (sea-level →
+                                // the seeker's own elevation) carries its own
+                                // readout in `detail`.
+                                <span className="inline-flex items-center gap-1 text-muted-foreground tabular-nums">
+                                    <Ruler className="w-3 h-3" />
+                                    {state.ref.detail}
+                                </span>
+                            ) : (
+                                <span className="inline-flex items-center gap-1 text-muted-foreground tabular-nums">
+                                    <Ruler className="w-3 h-3" />
+                                    {formatDistance(state.ref.distanceMeters)}
+                                </span>
+                            ))}
                     </div>
                 )}
             </div>
@@ -384,6 +404,9 @@ export async function fetchNearest(
     // their middle. This is handled first so it bypasses the centroid
     // `tryCacheNearest` path below (which would win with the wrong ref).
     if (family.kind === "water") return fetchNearestWater(lat, lng);
+
+    // v988: sea-level shows the seeker's own elevation (no place lookup).
+    if (family.kind === "sea-level") return fetchNearestSeaLevel(lat, lng);
 
     // v970 (rulebook audit B): rail stations include light rail / halts /
     // tram stops (rulebook p206) — the SAME prewarmed rail set the
@@ -509,6 +532,41 @@ export async function fetchNearest(
  * like "are you closer to the coast than me".
  */
 const coastlineCache: { fc: GeoJSON.FeatureCollection | null } = { fc: null };
+
+/**
+ * v988: sea-level "nearest reference" — the seeker's OWN elevation from the
+ * prewarmed Terrarium DEM (the same source the sea-level elimination isobands),
+ * formatted in the player's units. `detail` carries the readout so the preview
+ * shows "12 m above sea level" instead of a meaningless distance.
+ */
+async function fetchNearestSeaLevel(
+    lat: number,
+    lng: number,
+): Promise<NearestRef | null> {
+    try {
+        const pad = 0.02;
+        const field = await buildElevationField([
+            lng - pad,
+            lat - pad,
+            lng + pad,
+            lat + pad,
+        ]);
+        if (!field) return null;
+        const elevM = field.sample(lng, lat);
+        if (elevM == null || !Number.isFinite(elevM)) return null;
+        const imperial = resolvedUnits.get() === "imperial";
+        const value = imperial ? elevM * 3.28084 : elevM;
+        const unit = imperial ? "ft" : "m";
+        const abs = Math.round(Math.abs(value));
+        const detail =
+            Math.round(value) === 0
+                ? "at sea level"
+                : `${abs} ${unit} ${value > 0 ? "above" : "below"} sea level`;
+        return { name: "Sea level", lat, lng, distanceMeters: 0, detail };
+    } catch {
+        return null;
+    }
+}
 
 async function fetchNearestCoastline(
     lat: number,

@@ -428,7 +428,20 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v988`. Use `git log` for the per-version detail;
+build stamp. Current: `v989`. Use `git log` for the per-version detail;
+
+**v989 — sea-level shows a reference NUMBER (the seeker's elevation).** The
+`sea-level` measuring subtype resolved to `null` in `resolveFamily`
+(`NearestReferencePreview.tsx`), so the configure card's "Your nearest
+reference" box showed nothing — but sea-level's "reference" is the seeker's OWN
+elevation, not a distance to a place (rulebook: closer to sea level = smaller
+|elevation|). Added a `sea-level` family + `fetchNearestSeaLevel`, which samples
+the prewarmed Terrarium DEM (`buildElevationField`, the SAME source the sea-level
+elimination isobands) at the seeker's point and formats it in the player's units
+("12 m above sea level" / "40 ft below sea level" / "at sea level"). Carried via
+a new optional `NearestRef.detail` that overrides the distance readout in the
+preview's measuring slot. Returns null (→ preview hidden) if the DEM is
+unavailable, so nothing breaks off-grid.
 
 **v988 — measuring reference ICONS are back, as a GPU symbol layer.** v981
 replaced the measuring reference field's per-subtype ICON markers with plain GPU
