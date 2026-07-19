@@ -278,13 +278,27 @@ export function StationTransitCard({
     // found. Per the rulebook the endgame starts when the seekers reach
     // the hider's zone — selecting that zone's station here is the natural
     // place to declare it.
+    // v979: only offer "Start endgame here" for a zone the seeker has
+    // actually REACHED — you can't declare the endgame before arriving
+    // (rulebook p43), so showing the button for a far-off zone is pointless
+    // (and the server would just deny it). Gate on the seeker's live GPS
+    // being within the zone's hiding-radius (+ a generous margin for GPS
+    // noise). With NO GPS fix we can't tell, so we still show it (the server
+    // makes the final call).
+    const endgameRadiusM = $radius * ($radiusUnits === "miles" ? 1609.34 : 1000);
+    const seekerReachedZone =
+        !$gps ||
+        station === null ||
+        haversineMeters($gps.lat, $gps.lng, station.lat, station.lng) <=
+            endgameRadiusM + 150;
     const canTriggerEndgame =
         allowEndgame &&
         station !== null &&
         $endsAt !== null &&
         Date.now() >= $endsAt &&
         $endgame === null &&
-        $found === null;
+        $found === null &&
+        seekerReachedZone;
 
     const handleStartEndgame = async () => {
         // Rulebook p43: the endgame begins only once the seekers physically
@@ -293,8 +307,8 @@ export function StationTransitCard({
         // against the tapped zone's hiding-radius circle. GPS is noisy in the
         // dense cores this game is played in, so a generous margin keeps a
         // face-to-face declaration from being falsely blocked; only a clearly
-        // outside position gets a warning (still overridable — the hider can
-        // refute a wrong claim anyway).
+        // outside position gets a warning (still overridable — the SERVER
+        // validates the claim against the hider's secret zone regardless).
         const zoneName = station?.name ? ` — ${station.name}` : "";
         const radiusM =
             $radius * ($radiusUnits === "miles" ? 1609.34 : 1000);
@@ -446,9 +460,10 @@ export function StationTransitCard({
                                     Start endgame here
                                 </button>
                                 <p className="text-xs leading-snug text-muted-foreground text-center px-1">
-                                    Declare you&apos;ve reached this zone. The
-                                    hider locks to a final spot — or refutes it
-                                    if you&apos;re at the wrong place.
+                                    Declare you&apos;ve reached this zone.
+                                    We&apos;ll check your location against the
+                                    hider&apos;s — if it&apos;s right, the endgame
+                                    begins and the hider locks to a final spot.
                                 </p>
                             </div>
                         )}

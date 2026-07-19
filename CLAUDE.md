@@ -428,7 +428,33 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v978`. Use `git log` for the per-version detail;
+build stamp. Current: `v979`. Use `git log` for the per-version detail;
+
+**v979 — false "couldn't send" banner during heavy question load + endgame
+card copy/gate.**
+- **The bogus "Couldn't send — tap retry" card that flashed while configuring
+  a heavy question** (park / body-of-water) is fixed. `promoteLastQuestion`
+  (`AddQuestionDialog`) adds the draft to the `questions` store (drag:true, no
+  createdAt), closes the picker, then opens the configure dialog 150 ms later —
+  but `configuringQuestionKey` (which tells `PendingAnswerOverlay` to exclude
+  the in-configure draft) was only set via the pendingKey effect that fires
+  once the configure dialog opens. During that gap — which stretches to SECONDS
+  when a heavy question freezes the main thread — the overlay showed the draft
+  as an unsent "couldn't send" card even though nothing was sent. Now the guard
+  key is claimed IMMEDIATELY in `promoteLastQuestion`, covering the whole gap.
+- **Endgame card (`StationTransitCard`)**: (1) the "Start endgame here" button
+  is now hidden unless the seeker's live GPS is actually within the tapped
+  zone's hiding-radius (+150 m) — you can't declare the endgame before arriving
+  (rulebook p43), and the server would deny it anyway; with no GPS fix it still
+  shows (server makes the call). (2) Dropped the stale "or refutes it if you're
+  at the wrong place" copy — the endgame is server-authoritative now (v950/v951,
+  no manual hider refute); the card explains the server checks your location
+  against the hider's zone.
+Still open (need on-device verification / deeper work): body-of-water open-water
+in un-resolved bays still reads "further" (coarse 1:50m ocean misses NYC's bays;
+needs a raw detailed-sea union, not a buffer); measuring point-family candidate
+marker density; border/county gating re-verify after this deploy; same-landmass;
+coastline math; sea-level number.
 
 **v978 — measuring batch: point-family freeze fix (Web Worker), subtype
 naming, border gating, county-border overlay.** From the NYC walkthrough.

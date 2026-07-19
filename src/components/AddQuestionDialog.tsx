@@ -511,6 +511,14 @@ export const AddQuestionDialog = ({
         const list = questions.get();
         if (list.length === 0) return;
         const lastKey = list[list.length - 1].key;
+        // v979: claim the configuring-guard IMMEDIATELY (not via the
+        // pendingKey effect, which only fires 150 ms later once the configure
+        // dialog opens). The draft is already in the `questions` store as a
+        // drag:true/no-createdAt entry, so during that gap — which stretches
+        // to SECONDS when a heavy question (park / body-of-water) freezes the
+        // main thread — PendingAnswerOverlay would show it as a bogus
+        // "Couldn't send — tap retry" card even though nothing was sent.
+        configuringQuestionKey.set(lastKey);
         setOpen(false);
         setTimeout(() => setPendingKey(lastKey), 150);
     };
