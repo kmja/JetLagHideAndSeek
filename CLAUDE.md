@@ -428,7 +428,35 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v1008`. Use `git log` for the per-version detail;
+build stamp. Current: `v1009`. Use `git log` for the per-version detail;
+
+**v1009 — body-of-water ON-DEVICE DIAGNOSTIC (stop guessing which stage
+fails).** After v1008 reverted the body-of-water path to the byte-identical
+v1000 build the user confirmed worked ("better than ever"), the overlay STILL
+showed nothing on device. A full diff proved the entire runtime path — the
+`body-of-water` case, the `basemapWater.ts` capture (`getBasemapWaterPolys`),
+`questionImpact.ts`, the geometry worker's `bufferAndUnion`, and the configure
+map's capture wiring — is unchanged since v1000, so it can't be a code
+regression to revert. "No overlay" means the buffer step returns null/false,
+which leaves `questionImpact`'s `loading` stuck true → the configure veil times
+out to a bare map. WHICH stage produces nothing (the basemap-water capture never
+populating, the cold OSM fallback returning empty, or the buffer failing on
+dense geometry) is unobservable from a screenshot, and shipping another blind
+geometry patch is exactly the guess-and-regress cycle v1008's lesson warned
+against. So v1009 adds a diagnostic instead of a fix: `measuring.ts` summarises
+each body-of-water compute (`src` = basemap-water vs cold-osm, feature/vertex
+counts, poly/line breakdown, and the buffer outcome — `bufferAndUnion ok/null/
+threw`, `arcgis ok/null (NO OVERLAY)`, or `determineMeasuringBoundary EMPTY`)
+into `lastBodyOfWaterDiag` (`debugState.ts`), shown in the `DebugPhaseControls`
+panel (readable on a phone) and `console.warn`ed with the `[bow]` tag. Configure
+a body-of-water question, open the debug panel (5 taps on the top-centre
+wordmark), read the line — it names the failing stage, so the NEXT change is
+targeted (a cold/empty fetch needs a different fix than a buffer timeout than a
+capture that never fires). Rejected a "guaranteed overlay" net (union the raw
+water polys when the buffer fails): for a seeker far from water it draws only the
+water and omits the near-shore "closer" band, which is WRONG (land near the water
+is also closer), not just degraded — a misleading overlay is worse than none.
+Diagnostic-only; no behaviour change to the elimination.
 
 **v1008 — REVERT the speculative basemap-water changes that regressed
 body-of-water + same-landmass to NO overlay / a hard error.** An audit of the

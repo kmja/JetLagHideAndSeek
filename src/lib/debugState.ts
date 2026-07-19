@@ -38,3 +38,18 @@ export const stationLabelMaxChars = persistentAtom<number>(
         },
     },
 );
+
+/**
+ * v1009: last body-of-water elimination diagnostic (volatile, in-memory).
+ *
+ * The body-of-water configure overlay reads the basemap `water` layer and
+ * buffers it. When it shows NO overlay, we can't tell from a screenshot
+ * WHICH stage failed — the capture (no basemap water yet), the cold OSM
+ * fallback (empty fetch), or the buffer (turf/arcgis returned null on dense
+ * geometry). This atom holds a one-line summary of the LAST body-of-water
+ * compute (source, feature/vertex counts, buffer outcome), surfaced in the
+ * debug panel so an on-device tester can read back the exact failing stage
+ * instead of us guessing. Set from `measuring.ts`, displayed in
+ * `DebugPhaseControls`. Also `console.warn`ed with the `[bow]` tag.
+ */
+export const lastBodyOfWaterDiag = atom<string>("");

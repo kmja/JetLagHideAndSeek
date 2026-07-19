@@ -19,7 +19,11 @@ import {
     spoofPickMode,
 } from "@/lib/debugGpsSpoof";
 import { spoofRandomInPlayArea } from "@/lib/debugSpoofArea";
-import { debugPanelOpen, stationLabelMaxChars } from "@/lib/debugState";
+import {
+    debugPanelOpen,
+    lastBodyOfWaterDiag,
+    stationLabelMaxChars,
+} from "@/lib/debugState";
 import { clearAllLocalDataAndReload } from "@/lib/debugTools";
 import { type Card, shuffledDeck } from "@/lib/hiderDeck";
 import { hiddenCreditMs } from "@/lib/gameSetup";
@@ -118,6 +122,7 @@ type DebugFloating = "always" | "desktop" | "never";
 export function DebugPhaseControls(_props: { floating?: DebugFloating } = {}) {
     const open = useStore(debugPanelOpen);
     const $labelMaxChars = useStore(stationLabelMaxChars);
+    const $bowDiag = useStore(lastBodyOfWaterDiag);
     const $questions = useStore(questions);
     const $inbox = useStore(hiderInbox);
     const $map = useStore(mapContext);
@@ -760,6 +765,19 @@ export function DebugPhaseControls(_props: { floating?: DebugFloating } = {}) {
                         className="flex-1 accent-amber-500"
                         aria-label="Hiding-zone label max characters"
                     />
+                </div>
+
+                {/* v1009: last body-of-water elimination diagnostic — shows
+                    which stage produced (no) overlay: the basemap-water
+                    capture, the cold OSM fallback, or the buffer. Configure a
+                    body-of-water question, then open this panel to read it. */}
+                <div className="text-[11px] rounded border border-border/60 bg-secondary/40 px-2 py-1.5">
+                    <span className="text-muted-foreground">
+                        Body-of-water:{" "}
+                    </span>
+                    <span className="tabular-nums break-all">
+                        {$bowDiag || "— (configure one to see)"}
+                    </span>
                 </div>
 
                 <Section

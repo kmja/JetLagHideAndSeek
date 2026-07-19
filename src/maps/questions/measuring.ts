@@ -37,7 +37,9 @@ import { filterCoastlineByStraitRule } from "@/maps/questions/coastlineStrait";
 import {
     basemapWaterVersion,
     getBasemapWaterPolys,
+    hasBasemapWater,
 } from "@/maps/api/basemapWater";
+import { lastBodyOfWaterDiag } from "@/lib/debugState";
 import { majorCityPoints } from "@/maps/data/majorCities";
 import {
     arcBufferToPoint,
@@ -693,9 +695,59 @@ function allPointCoords(feats: Feature[]): [number, number][] | null {
     return coords.length > 0 ? coords : null;
 }
 
+// v1009: body-of-water on-device diagnostic. When the overlay is empty we
+// need to know WHICH stage produced nothing — the basemap-water capture, the
+// cold OSM fallback, or the buffer. Summarise the geometry going into the
+// buffer + the buffer outcome into `lastBodyOfWaterDiag` (shown in the debug
+// panel, readable on a phone) and `console.warn` it. Cheap — runs once per
+// body-of-water configure, and only for that one type.
+let bowDiagPrefix = "";
+function countVertices(g: GeoJSON.Geometry | undefined): number {
+    if (!g) return 0;
+    let n = 0;
+    const walk = (c: unknown): void => {
+        if (!Array.isArray(c)) return;
+        if (typeof c[0] === "number") {
+            n++;
+            return;
+        }
+        for (const x of c) walk(x);
+    };
+    if ("coordinates" in g) walk((g as { coordinates: unknown }).coordinates);
+    return n;
+}
+function reportBodyOfWaterDiag(feats: Feature[]): void {
+    let polys = 0;
+    let lines = 0;
+    let verts = 0;
+    for (const f of feats) {
+        const t = f.geometry?.type;
+        if (t === "Polygon" || t === "MultiPolygon") polys++;
+        else if (t === "LineString" || t === "MultiLineString") lines++;
+        verts += countVertices(f.geometry);
+    }
+    const source = hasBasemapWater() ? "basemap-water" : "cold-osm";
+    bowDiagPrefix = `bow: src=${source} feats=${feats.length} (poly=${polys} line=${lines}) verts=${verts}`;
+}
+function reportBodyOfWaterResult(outcome: string): void {
+    const msg = `${bowDiagPrefix} → ${outcome}`;
+    lastBodyOfWaterDiag.set(msg);
+    // eslint-disable-next-line no-console
+    console.warn(`[bow] ${msg}`);
+}
+
 const bufferedDeterminer = memoize(
     async (question: MeasuringQuestion) => {
         const placeData = await determineMeasuringBoundary(question);
+        if (
+            question.type === "body-of-water" &&
+            (placeData === false ||
+                placeData === undefined ||
+                (Array.isArray(placeData) && placeData.length === 0))
+        ) {
+            reportBodyOfWaterDiag([]);
+            reportBodyOfWaterResult("determineMeasuringBoundary EMPTY");
+        }
 
         if (placeData === false || placeData === undefined) return false;
 
@@ -729,14 +781,21 @@ const bufferedDeterminer = memoize(
         // back to arcgis below if the worker is unavailable or returns null.
         if (question.type === "body-of-water") {
             const feats = placeData as Feature[];
+            // v1009: diagnose which stage fails when the overlay is empty.
+            reportBodyOfWaterDiag(feats);
             try {
                 const merged = await bufferAndUnion(
                     feats,
                     question.lat,
                     question.lng,
                 );
-                if (merged) return merged;
+                if (merged) {
+                    reportBodyOfWaterResult("bufferAndUnion ok");
+                    return merged;
+                }
+                reportBodyOfWaterResult("bufferAndUnion → null");
             } catch {
+                reportBodyOfWaterResult("bufferAndUnion threw");
                 /* worker unavailable / union timed out — retry below */
             }
             // v993: if the union failed (most likely a timeout on the detailed
@@ -770,6 +829,11 @@ const bufferedDeterminer = memoize(
             question.lat,
             question.lng,
         );
+        if (question.type === "body-of-water") {
+            reportBodyOfWaterResult(
+                buffered ? "arcgis ok" : "arcgis → null (NO OVERLAY)",
+            );
+        }
         return buffered ?? false;
     },
     bufferedDeterminerKey,
