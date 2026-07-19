@@ -428,7 +428,15 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v1002`. Use `git log` for the per-version detail;
+build stamp. Current: `v1003`. Use `git log` for the per-version detail;
+
+**v1003 — measuring closer/further overlay uses +/− instead of </>.** The
+configure-card impact overlay's measuring tile patterns (`registerImpactPatterns`
+/ `makePatternImage`, `InlineLocationPicker`) draw `+` for the CLOSER ("yes")
+region and `−` (U+2212) for the FURTHER ("no") region, replacing the `<`/`>`
+arrows — clearer "closer = plus, further = minus". The `isYes` backdrop-shade
+check + the symbol union type were updated in lockstep so `+` still gets the
+lighter closer tint. Matching keeps `=`/`≠`; tentacles unchanged.
 
 **v1002 — headless pmtiles read: the basemap water is DETERMINISTIC (no map/idle
 race).** The `querySourceFeatures` capture (v998) only sees tiles a DISPLAY map
