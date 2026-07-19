@@ -428,7 +428,22 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v998`. Use `git log` for the per-version detail;
+build stamp. Current: `v999`. Use `git log` for the per-version detail;
+
+**v999 — body-of-water fix: basemap water is `__waterArea` (not a buffered
+target), restoring the overlay.** v998 shipped the basemap-water sea but made
+the water polygons NORMAL buffered targets, so `bufferAndUnion`'s radius `r`
+collapsed to the seeker's distance to the nearest water POLYGON (NYC's East
+River, ~metres away) instead of the labelled shoreline (1.0 km) — shrinking the
+whole "closer" region to an invisible sliver (the reported "no overlay"). Fix:
+the basemap water is tagged `__waterArea`, so it's unioned in AS-IS (open sea →
+distance 0 → closer) but EXCLUDED from the radius min; the coastline LINES are
+ALWAYS added as the BUFFERED target, so `r` = the real shoreline distance that
+matches the nearest-reference label, and the near-shore land band is drawn
+correctly. This also re-enables the retry-without-sea degradation (the sea is
+`__waterArea` again, so `noSea` is a strict subset) and guarantees an overlay in
+every case: basemap water + coastline band (normal), water-as-is only (no
+coastline), or coastline band only (no basemap water).
 
 **v998 — body-of-water sea from the BASEMAP's own water layer (throw away
 coastline assembly) + `--capitals-first` prewarm.**

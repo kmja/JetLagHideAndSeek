@@ -596,40 +596,52 @@ export const determineMeasuringBoundary = async (
             if (lines.length > 0) {
                 out.push(highSpeedBase(lines));
             }
-            // v998: the SEA comes from the BASEMAP's own `water` layer — the
-            // authoritative land/water map we already ship offline (Protomaps
+            // v998: the SEA area comes from the BASEMAP's own `water` layer —
+            // the authoritative land/water map we already ship offline (Protomaps
             // assembled the ocean + bays + lakes + wide rivers as real polygons,
             // globally correct). We read those polygons straight off the loaded
-            // map (`getBasemapWaterPolys`, captured by `basemapWater.ts`) and add
-            // them as NORMAL buffered targets — buffering the accurate ocean
-            // boundary by the seeker's nearest-water distance gives BOTH the open
-            // sea (distance 0 → closer) AND the near-shore land band (within the
-            // distance → closer), and the min-distance naturally equals the
-            // shoreline distance the nearest-reference label shows. This throws
-            // away ALL the fragile `natural=coastline` line assembly / polygonize
-            // / flood-fill that kept mislabeling NYC's harbour: no reconstruction,
+            // map (`getBasemapWaterPolys`, captured by `basemapWater.ts`) — no
+            // fragile `natural=coastline` line assembly / polygonize / flood-fill,
             // just the water the map already draws.
+            //
+            // CRITICAL (v998.1): the basemap water is tagged `__waterArea`, so
+            // `bufferAndUnion` unions it in AS-IS (open sea → distance 0 → closer)
+            // but EXCLUDES it from the buffer-radius min. The radius `r` = the
+            // seeker's distance to a BUFFERED target below (coastline lines /
+            // ponds / rivers), which is the SAME shoreline the nearest-reference
+            // label measures — so the near-shore land band matches the label's
+            // "Shoreline N km". Making the basemap water a buffered target instead
+            // (the v998.0 bug) collapsed `r` to the seeker's distance to the
+            // nearest water POLYGON (e.g. the East River, far closer than the
+            // labelled shoreline), shrinking the whole overlay to a sliver.
             const basemapWater = getBasemapWaterPolys(bbox4(bBox));
             if (basemapWater && basemapWater.length > 0) {
-                out.push(...basemapWater);
-            } else {
-                // FALLBACK (no map has captured the basemap water yet — rare, the
-                // configure map captures it for the current question): fold in the
-                // per-city coastline as LINES, buffered by the seeker distance so
-                // the near-shore band + narrow tidal channels are covered. Open
-                // water beyond the band reads "further" until the basemap water
-                // lands (which busts the memo and recomputes — see the memo key).
-                try {
-                    const cityCoastLines = await fetchAreaCoastlineLines();
-                    const coastLines =
-                        cityCoastLines && cityCoastLines.length > 0
-                            ? cityCoastLines
-                            : clipLinesToBbox(await fetchCoastline(), bBox);
-                    if (coastLines.length > 0)
-                        out.push(highSpeedBase(coastLines));
-                } catch (e) {
-                    console.warn("body-of-water coastline band failed:", e);
+                for (const w of basemapWater) {
+                    out.push({
+                        ...w,
+                        properties: {
+                            ...(w.properties ?? {}),
+                            __waterArea: true,
+                        },
+                    } as Feature<Polygon | MultiPolygon>);
                 }
+            }
+            // The coastline LINES are ALWAYS added as a BUFFERED target: they set
+            // the radius to the real shoreline distance (matching the label) AND
+            // cover the near-shore band + narrow tidal channels. Without the
+            // basemap water they're the whole answer (near-shore band only, open
+            // water reads "further" until the basemap water lands — which busts
+            // the memo and recomputes). With it, they set `r` and the basemap
+            // water fills the open sea.
+            try {
+                const cityCoastLines = await fetchAreaCoastlineLines();
+                const coastLines =
+                    cityCoastLines && cityCoastLines.length > 0
+                        ? cityCoastLines
+                        : clipLinesToBbox(await fetchCoastline(), bBox);
+                if (coastLines.length > 0) out.push(highSpeedBase(coastLines));
+            } catch (e) {
+                console.warn("body-of-water coastline band failed:", e);
             }
             if (out.length === 0) return [turf.multiPolygon([])];
             return out;
