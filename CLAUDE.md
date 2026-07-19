@@ -428,7 +428,25 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v994`. Use `git log` for the per-version detail;
+build stamp. Current: `v995`. Use `git log` for the per-version detail;
+
+**v995 — body-of-water: the sea can never be silently dropped from the union
+(`bufferAndUnion` hardening).** Follow-up hardening to v994's flood-fill sea.
+`bufferAndUnionImpl` (`geometry/worker.ts`) unioned all parts AT ONCE and, on ANY
+`turf.union` throw, fell back to `parts[0]` — the FIRST **buffered target** — so
+an invalid simplified sea (or any bad part) silently DROPPED the sea polygon,
+leaving open water reading "further" even when the flood-fill produced a correct
+sea. Now the parts are assembled **water-areas FIRST** (the sea), then the
+buffered targets, and the union is **INCREMENTAL**: the accumulator starts with
+the sea and each subsequent part is unioned in with its own try/catch, so a
+per-part failure skips only that part and the sea is ALWAYS in the result.
+Validated end-to-end offline (synthetic continuous coast + inlet): open water =
+closer, the land boundary sits at the seeker-distance `r` inland (NOT at the
+shore), and the inlet is water — confirming v994's flood-fill + this union
+produce the correct "closer to water" region. (The earlier screenshot showing
+water "further" + the boundary hugging the shore was the pre-v994 state — the
+sea polygon was null, which is BOTH why water read "further" AND why the boundary
+sat at the shoreline instead of `r` inland; they're one root cause.)
 
 **v994 — body-of-water sea ROOT-CAUSE fix: seeker-seeded flood-fill face
 labeling (`seaFromCoastline`).** Even with the detailed coast (v993), open water

@@ -353,7 +353,21 @@ function bufferAndUnionImpl(
         const d = distanceToFeatureKm(seeker, f);
         if (Number.isFinite(d) && d < minKm) minKm = d;
     }
+    // Assemble the union parts WATER-AREAS FIRST, then the buffered targets.
+    // v994: this ordering is load-bearing — the union is INCREMENTAL and the
+    // accumulator starts with the water areas (the sea), so even if a later
+    // union step throws (e.g. an invalid buffered target) the sea is NEVER
+    // dropped. The old all-at-once `union(...) ?? parts[0]` fell back to
+    // `parts[0]` (the FIRST buffered target) on ANY throw, silently losing the
+    // sea → open water wrongly read "further".
     const parts: Feature<Polygon | MultiPolygon>[] = [];
+    for (const w of waterAreas) {
+        try {
+            if (area(w) > 0) parts.push(w);
+        } catch {
+            /* skip a degenerate water polygon */
+        }
+    }
     if (Number.isFinite(minKm)) {
         const r = Math.max(minKm, 0.01);
         for (const f of targets) {
@@ -367,25 +381,23 @@ function bufferAndUnionImpl(
             }
         }
     }
-    // The already-water areas (unbuffered) join the union.
-    for (const w of waterAreas) {
-        try {
-            if (area(w) > 0) parts.push(w);
-        } catch {
-            /* skip a degenerate water polygon */
-        }
-    }
     if (parts.length === 0) return null;
     if (parts.length === 1) return parts[0];
-    try {
-        return (
-            (union(
-                featureCollection(parts) as never,
-            ) as Feature<Polygon | MultiPolygon> | null) ?? parts[0]
-        );
-    } catch {
-        return parts[0];
+    // Incremental union — union each part into the accumulator; on a per-part
+    // failure keep the accumulator (which already holds the sea) and skip only
+    // the offending part, instead of collapsing the whole result.
+    let acc = parts[0];
+    for (let i = 1; i < parts.length; i++) {
+        try {
+            const u = union(
+                featureCollection([acc, parts[i]]) as never,
+            ) as Feature<Polygon | MultiPolygon> | null;
+            if (u && u.geometry && area(u) > 0) acc = u;
+        } catch {
+            /* keep the accumulator, skip this part */
+        }
     }
+    return acc;
 }
 
 self.onmessage = async (e: MessageEvent<InMessage>) => {
