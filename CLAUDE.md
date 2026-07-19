@@ -428,7 +428,34 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v993`. Use `git log` for the per-version detail;
+build stamp. Current: `v994`. Use `git log` for the per-version detail;
+
+**v994 — body-of-water sea ROOT-CAUSE fix: seeker-seeded flood-fill face
+labeling (`seaFromCoastline`).** Even with the detailed coast (v993), open water
+still read "further" — the sea polygon was coming back NULL. Root cause found by
+instrumenting the face labeling on real NYC coast: `seaFromCoastline` tiled the
+play-area frame into faces (coastline + frame edges) and labeled each land/water
+by the OSM **right-of-way winding** (water = right of the way direction) sampled
+at the face's interior — but on real data EVERY NYC face read the SAME sign
+(Natural Earth's coarse winding doesn't match OSM's land-left/water-right, and a
+big concave face's centroid-nearest-segment side is unreliable), so **0 water
+faces → null → no sea → open water wrongly "further"**. Replaced the fragile
+per-face winding test with a **SEEKER-SEEDED FLOOD-FILL 2-COLORING**: the seeker
+is KNOWN land (a real player stands on land), the coastline separates land from
+water, and two INTERIOR faces can only share a COASTLINE edge (a frame edge
+borders exactly one face), so every face-adjacency is a land↔water FLIP. Seeding
+the seeker's face land and BFS-flipping across each adjacency 2-colors the whole
+tiling — **winding-INDEPENDENT and topological**, immune to the all-same-sign
+failure, and it naturally handles NYC's archipelago (Manhattan-as-island, Staten
+Island, Governors Island each seeded correctly relative to the mainland). The old
+winding test is kept ONLY as a fallback for when the flood-fill can't seed
+(seeker outside every face). Fixes body-of-water open water AND `same-landmass`
+(both go through `seaFromCoastline` / `seaFromCoast` worker). Semantic change: a
+seeker on the winding-"water" side is now trusted as land (sea drawn on the
+opposite side) instead of returning null — the `seaFromCoastline` unit test was
+updated to match (6 cases pass). The coarse 1:50m fallback is still hopeless for
+a metro (only ~5 giant faces, one spanning Manhattan + the harbour), but the
+detailed prewarmed coast (v993) has enough faces for the flood-fill to resolve.
 
 **v993 — body-of-water sea uses the DETAILED prewarmed coast (not the crude
 coarse ocean).** v987 folded open water back in as an area but used the coarse

@@ -165,88 +165,12 @@ export function seaFromCoastline(
         }
         if (!faces || faces.length === 0) return null;
 
-        // 7. LABEL each face by ITS OWN geometry relative to the coastline
-        //    NEAREST TO IT (OSM land-left / water-right). This replaced the old
-        //    "sample 44 m to the right of every segment and flood the containing
-        //    face" approach (v896): in dense real-world coast (NYC's harbour +
-        //    tidal rivers) a single stray or mis-directed segment flooded a big
-        //    INLAND face as water, so an inland area far from any water got
-        //    marked "closer to water" than the seeker. Classifying each face by
-        //    the coast nearest to it makes a distant segment unable to influence
-        //    a face it doesn't bound: an inland face's nearest coast puts it on
-        //    the LAND side, so it stays land.
-        //
-        //    Flatten the clipped coastline into a list of directed segments
-        //    once; for a query point q, find the nearest segment a→b and test
-        //    which side of it q lies on. The RIGHT-hand (water) normal of a→b in
-        //    (lng,lat) is (Δlat, −Δlng), so q is on the water side iff
-        //    (q−a)·(Δlat,−Δlng) = (q.lng−a.lng)·Δlat − (q.lat−a.lat)·Δlng > 0.
-        const segList: { a: Position; b: Position; len: number }[] = [];
-        for (const seg of clippedSegments) {
-            for (let i = 0; i < seg.length - 1; i++) {
-                const a = seg[i];
-                const b = seg[i + 1];
-                const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
-                if (len === 0) continue; // zero-length
-                segList.push({ a, b, len });
-            }
-        }
-        if (segList.length === 0) return null;
-
-        // Side of the coastline NEAREST to q. Returns the SUMMED signed
-        // perpendicular offset (normalised per segment) over every segment at
-        // the minimum distance; > 0 ⇒ RIGHT (water) side. Summing matters at a
-        // shared VERTEX, where q's nearest point is a corner touched by two
-        // segments and a single-segment side test is degenerate (q can be
-        // collinear with one of them) — adding the two normalised crosses is
-        // the angle-bisector rule, correct for convex and reflex corners alike.
-        const waterSide = (q: Position): number => {
-            const d2s = new Array<number>(segList.length);
-            let dmin = Infinity;
-            for (let i = 0; i < segList.length; i++) {
-                const { a, b } = segList[i];
-                const abx = b[0] - a[0];
-                const aby = b[1] - a[1];
-                const apx = q[0] - a[0];
-                const apy = q[1] - a[1];
-                const len2 = abx * abx + aby * aby;
-                let t = len2 > 0 ? (apx * abx + apy * aby) / len2 : 0;
-                if (t < 0) t = 0;
-                else if (t > 1) t = 1;
-                const dx = q[0] - (a[0] + t * abx);
-                const dy = q[1] - (a[1] + t * aby);
-                const d2 = dx * dx + dy * dy;
-                d2s[i] = d2;
-                if (d2 < dmin) dmin = d2;
-            }
-            const tol = dmin * 1e-6 + 1e-18;
-            let sum = 0;
-            for (let i = 0; i < segList.length; i++) {
-                if (d2s[i] > dmin + tol) continue;
-                const { a, b, len } = segList[i];
-                const abx = b[0] - a[0];
-                const aby = b[1] - a[1];
-                const apx = q[0] - a[0];
-                const apy = q[1] - a[1];
-                // (q−a)·(Δlat,−Δlng): right-hand normal of a→b, per-unit-length.
-                sum += (apx * aby - apy * abx) / len;
-            }
-            return sum;
-        };
-
         // A point guaranteed to be STRICTLY inside a (possibly concave) face:
         // the centroid when it's inside, else the centroid of the face's
-        // largest triangle (triangles are convex, so a triangle centroid is
-        // always interior). `pointOnFeature` is NOT reliable here — for a
-        // concave face whose centroid falls outside it, it returns a boundary
-        // VERTEX, which classifies ambiguously.
+        // largest triangle (always interior). Used to seed / classify faces.
         const interiorPoint = (face: Feature<Polygon>): Position | null => {
             try {
                 const c = turf.centroid(face).geometry.coordinates as Position;
-                // STRICTLY inside — a centroid landing on the boundary (e.g. a
-                // concave face whose centroid sits on the shared coast vertex)
-                // would classify degenerately (side 0), so fall through to a
-                // triangle centroid, which is always strictly interior.
                 if (
                     turf.booleanPointInPolygon(turf.point(c), face, {
                         ignoreBoundary: true,
@@ -254,7 +178,7 @@ export function seaFromCoastline(
                 )
                     return c;
             } catch {
-                // fall through to triangulation
+                /* fall through to triangulation */
             }
             try {
                 const tri = turf.tesselate(face);
@@ -270,7 +194,7 @@ export function seaFromCoastline(
                 }
                 if (best) return best;
             } catch {
-                // fall through
+                /* fall through */
             }
             try {
                 return turf.pointOnFeature(face).geometry
@@ -280,14 +204,135 @@ export function seaFromCoastline(
             }
         };
 
-        // Bias near-boundary faces toward LAND (don't over-claim water — the
-        // reported failure was the opposite direction).
-        const SIDE_EPS = 1e-12;
-        const waterFaces: Feature<Polygon>[] = [];
-        for (const face of faces) {
-            const q = interiorPoint(face);
-            if (!q) continue;
-            if (waterSide(q) > SIDE_EPS) waterFaces.push(face);
+        // 7. LABEL faces land/water via a SEEKER-SEEDED FLOOD-FILL 2-COLORING
+        //    (v994). The seeker is KNOWN land; the coastline separates land from
+        //    water; and two INTERIOR faces can only share a COASTLINE edge (a
+        //    frame edge borders exactly one face), so every face-adjacency is a
+        //    land↔water FLIP. Seeding the seeker's face as land and flipping
+        //    across each adjacency 2-colours the whole tiling — WINDING-
+        //    INDEPENDENT and topological, so it's immune to the failure the old
+        //    per-face right-of-way test hit on real data (every NYC face read
+        //    the SAME sign — Natural Earth's winding doesn't match OSM's
+        //    land-left/water-right, and a big concave face's centroid-nearest-
+        //    segment side is unreliable — so 0 water faces → null → no sea →
+        //    open water wrongly "further"). The old winding test is kept below
+        //    ONLY as a fallback for when the flood-fill can't seed.
+        const isFrameEdge = (a: Position, b: Position): boolean =>
+            (nearlyEq(a[1], minLat) && nearlyEq(b[1], minLat)) ||
+            (nearlyEq(a[1], maxLat) && nearlyEq(b[1], maxLat)) ||
+            (nearlyEq(a[0], minLng) && nearlyEq(b[0], minLng)) ||
+            (nearlyEq(a[0], maxLng) && nearlyEq(b[0], maxLng));
+        const edgeKey = (a: Position, b: Position): string => {
+            const ka = `${a[0].toFixed(9)},${a[1].toFixed(9)}`;
+            const kb = `${b[0].toFixed(9)},${b[1].toFixed(9)}`;
+            return ka < kb ? `${ka}|${kb}` : `${kb}|${ka}`;
+        };
+        const edgeToFaces = new Map<string, number[]>();
+        faces.forEach((f, fi) => {
+            const ring = f.geometry.coordinates[0];
+            for (let i = 0; i < ring.length - 1; i++) {
+                const a = ring[i];
+                const b = ring[i + 1];
+                if (isFrameEdge(a, b)) continue; // frame edge → not a flip edge
+                const k = edgeKey(a, b);
+                const arr = edgeToFaces.get(k);
+                if (arr) arr.push(fi);
+                else edgeToFaces.set(k, [fi]);
+            }
+        });
+        const adjacency: number[][] = faces.map(() => []);
+        for (const fis of edgeToFaces.values()) {
+            if (fis.length === 2) {
+                adjacency[fis[0]].push(fis[1]);
+                adjacency[fis[1]].push(fis[0]);
+            }
+        }
+        const seekerPt = turf.point([seeker.lng, seeker.lat]);
+        let seedFace = -1;
+        for (let fi = 0; fi < faces.length; fi++) {
+            try {
+                if (turf.booleanPointInPolygon(seekerPt, faces[fi])) {
+                    seedFace = fi;
+                    break;
+                }
+            } catch {
+                /* skip a malformed face */
+            }
+        }
+        let waterFaces: Feature<Polygon>[] = [];
+        if (seedFace >= 0) {
+            const color = new Array<number>(faces.length).fill(-1);
+            color[seedFace] = 0; // seeker's face = LAND
+            const queue = [seedFace];
+            while (queue.length) {
+                const u = queue.shift() as number;
+                for (const v of adjacency[u]) {
+                    if (color[v] === -1) {
+                        color[v] = color[u] ^ 1;
+                        queue.push(v);
+                    }
+                }
+            }
+            waterFaces = faces.filter((_, fi) => color[fi] === 1);
+        }
+
+        // 7b. FALLBACK — the winding right-of-way test, used only when the
+        //     flood-fill couldn't seed (seeker outside every face) or coloured
+        //     no water. Flatten the clipped coastline into directed segments;
+        //     for a face's interior point q, the RIGHT-hand (water) normal of
+        //     the nearest segment a→b in (lng,lat) is (Δlat, −Δlng), so q is on
+        //     the water side iff (q−a)·(Δlat,−Δlng) > 0.
+        if (waterFaces.length === 0) {
+            const segList: { a: Position; b: Position; len: number }[] = [];
+            for (const seg of clippedSegments) {
+                for (let i = 0; i < seg.length - 1; i++) {
+                    const a = seg[i];
+                    const b = seg[i + 1];
+                    const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
+                    if (len === 0) continue; // zero-length
+                    segList.push({ a, b, len });
+                }
+            }
+            if (segList.length > 0) {
+                const waterSide = (q: Position): number => {
+                    const d2s = new Array<number>(segList.length);
+                    let dmin = Infinity;
+                    for (let i = 0; i < segList.length; i++) {
+                        const { a, b } = segList[i];
+                        const abx = b[0] - a[0];
+                        const aby = b[1] - a[1];
+                        const apx = q[0] - a[0];
+                        const apy = q[1] - a[1];
+                        const len2 = abx * abx + aby * aby;
+                        let t = len2 > 0 ? (apx * abx + apy * aby) / len2 : 0;
+                        if (t < 0) t = 0;
+                        else if (t > 1) t = 1;
+                        const dx = q[0] - (a[0] + t * abx);
+                        const dy = q[1] - (a[1] + t * aby);
+                        const d2 = dx * dx + dy * dy;
+                        d2s[i] = d2;
+                        if (d2 < dmin) dmin = d2;
+                    }
+                    const tol = dmin * 1e-6 + 1e-18;
+                    let sum = 0;
+                    for (let i = 0; i < segList.length; i++) {
+                        if (d2s[i] > dmin + tol) continue;
+                        const { a, b, len } = segList[i];
+                        const abx = b[0] - a[0];
+                        const aby = b[1] - a[1];
+                        const apx = q[0] - a[0];
+                        const apy = q[1] - a[1];
+                        sum += (apx * aby - apy * abx) / len;
+                    }
+                    return sum;
+                };
+                const SIDE_EPS = 1e-12;
+                for (const face of faces) {
+                    const q = interiorPoint(face);
+                    if (!q) continue;
+                    if (waterSide(q) > SIDE_EPS) waterFaces.push(face);
+                }
+            }
         }
 
         if (waterFaces.length === 0) return null;

@@ -59,15 +59,26 @@ describe("seaFromCoastline", () => {
         ).toBe(false);
     });
 
-    it("returns null when the seeker is on the water side (guard)", () => {
-        // North-going coast → water east. Seeker placed IN the east/water half.
+    it("trusts the seeker as land — flood-fill labels the seeker's side land regardless of winding (v994)", () => {
+        // North-going coast → the WINDING says water is east. But the seeker is
+        // placed in the east half, and a real player is always on LAND, so the
+        // seeker-seeded flood-fill 2-coloring labels the EAST (seeker) side land
+        // and the WEST side water — winding-independent. (The old winding test
+        // returned null here; the flood-fill is authoritative on seeker=land.)
         const line = coast([
             [0.5, 0],
             [0.5, 1],
         ]);
         const seeker = { lng: 0.75, lat: 0.5 };
         const sea = seaFromCoastline([line], FRAME, seeker);
-        expect(sea).toBeNull();
+        expect(sea).not.toBeNull();
+        // Water = the WEST half (opposite the seeker); the seeker's east is land.
+        expect(
+            turf.booleanPointInPolygon(turf.point([0.25, 0.5]), sea!),
+        ).toBe(true);
+        expect(
+            turf.booleanPointInPolygon(turf.point([0.75, 0.5]), sea!),
+        ).toBe(false);
     });
 
     it("returns null for empty coastline input", () => {
