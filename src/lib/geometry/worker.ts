@@ -327,35 +327,64 @@ function bufferAndUnionImpl(
 ): Feature<Polygon | MultiPolygon> | null {
     const feats = (p.features ?? []).filter((f) => f && f.geometry);
     if (feats.length === 0) return null;
+    // v987: a feature tagged `__waterArea` is ALREADY water (e.g. the coarse
+    // ocean polygon) — it's unioned in AS-IS (never buffered) and excluded
+    // from the buffer-radius min, so a coarse/imprecise sea shore can't shrink
+    // the "closer than my nearest water" radius (which must match the
+    // nearest-reference label). The buffered features (ponds / rivers /
+    // coastline lines) still fill the near-shore band + narrow tidal channels.
+    const waterAreas: Feature<Polygon | MultiPolygon>[] = [];
+    const targets: Feature[] = [];
+    for (const f of feats) {
+        if ((f.properties as { __waterArea?: boolean })?.__waterArea === true) {
+            if (
+                f.geometry.type === "Polygon" ||
+                f.geometry.type === "MultiPolygon"
+            ) {
+                waterAreas.push(f as Feature<Polygon | MultiPolygon>);
+            }
+        } else {
+            targets.push(f);
+        }
+    }
     const seeker = turfPoint([p.seeker.lng, p.seeker.lat]);
     let minKm = Infinity;
-    for (const f of feats) {
+    for (const f of targets) {
         const d = distanceToFeatureKm(seeker, f);
         if (Number.isFinite(d) && d < minKm) minKm = d;
     }
-    if (!Number.isFinite(minKm)) return null;
-    const r = Math.max(minKm, 0.01);
-    const buffered: Feature<Polygon | MultiPolygon>[] = [];
-    for (const f of feats) {
-        try {
-            const b = turfBuffer(f as never, r, {
-                units: "kilometers",
-            }) as Feature<Polygon | MultiPolygon> | undefined;
-            if (b && b.geometry && area(b) > 0) buffered.push(b);
-        } catch {
-            /* skip a feature turf can't buffer */
+    const parts: Feature<Polygon | MultiPolygon>[] = [];
+    if (Number.isFinite(minKm)) {
+        const r = Math.max(minKm, 0.01);
+        for (const f of targets) {
+            try {
+                const b = turfBuffer(f as never, r, {
+                    units: "kilometers",
+                }) as Feature<Polygon | MultiPolygon> | undefined;
+                if (b && b.geometry && area(b) > 0) parts.push(b);
+            } catch {
+                /* skip a feature turf can't buffer */
+            }
         }
     }
-    if (buffered.length === 0) return null;
-    if (buffered.length === 1) return buffered[0];
+    // The already-water areas (unbuffered) join the union.
+    for (const w of waterAreas) {
+        try {
+            if (area(w) > 0) parts.push(w);
+        } catch {
+            /* skip a degenerate water polygon */
+        }
+    }
+    if (parts.length === 0) return null;
+    if (parts.length === 1) return parts[0];
     try {
         return (
             (union(
-                featureCollection(buffered) as never,
-            ) as Feature<Polygon | MultiPolygon> | null) ?? buffered[0]
+                featureCollection(parts) as never,
+            ) as Feature<Polygon | MultiPolygon> | null) ?? parts[0]
         );
     } catch {
-        return buffered[0];
+        return parts[0];
     }
 }
 

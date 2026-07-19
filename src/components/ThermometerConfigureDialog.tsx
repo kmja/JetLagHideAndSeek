@@ -1,5 +1,5 @@
 import { useStore } from "@nanostores/react";
-import { Loader2, Locate, Thermometer } from "lucide-react";
+import { ChevronLeft, ChevronRight, Loader2, Thermometer } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "react-toastify";
 
@@ -11,8 +11,10 @@ import {
     DialogHeader,
     DialogTitle,
 } from "@/components/ui/dialog";
+import { ZonePreviewMap } from "@/components/ZonePreviewMap";
 import {
     addQuestion,
+    lastKnownPosition,
     questionModified,
     questions,
 } from "@/lib/context";
@@ -70,6 +72,7 @@ export function ThermometerConfigureDialog({
     const $questions = useStore(questions);
     const $askOnce = useStore(askOncePerQuestion);
     const $units = useStore(resolvedUnits);
+    const $gps = useStore(lastKnownPosition);
     // v972: unit-aware presets (imperial → 0.5/3/10/45 mi) from the one
     // shared source; sigs stay stable so uniqueness + stored questions work.
     const presets = thermometerPresetsForSize($size, $units);
@@ -99,6 +102,9 @@ export function ThermometerConfigureDialog({
         firstAvailable ?? null,
     );
     const [submitting, setSubmitting] = useState(false);
+    // The currently-selected preset — shared by the carousel + the
+    // travel-distance map below it.
+    const current = presets.find((p) => p.sig === selected);
 
     // Reset selection when the dialog reopens (fresh state per use).
     useEffect(() => {
@@ -192,57 +198,93 @@ export function ThermometerConfigureDialog({
                     </DialogTitle>
                     <DialogDescription>
                         Pick how far you&apos;ll travel before sending the
-                        question. Your current GPS is captured as the
-                        starting point and notified to the hider.
+                        question.
                     </DialogDescription>
                 </DialogHeader>
-                <div className="mt-2 grid grid-cols-2 gap-2">
-                    {presets.map((preset) => {
-                        const askedTimes = sigCounts.get(preset.sig) ?? 0;
-                        const used = askedTimes > 0;
-                        const hardBlock = $askOnce && used;
-                        const repeatMult = askedTimes + 1;
-                        const active = selected === preset.sig;
-                        return (
+                {/* v987: distance CAROUSEL (matches the radar picker) — one
+                    prominent target at a time, prev/next cycles the presets.
+                    A repeat-used preset (rulebook p65) shows the N× badge; the
+                    house rule `askOncePerQuestion` skips used presets. */}
+                {(() => {
+                    const selectable = $askOnce
+                        ? presets.filter((p) => (sigCounts.get(p.sig) ?? 0) === 0)
+                        : presets;
+                    const idx = selectable.findIndex((p) => p.sig === selected);
+                    const cycle = (dir: 1 | -1) => {
+                        if (selectable.length === 0) return;
+                        const base = idx === -1 ? (dir === 1 ? -1 : 0) : idx;
+                        const next =
+                            (base + dir + selectable.length) % selectable.length;
+                        setSelected(selectable[next].sig);
+                    };
+                    const navBtn = cn(
+                        "h-20 w-14 shrink-0 flex items-center justify-center rounded-md",
+                        "bg-secondary text-foreground hover:bg-accent transition-colors",
+                        "disabled:opacity-30 disabled:cursor-not-allowed",
+                    );
+                    const repeatMult = (sigCounts.get(selected ?? "") ?? 0) + 1;
+                    const showRepeat = !$askOnce && repeatMult > 1;
+                    const canCycle = selectable.length > 0 && !submitting;
+                    return (
+                        <div className="mt-2 flex items-center gap-2">
                             <button
-                                key={preset.sig}
                                 type="button"
-                                onClick={() =>
-                                    !hardBlock && setSelected(preset.sig)
-                                }
-                                disabled={hardBlock || submitting}
-                                aria-pressed={active}
-                                title={
-                                    hardBlock
-                                        ? `House rule: ${preset.label} already used this game`
-                                        : used
-                                          ? `Repeat: hider runs the draw-keep cycle ${repeatMult}× (rulebook p65)`
-                                          : `Pick ${preset.label}`
-                                }
-                                className={cn(
-                                    "relative flex flex-col items-center justify-center gap-1 py-4 rounded-md border-2 text-sm font-poppins font-semibold",
-                                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                                    hardBlock
-                                        ? "border-border bg-secondary/40 text-muted-foreground line-through opacity-60 cursor-not-allowed"
-                                        : active
-                                          ? "border-primary bg-primary/15 text-primary"
-                                          : "border-border bg-secondary/30 hover:bg-secondary/60",
-                                )}
+                                aria-label="Shorter distance"
+                                onClick={() => cycle(-1)}
+                                disabled={!canCycle}
+                                className={navBtn}
                             >
-                                {used && !hardBlock && (
-                                    <span className="absolute top-1 right-1 inline-flex items-center justify-center px-1.5 h-4 rounded-sm bg-yellow-500/90 text-black text-[10px] font-poppins font-bold leading-none">
+                                <ChevronLeft className="w-8 h-8" />
+                            </button>
+                            <div className="relative flex-1 h-20 flex flex-col items-center justify-center rounded-md px-4 py-3 ring-2 ring-primary bg-primary/15">
+                                {showRepeat && (
+                                    <span
+                                        title={`Repeat: hider runs the draw-keep cycle ${repeatMult}× (rulebook p65)`}
+                                        className="absolute top-1.5 right-1.5 inline-flex items-center justify-center px-1.5 h-4 rounded-sm bg-yellow-500/90 text-black text-[10px] font-poppins font-bold leading-none"
+                                    >
                                         {repeatMult}×
                                     </span>
                                 )}
-                                <span className="text-base">{preset.label}</span>
-                                {hardBlock && (
-                                    <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
-                                        Used
-                                    </span>
-                                )}
+                                <span className="text-3xl font-poppins font-bold text-primary tabular-nums leading-none">
+                                    {current?.label ?? "—"}
+                                </span>
+                                <span className="text-[11px] uppercase tracking-wider text-muted-foreground mt-2">
+                                    Travel distance
+                                </span>
+                            </div>
+                            <button
+                                type="button"
+                                aria-label="Longer distance"
+                                onClick={() => cycle(1)}
+                                disabled={!canCycle}
+                                className={navBtn}
+                            >
+                                <ChevronRight className="w-8 h-8" />
                             </button>
-                        );
-                    })}
+                        </div>
+                    );
+                })()}
+                {/* Travel-distance map: a circle of the chosen distance around
+                    your current position, so you can see how far you'll have
+                    to move to finish the thermometer. */}
+                <div className="mt-3">
+                    {$gps && current ? (
+                        <ZonePreviewMap
+                            lat={$gps.lat}
+                            lng={$gps.lng}
+                            radiusMeters={Math.round(current.km * 1000)}
+                            padding={18}
+                            className="w-full aspect-[4/3] rounded-lg overflow-hidden border border-border"
+                        />
+                    ) : (
+                        <div className="w-full aspect-[4/3] rounded-lg border border-dashed border-border bg-secondary/30 flex items-center justify-center text-center px-6">
+                            <span className="text-xs text-muted-foreground leading-snug">
+                                {$gps
+                                    ? "Pick a distance to preview how far you'll travel."
+                                    : "Waiting for your location — the travel-distance circle will appear once GPS is ready."}
+                            </span>
+                        </div>
+                    )}
                 </div>
                 <div className="mt-4 flex flex-col gap-2">
                     <Button
@@ -269,13 +311,6 @@ export function ThermometerConfigureDialog({
                     >
                         Cancel
                     </Button>
-                    <p className="text-[11px] text-muted-foreground flex items-start gap-1.5 leading-snug">
-                        <Locate className="w-3 h-3 mt-0.5 shrink-0" />
-                        <span>
-                            We&apos;ll request a fresh GPS fix when you tap
-                            Start, so make sure location services are on.
-                        </span>
-                    </p>
                 </div>
             </DialogContent>
         </Dialog>

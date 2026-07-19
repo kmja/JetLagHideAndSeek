@@ -428,7 +428,41 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v986`. Use `git log` for the per-version detail;
+build stamp. Current: `v987`. Use `git log` for the per-version detail;
+
+**v987 — body-of-water: fold OPEN water back in as an AREA (coarse ocean) +
+thermometer configure dialog redesign.**
+- **Body-of-water open water.** v985 dropped the sea AREA entirely (buffer =
+  ponds + rivers + coastline LINES only), so open water beyond the ~seeker-
+  distance band read "further" — impossible, since open water IS water (the
+  repeatedly-reported Hudson / harbour bug). The fragile per-city DETAILED sea
+  (`seaFromCoastline` over the OSM coast) is what froze the app / timed out the
+  worker's `turf.union` across v980–v985, so it stays out. Instead the
+  elimination now rebuilds the **COARSE ocean** from the bundled 1:50m coastline
+  (only ~13 vertices inside an NYC frame → `seaFromCoastline` runs instantly on
+  the main thread, no timeout risk) and folds it into the buffer input tagged
+  **`__waterArea`**. The geometry worker's `bufferAndUnionImpl` (`geometry/
+  worker.ts`) now SPLITS tagged water areas from buffer targets: the coarse
+  ocean is unioned in **AS-IS (never buffered)** and **excluded from the
+  buffer-radius min**, so a coarse/imprecise sea shore can't shrink the "closer
+  than my nearest water" radius (which must keep matching the nearest-reference
+  label). The detailed coastline LINES band still fills the narrow tidal
+  channels (East River) the coarse ocean is too coarse to resolve. Guarded
+  degradation: if `seaFromCoastline` rejects the coarse sea (seeker-in-sea /
+  degenerate / near-whole-frame), we fall back to lines-only (the v985
+  behaviour) — a monotonic improvement, never a regression. Known remaining
+  limitation: the exact centreline of a wide channel (>~seeker-distance from any
+  detailed shore) that the coarse 1:50m ocean also doesn't reach can still read
+  "further" — the full detailed sea is the only complete answer and it's the
+  thing that froze, so it's deliberately not reintroduced.
+- **Thermometer configure dialog** (`ThermometerConfigureDialog`) now mirrors
+  the radar picker (v747): the 2-column preset grid became a prev/next
+  **distance CAROUSEL** (one prominent target, ChevronLeft/Right cycle the
+  size-gated presets; the `askOncePerQuestion` house rule skips used presets, a
+  repeat shows the N× badge) plus a **travel-distance MAP** — a `ZonePreviewMap`
+  circle of the chosen distance around your live GPS, so you see how far you'll
+  have to move to finish (dashed placeholder until GPS resolves / a distance is
+  picked). The "We'll request a fresh GPS fix…" hint was removed.
 
 **v986 — trip planner: clamp implausible ACCESS/EGRESS walk legs (worker).**
 MOTIS routes the access walk to its GTFS stop coordinate — sometimes a few

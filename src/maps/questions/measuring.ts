@@ -34,6 +34,7 @@ import {
 import { fetchPrewarmedRailStationElements } from "@/lib/journey/stations";
 import { bufferAndUnion, bufferPointsUnion } from "@/lib/geometry/client";
 import { filterCoastlineByStraitRule } from "@/maps/questions/coastlineStrait";
+import { seaFromCoastline } from "@/maps/questions/seaFromCoastline";
 import { majorCityPoints } from "@/maps/data/majorCities";
 import {
     arcBufferToPoint,
@@ -612,6 +613,42 @@ export const determineMeasuringBoundary = async (
                 if (coastLines.length > 0) out.push(highSpeedBase(coastLines));
             } catch (e) {
                 console.warn("body-of-water coastline band failed:", e);
+            }
+            // v987: fold OPEN water back in as an AREA. v985 dropped the sea
+            // entirely (only the coastline LINES band), so open water beyond
+            // the ~seeker-distance band read "further" — impossible, since open
+            // water IS water (the reported Hudson / harbour bug). Rebuild the
+            // COARSE ocean from the bundled 1:50m coastline (few vertices →
+            // cheap `seaFromCoastline` on the main thread; NOT the heavy
+            // detailed-OSM sea whose union timed out the worker in v980-v985).
+            // Tag it `__waterArea` so the downstream buffer step unions it in
+            // AS-IS (unbuffered) and excludes it from the buffer radius — the
+            // detailed coastline LINES above still fill the narrow tidal
+            // channels (East River) the coarse ocean is too coarse to resolve.
+            // Degrades to lines-only if the coarse sea is unavailable/rejected.
+            try {
+                const coarseCoast = clipLinesToBbox(
+                    await fetchCoastline(),
+                    bBox,
+                );
+                if (coarseCoast.length > 0) {
+                    const sea = seaFromCoastline(
+                        coarseCoast as Feature<
+                            GeoJSON.LineString | GeoJSON.MultiLineString
+                        >[],
+                        bbox4(bBox),
+                        { lng: question.lng, lat: question.lat },
+                    );
+                    if (sea) {
+                        sea.properties = {
+                            ...(sea.properties ?? {}),
+                            __waterArea: true,
+                        };
+                        out.push(sea);
+                    }
+                }
+            } catch (e) {
+                console.warn("body-of-water coarse ocean failed:", e);
             }
             if (out.length === 0) return [turf.multiPolygon([])];
             return out;
