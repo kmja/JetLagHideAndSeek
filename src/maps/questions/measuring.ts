@@ -31,10 +31,8 @@ import {
     fetchPrewarmedAreaWater,
     requestWaterWarmAll,
 } from "@/maps/api/water";
-import { seaFromCoast as seaFromCoastViaWorker } from "@/lib/geometry/client";
 import { fetchPrewarmedRailStationElements } from "@/lib/journey/stations";
 import { filterCoastlineByStraitRule } from "@/maps/questions/coastlineStrait";
-import { seaFromCoastline } from "@/maps/questions/seaFromCoastline";
 import { majorCityPoints } from "@/maps/data/majorCities";
 import {
     arcBufferToPoint,
@@ -561,83 +559,42 @@ export const determineMeasuringBoundary = async (
             if (lines.length > 0) {
                 out.push(highSpeedBase(lines));
             }
-            // v702/v770: fold in the SEA as an AREA, not just its coast. OSM
-            // tags the open sea + large bays as `natural=coastline` (a SEPARATE
-            // family), not `natural=water`, so a coastal metro's biggest body
-            // of water is invisible to the `natural=water` query. v702 added the
-            // bundled coastline as thin LINES, but buffering a line only covers
-            // a band near the shore — so OPEN water beyond the seeker's distance
-            // was wrongly marked "further from water", which is impossible (it
-            // IS water, distance 0). Build the sea as a POLYGON instead: the
-            // play-area frame MINUS the land polygons `lineToPolygon` closes the
-            // 1:50m coastline into (the same land-as-truth contract
-            // `same-landmass` + the `coastline` subtype use). Its whole interior
-            // then counts as water. Guarded by a seeker-not-in-sea check: the
-            // seeker is on land, so a valid sea polygon never contains them —
-            // this rejects an inland frame (land fills it → empty/other sea) and
-            // any inverted winding (land mistaken for sea) before it could paint
-            // land as water. Falls back to the thin coastline band otherwise.
+            // Fold in the SEA. OSM tags the open sea + large bays as
+            // `natural=coastline` (a SEPARATE family), not `natural=water`, so
+            // a coastal metro's biggest body of water is invisible to the
+            // `natural=water` query above and must be added separately.
+            //
+            // v976 REWRITE. Earlier versions built the sea as a POLYGON from
+            // the DETAILED per-city OSM coastline via `seaFromCoastline`
+            // (node → polygonize → right-of-way face labelling). That proved
+            // both FRAGILE (a dense harbour like NYC mislabels faces or fails
+            // to polygonize → the sea is wrong or null) and SLOW (tens of
+            // thousands of coastline vertices → the geodesic buffer froze the
+            // main thread for ~10 s). The result: NYC's harbour/East River got
+            // marked "further from water", which is impossible.
+            //
+            // Robust approach instead — combine two reliable sources, no
+            // polygonize, no huge single polygon:
+            //   (a) The COARSE OCEAN as an AREA: the play-area frame MINUS the
+            //       bundled Natural Earth 1:50m land. This is small + always
+            //       well-formed, and covers the OPEN sea/harbour/ocean as real
+            //       area so it reads "closer", never "further". Accepted unless
+            //       clearly inverted (a seeker DEEP inside it = genuinely
+            //       offshore); a coastal seeker who falls just inside the
+            //       coarse sea due to 1:50m imprecision is fine.
+            //   (b) The per-city OSM coastline as LINES (the shore). Buffered
+            //       by the seeker distance this covers near-shore land AND
+            //       narrow tidal channels (the East River) that the coarse
+            //       ocean is too coarse to include as area. Cheap (one
+            //       combined + simplified multiline).
+            // The `coastline` measuring subtype + `same-landmass` still use
+            // their own per-city land geometry; only body-of-water dropped the
+            // fragile sea polygon.
             try {
                 const seeker = { lng: question.lng, lat: question.lat };
-                let sea: Feature<Polygon | MultiPolygon> | null = null;
-                // v876: keep the DETAILED per-city coast lines around so the
-                // last-resort band (when seaFromCoastline fails) can reuse them
-                // instead of dropping to the coarse 1:50m bundle.
-                let cityCoastLines: Awaited<
-                    ReturnType<typeof fetchAreaCoastlineLines>
-                > = null;
 
-                // v776: prefer the DETAILED per-city OSM coastline (prewarmed
-                // `/api/coast/<id>`). OSM tags the open sea/bays as
-                // `natural=coastline`, and the bundled 1:50m coastline is far
-                // too coarse for a metro — NYC's harbour + tidal rivers were
-                // still marked "further from water". `seaFromCoastline` nodes
-                // the coastline against the frame, polygonizes, and labels
-                // water by the OSM right-of-way rule; it self-guards
-                // (seeker-not-in-sea, degeneracy) and returns null on any
-                // failure, so we fall through to the coarse sea below. On a
-                // cold coast it background-warms for next time.
+                // (a) Coarse ocean AREA.
                 if (bBox) {
-                    try {
-                        // v778: shared per-city coastline fetch — prewarmed
-                        // R2, then a live play-area Overpass query on a cold
-                        // city (so an un-warmed coastal metro also gets the
-                        // detailed sea, not just the coarse 1:50m fallback).
-                        cityCoastLines = await fetchAreaCoastlineLines();
-                        const lines = cityCoastLines;
-                        if (lines && lines.length > 0) {
-                            const frame = bBox as [
-                                number,
-                                number,
-                                number,
-                                number,
-                            ];
-                            // v879: run the heavy seaFromCoastline
-                            // (node/polygonize/union) OFF the main thread so a
-                            // dense coastal metro (NYC harbour + tidal rivers)
-                            // doesn't freeze the UI. Falls back to the sync
-                            // main-thread version if the worker is unavailable.
-                            try {
-                                sea = await seaFromCoastViaWorker(
-                                    lines,
-                                    frame,
-                                    seeker,
-                                );
-                            } catch {
-                                sea = seaFromCoastline(lines, frame, seeker);
-                            }
-                        }
-                    } catch (e) {
-                        console.warn(
-                            "body-of-water detailed coast failed:",
-                            e,
-                        );
-                    }
-                }
-
-                // Fallback: coarse 1:50m sea (v770) — frame MINUS the land the
-                // bundled coastline closes into, guarded by seeker-not-in-sea.
-                if (!sea && bBox) {
                     try {
                         const coastFC = await fetchCoastline();
                         const frame = turf.bboxPolygon(bBox as any);
@@ -674,69 +631,61 @@ export const determineMeasuringBoundary = async (
                                       Polygon | MultiPolygon
                                   > | null)
                                 : (frame as Feature<Polygon>);
-                            const bad =
+                            const coarseArea =
+                                coarse != null ? turf.area(coarse as any) : 0;
+                            const frameA = turf.area(frame as any);
+                            // Reject a degenerate/whole-frame ocean, or a
+                            // seeker DEEP in the ocean (> ~2 km from its edge =
+                            // genuinely offshore / an inversion). A coastal
+                            // seeker just inside the coarse ocean near the shore
+                            // is accepted (1:50m imprecision tolerance).
+                            let bad =
                                 coarse == null ||
-                                (() => {
-                                    try {
-                                        return turf.booleanPointInPolygon(
-                                            turf.point([
-                                                seeker.lng,
-                                                seeker.lat,
-                                            ]),
+                                coarseArea <= 0 ||
+                                (frameA > 0 && coarseArea > 0.97 * frameA);
+                            if (!bad) {
+                                try {
+                                    const seekerPt = turf.point([
+                                        seeker.lng,
+                                        seeker.lat,
+                                    ]);
+                                    if (
+                                        turf.booleanPointInPolygon(
+                                            seekerPt,
                                             coarse as any,
+                                        )
+                                    ) {
+                                        const edgeKm = turf.pointToLineDistance(
+                                            seekerPt,
+                                            turf.polygonToLine(
+                                                coarse as any,
+                                            ) as any,
+                                            { units: "kilometers" },
                                         );
-                                    } catch {
-                                        return true;
+                                        bad = edgeKm > 2;
                                     }
-                                })();
-                            if (!bad && turf.area(coarse as any) > 0)
-                                sea = coarse;
+                                } catch {
+                                    bad = true;
+                                }
+                            }
+                            if (!bad && coarse) out.push(coarse);
                         }
                     } catch (e) {
-                        console.warn(
-                            "body-of-water coarse sea failed:",
-                            e,
-                        );
+                        console.warn("body-of-water coarse ocean failed:", e);
                     }
                 }
 
-                if (sea && turf.area(sea as any) > 0) {
-                    // v972: the per-city sea polygon carries the FULL detailed
-                    // OSM coastline (tens of thousands of vertices for a
-                    // harbour metro like NYC). Buffering that raw froze the
-                    // main thread AND made the arcgis geodesic buffer throw —
-                    // whose coarse-simplify retry then dropped small water
-                    // polygons, painting real water "further" (the reported
-                    // bug). Simplify the SEA to ~33 m up front (negligible
-                    // against a hundreds-of-metres water buffer) so the buffer
-                    // runs fast and succeeds on the first, un-simplified
-                    // attempt — leaving the small named-water polygons intact.
-                    let seaOut = sea;
-                    try {
-                        seaOut = turf.simplify(sea as any, {
-                            tolerance: 0.0003,
-                            highQuality: false,
-                            mutate: false,
-                        }) as Feature<Polygon | MultiPolygon>;
-                    } catch {
-                        /* keep the un-simplified sea */
-                    }
-                    out.push(
-                        seaOut && turf.area(seaOut as any) > 0 ? seaOut : sea,
-                    );
-                } else {
-                    // Last resort (v876): reuse the DETAILED per-city coast
-                    // lines if we have them — a seaFromCoastline failure
-                    // shouldn't discard the real East-River coastline and drop
-                    // to the coarse 1:50m band (the coastline subtype already
-                    // buffers the per-city lines directly). Only truly-empty
-                    // per-city coast falls to the bundled band.
+                // (b) Per-city coastline LINES (shore + narrow channels).
+                try {
+                    const cityCoastLines = await fetchAreaCoastlineLines();
                     const coastLines =
                         cityCoastLines && cityCoastLines.length > 0
                             ? cityCoastLines
                             : clipLinesToBbox(await fetchCoastline(), bBox);
                     if (coastLines.length > 0)
                         out.push(highSpeedBase(coastLines));
+                } catch (e) {
+                    console.warn("body-of-water coastline band failed:", e);
                 }
             } catch (e) {
                 console.warn("body-of-water sea merge failed:", e);

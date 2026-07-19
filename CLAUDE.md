@@ -428,7 +428,39 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v975`. Use `git log` for the per-version detail;
+build stamp. Current: `v976`. Use `git log` for the per-version detail;
+
+**v976 — body-of-water sea rebuilt: drop the fragile per-city sea POLYGON
+(fixes the ~10 s freeze + water-marked-"further" in coastal metros).** The v973
+attempt (simplify the per-city sea before buffering) did NOT fix NYC — the app
+still froze mid-load and open harbour/East-River water still rendered "further
+from water" (impossible: it IS water). Root cause was the per-city sea POLYGON
+itself: `seaFromCoastline` (node → polygonize → right-of-way face labelling over
+the DETAILED OSM `natural=coastline`) is both FRAGILE (a dense harbour mislabels
+faces or fails to polygonize → the sea is wrong or null) and SLOW (tens of
+thousands of coastline vertices → the geodesic buffer freezes the main thread
+for ~10 s even after simplification). `measuring.ts` body-of-water now DROPS that
+construction entirely and folds the sea in from two reliable sources instead (no
+polygonize, no single huge polygon):
+- **(a) The COARSE OCEAN as an AREA** — the play-area frame MINUS the bundled
+  Natural Earth 1:50m land. Small, always well-formed, covers the open
+  sea/harbour/ocean as real area so it reads "closer", never "further". Accepted
+  unless clearly inverted: a degenerate/whole-frame ocean, or a seeker DEEP
+  (> ~2 km from the ocean edge = genuinely offshore) is rejected; a COASTAL
+  seeker who falls just inside the coarse ocean due to 1:50m imprecision is
+  tolerated (the old strict seeker-not-in-sea guard rejected Manhattan and
+  discarded the whole sea).
+- **(b) The per-city OSM coastline as LINES** (`fetchAreaCoastlineLines` →
+  `highSpeedBase`) — the shore, buffered by the seeker distance covers near-shore
+  land AND the NARROW tidal channels (the East River) that the coarse 1:50m ocean
+  is too coarse to include as area. Cheap (one combined + simplified multiline).
+This is body-of-water ONLY; the `coastline` subtype (2 km strait rule, v969) and
+`same-landmass` keep their own per-city land geometry. The v973 sea-simplify code
+and the `seaFromCoast` worker / `seaFromCoastline` imports were removed from this
+path (both now unused by measuring.ts; `seaFromCoastline` stays live via
+`coastlineStrait.ts`). NOTE: the 2 km inlet exclusion is a COASTLINE-question rule,
+not a body-of-water rule — body-of-water counts ALL water (canals/inlets/harbour).
+Geometry can't be verified in CI; validate on-device (NYC).
 
 **v974/v975 — distances follow the selected unit system (slices 2 + 3).**
 Completes the v972 unit-system unification so EVERY distance in the app —
