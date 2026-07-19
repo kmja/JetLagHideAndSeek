@@ -87,14 +87,15 @@ describe("filterCoastlineByStraitRule", () => {
         expect(out!.length).toBe(0);
     });
 
-    it("falls back to null for a fully-interior lake ring (seaFromCoastline limitation)", () => {
-        // A closed ring entirely inside the frame: `seaFromCoastline`'s
-        // polygonize emits the frame face WITHOUT the lake hole, so its
-        // labelling degenerates and its guards return null — which the
-        // filter propagates as null (caller keeps the UNfiltered lines,
-        // the safe fallback). A real great lake (Chicago, Toronto)
-        // crosses the frame edge, so it qualifies via the frame-touch
-        // branch instead (covered by the open-sea test above).
+    it("drops a fully-interior small lake ring (no ocean-grade coastline)", () => {
+        // A closed ring entirely inside the frame — a small lake. v996's
+        // ray-cast raster now RESOLVES this (the old polygonize-based
+        // `seaFromCoastline` degenerated → null; documented limitation): the
+        // ring interior is water (a ray to the outside seeker crosses it once).
+        // The lake is sub-2 km, so the strait rule erodes it away → no
+        // ocean-grade water → the lake shore is NOT coastline → `[]`. (A real
+        // great lake / open sea crosses the frame edge and qualifies via the
+        // frame-touch branch — covered by the open-sea test above.)
         const ring = coast([
             [0.1, 0.37],
             [0.37, 0.37],
@@ -104,7 +105,8 @@ describe("filterCoastlineByStraitRule", () => {
         ]);
         const seeker = { lng: 0.45, lat: 0.45 };
         const out = filterCoastlineByStraitRule([ring], FRAME, seeker);
-        expect(out).toBeNull();
+        expect(out).not.toBeNull();
+        expect(out!.length).toBe(0);
     });
 
     it("returns null for empty input (caller falls back to unfiltered)", () => {

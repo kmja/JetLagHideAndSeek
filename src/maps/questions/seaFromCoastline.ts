@@ -73,6 +73,38 @@ export function seaFromCoastline(
         // 4. No coast inside the frame → caller handles the inland case.
         if (clippedSegments.length === 0) return null;
 
+        // 4b. PRIMARY sea build — the ROBUST ray-cast raster (v996). This
+        //     replaced turf.polygonize + face flood-fill as the primary method:
+        //     polygonize is notoriously fragile on dense real-world coastline
+        //     (NYC's harbour + tidal rivers as many separate `natural=coastline`
+        //     ways), failing to node the linework into clean faces — so no sea
+        //     was produced and open water wrongly read "further" even though the
+        //     coastline BAND drew fine. The raster needs NO polygonize: a grid
+        //     cell is WATER iff the segment from its centre to the KNOWN-land
+        //     seeker crosses the coastline an ODD number of times (each crossing
+        //     flips land↔water). Winding-independent and correct for islands.
+        //     The polygonize/flood-fill path below remains as a fallback for the
+        //     rare case the raster can't build a usable sea.
+        {
+            const rastered = rasterSea(clippedSegments, frameBbox, seeker);
+            if (rastered && rastered.geometry) {
+                let ra = 0;
+                try {
+                    ra = turf.area(rastered);
+                } catch {
+                    /* leave 0 → fall through */
+                }
+                let fa = 0;
+                try {
+                    fa = turf.area(framePoly);
+                } catch {
+                    /* leave 0 */
+                }
+                // Accept unless degenerate (empty, or ~whole frame).
+                if (ra > 0 && !(fa > 0 && ra > 0.98 * fa)) return rastered;
+            }
+        }
+
         // 5. Collect the clipped-segment endpoints that land ON the frame
         //    boundary, then split the frame ring's 4 edges at those points so the
         //    ring shares EXACT coordinates with the coastline endpoints. Without
@@ -335,20 +367,39 @@ export function seaFromCoastline(
             }
         }
 
-        if (waterFaces.length === 0) return null;
-
         // 8. Union the water faces into a single sea polygon.
         let sea: Feature<Polygon | MultiPolygon> | null = null;
-        try {
-            if (waterFaces.length === 1) {
-                sea = waterFaces[0];
-            } else {
-                sea = turf.union(
-                    turf.featureCollection(waterFaces),
-                ) as Feature<Polygon | MultiPolygon> | null;
+        if (waterFaces.length > 0) {
+            try {
+                sea =
+                    waterFaces.length === 1
+                        ? waterFaces[0]
+                        : (turf.union(
+                              turf.featureCollection(waterFaces),
+                          ) as Feature<Polygon | MultiPolygon> | null);
+            } catch {
+                sea = null;
             }
-        } catch {
-            return null;
+        }
+
+        // 8b. RASTER FALLBACK (v996) — the polygonize/flood-fill produced no
+        //     usable sea. `turf.polygonize` is notoriously fragile on dense
+        //     real-world coastline (NYC's harbour + tidal rivers as many
+        //     separate `natural=coastline` ways): it fails to node the linework
+        //     into clean faces, so the flood-fill has nothing to colour and the
+        //     sea comes back null → open water wrongly reads "further" even
+        //     though the coastline BAND (buffered lines) draws fine. The raster
+        //     needs NO polygonize: a grid cell is WATER iff the segment from its
+        //     centre to the KNOWN-land seeker crosses the coastline an ODD
+        //     number of times (each crossing flips land↔water). Robust,
+        //     winding-independent, and correct for islands (a ray through an
+        //     island crosses its loop twice = even = land). Blocky, but open
+        //     water only needs coarse coverage — the buffered coastline band
+        //     supplies the precise near-shore.
+        let seaFromRaster = false;
+        if (!sea) {
+            sea = rasterSea(clippedSegments, frameBbox, seeker);
+            seaFromRaster = sea != null;
         }
 
         // 9. GUARDS — return null so the caller falls back.
@@ -362,12 +413,22 @@ export function seaFromCoastline(
         // (a) empty / zero-area sea.
         if (seaArea <= 0) return null;
         // (b) the seeker is on LAND, so a correctly-wound sea must NOT contain
-        //     them. If it does, we mislabeled / inverted the winding.
-        try {
-            if (turf.booleanPointInPolygon(turf.point([seeker.lng, seeker.lat]), sea))
+        //     them. If it does, we mislabeled / inverted the winding. SKIPPED
+        //     for the raster path: its parity is seeker-relative (the seeker is
+        //     land by construction), but a COARSE cell straddling the shore
+        //     could false-trigger this and throw away a correct sea.
+        if (!seaFromRaster) {
+            try {
+                if (
+                    turf.booleanPointInPolygon(
+                        turf.point([seeker.lng, seeker.lat]),
+                        sea,
+                    )
+                )
+                    return null;
+            } catch {
                 return null;
-        } catch {
-            return null;
+            }
         }
         // (c) sea covering essentially the whole frame is degenerate.
         let frameArea = 0;
@@ -381,6 +442,121 @@ export function seaFromCoastline(
         return sea;
     } catch {
         // Never throw — any unexpected failure means "no usable sea".
+        return null;
+    }
+}
+
+/** Do open segments p→q and a→b cross? (proper intersection, endpoints
+ *  excluded via strict sign change on both sides). */
+function segmentsCross(
+    p: Position,
+    q: Position,
+    a: Position,
+    b: Position,
+): boolean {
+    const side = (o: Position, A: Position, B: Position): number =>
+        Math.sign(
+            (B[0] - A[0]) * (o[1] - A[1]) - (B[1] - A[1]) * (o[0] - A[0]),
+        );
+    return (
+        side(a, b, p) !== side(a, b, q) && side(p, q, a) !== side(p, q, b)
+    );
+}
+
+/**
+ * v996: ROBUST sea polygon via a ray-cast raster — no `turf.polygonize` (which
+ * is fragile on dense real-world coastline). A grid cell is WATER iff the
+ * segment from its centre to the KNOWN-land seeker crosses the coastline an ODD
+ * number of times (each crossing flips land↔water; the seeker is land, so an
+ * odd count means the cell is on the opposite = water side). Correct for
+ * islands (a ray through an island loop crosses it twice = even = land). The
+ * water cells are merged into horizontal run-rectangles and unioned into a
+ * (blocky) polygon — fine for OPEN water, which is all this supplies; the
+ * near-shore precision comes from the separately-buffered coastline lines.
+ */
+function rasterSea(
+    clippedSegments: Position[][],
+    frameBbox: [number, number, number, number],
+    seeker: { lng: number; lat: number },
+): Feature<Polygon | MultiPolygon> | null {
+    try {
+        const [minLng, minLat, maxLng, maxLat] = frameBbox;
+        const wDeg = maxLng - minLng;
+        const hDeg = maxLat - minLat;
+        if (!(wDeg > 0) || !(hDeg > 0)) return null;
+        const flat: [Position, Position][] = [];
+        for (const seg of clippedSegments) {
+            for (let i = 0; i < seg.length - 1; i++) {
+                flat.push([seg[i], seg[i + 1]]);
+            }
+        }
+        if (flat.length === 0) return null;
+        // ADAPTIVE resolution — the cost is O(cells × segments). Pick N so
+        // N² × segments stays under a fixed op budget, clamped [32, 80], so a
+        // dense metro coastline (thousands of segments) can't run away (this
+        // also runs on the main thread for the `coastline` subtype).
+        const OP_BUDGET = 9_000_000;
+        const N = Math.max(
+            32,
+            Math.min(80, Math.floor(Math.sqrt(OP_BUDGET / flat.length))),
+        );
+        const cols = wDeg >= hDeg ? N : Math.max(8, Math.round((N * wDeg) / hDeg));
+        const rows = hDeg >= wDeg ? N : Math.max(8, Math.round((N * hDeg) / wDeg));
+        const cw = wDeg / cols;
+        const ch = hDeg / rows;
+        // Nudge the seeker slightly so a ray never runs exactly along a segment.
+        const sk: Position = [seeker.lng + 1e-7, seeker.lat + 1e-7];
+        const water: boolean[][] = [];
+        for (let r = 0; r < rows; r++) {
+            water[r] = [];
+            for (let c = 0; c < cols; c++) {
+                const ctr: Position = [
+                    minLng + (c + 0.5) * cw,
+                    minLat + (r + 0.5) * ch,
+                ];
+                let cnt = 0;
+                for (const [a, b] of flat) {
+                    if (segmentsCross(ctr, sk, a, b)) cnt++;
+                }
+                water[r][c] = (cnt & 1) === 1;
+            }
+        }
+        // Merge water cells into horizontal run-rectangles (fewer union inputs).
+        const rects: Feature<Polygon>[] = [];
+        for (let r = 0; r < rows; r++) {
+            let c = 0;
+            while (c < cols) {
+                if (water[r][c]) {
+                    let c2 = c;
+                    while (c2 < cols && water[r][c2]) c2++;
+                    rects.push(
+                        turf.bboxPolygon([
+                            minLng + c * cw,
+                            minLat + r * ch,
+                            minLng + c2 * cw,
+                            minLat + (r + 1) * ch,
+                        ]) as Feature<Polygon>,
+                    );
+                    c = c2;
+                } else {
+                    c++;
+                }
+            }
+        }
+        if (rects.length === 0) return null;
+        let acc: Feature<Polygon | MultiPolygon> = rects[0];
+        for (let i = 1; i < rects.length; i++) {
+            try {
+                const u = turf.union(
+                    turf.featureCollection([acc, rects[i]]),
+                ) as Feature<Polygon | MultiPolygon> | null;
+                if (u && u.geometry) acc = u;
+            } catch {
+                /* keep the accumulator, skip this rect */
+            }
+        }
+        return acc;
+    } catch {
         return null;
     }
 }

@@ -428,7 +428,31 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v995`. Use `git log` for the per-version detail;
+build stamp. Current: `v996`. Use `git log` for the per-version detail;
+
+**v996 — body-of-water sea: ROBUST ray-cast raster replaces the fragile
+polygonize (`seaFromCoastline`).** v994's seeker-seeded flood-fill was correct in
+theory but depended on `turf.polygonize` producing clean faces — which FAILS on
+dense real-world coastline (NYC's harbour + tidal rivers are many separate
+`natural=coastline` ways that polygonize can't node into faces), so the sea came
+back null and open water STILL read "further" even though the coastline BAND drew
+fine (v995's screenshots). Replaced polygonize as the PRIMARY sea builder with a
+**ray-cast raster** (`rasterSea`): grid the play-area frame, and a cell is WATER
+iff the segment from its centre to the KNOWN-land seeker crosses the coastline an
+ODD number of times (each crossing flips land↔water). NO polygonize, NO winding
+assumption — robust, winding-independent, and correct for islands (a ray through
+an island loop crosses it twice = even = land; validated offline on a synthetic
+harbour + island). Water cells are merged into horizontal run-rectangles and
+unioned into a (blocky) polygon — fine for OPEN water, which is all it supplies;
+the precise near-shore comes from the separately-buffered coastline lines.
+Adaptive grid resolution (N chosen so N²×segments ≤ 9M ops, clamped 32–80) keeps
+a dense metro coast fast. The polygonize/flood-fill path stays as a fallback. The
+seeker-in-sea guard is skipped for the raster (it's seeker-authoritative by
+construction). Fixes body-of-water open water AND `same-landmass` (both go
+through `seaFromCoastline` / the `seaFromCoast` worker). The fully-interior lake
+ring that the old polygonize couldn't resolve now resolves correctly (the
+`coastlineStrait` test was updated: `[]` — a sub-2 km lake is not ocean-grade
+coastline — instead of the old `null` fallback).
 
 **v995 — body-of-water: the sea can never be silently dropped from the union
 (`bufferAndUnion` hardening).** Follow-up hardening to v994's flood-fill sea.
