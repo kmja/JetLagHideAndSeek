@@ -9,7 +9,11 @@ import { mapGeoLocation, polyGeoJSON } from "@/lib/context";
 import { LOCATION_FIRST_TAG } from "@/maps/api";
 import { fetchPrewarmedAreaAdmin } from "@/maps/api/adminBoundary";
 import { fetchAreaCoastlineLines } from "@/maps/api/coast";
-import { fetchBorders0Land, findPlacesInZone } from "@/maps/api/overpass";
+import {
+    fetchBorders0Land,
+    fetchBorders1States,
+    findPlacesInZone,
+} from "@/maps/api/overpass";
 import {
     countInPlayArea,
     type FamilyKey,
@@ -238,6 +242,11 @@ async function computeCoastPresent(): Promise<boolean | null> {
  */
 const HSR_GATED = new Set(["highspeed-measure-shinkansen"]);
 const BORDER0_GATED = new Set(["international-border"]);
+// v978: state border (admin1-border) gets the SAME presence gate — NYC is
+// entirely inside New York State, so no state border crosses the play area
+// and the question can't cut the map (the repeated report). The measuring
+// elimination uses `fetchBorders1States` (Natural Earth admin_1 lines).
+const BORDER1_GATED = new Set(["admin1-border"]);
 const linePresentCache = new Map<string, boolean>();
 const linePresentPending = new Set<string>();
 
@@ -259,17 +268,28 @@ async function computeHsrPresent(): Promise<boolean | null> {
     }
 }
 
-async function computeBorder0Present(): Promise<boolean | null> {
+// v978: a border reference only "exists" for the question when it actually
+// crosses the play-area POLYGON (rulebook p17) — NOT merely its bbox. NYC's
+// bbox spans the Hudson and clips the NY-NJ state border + the US coastline,
+// but neither enters NYC's land polygon, so the state/international-border
+// questions can't cut the map and must be disabled. Tests the border LINES
+// against the polygon (with a bbox pre-filter so we only geometry-test the
+// handful of nearby lines). null = fetch failed / unknown → stays available.
+async function computeBorderPresent(
+    fetchFn: () => Promise<GeoJSON.FeatureCollection>,
+): Promise<boolean | null> {
     const area = playAreaPolygon();
     if (!area) return null;
     try {
-        const fc = await fetchBorders0Land();
+        const fc = await fetchFn();
         const frame = turf.bboxPolygon(
             turf.bbox(area) as [number, number, number, number],
         );
         for (const f of fc.features) {
             try {
-                if (turf.booleanIntersects(f, frame)) return true;
+                // Cheap bbox reject first, then the exact polygon test.
+                if (!turf.booleanIntersects(f, frame)) continue;
+                if (turf.booleanIntersects(f, area as never)) return true;
             } catch {
                 /* skip a malformed border line */
             }
@@ -278,6 +298,14 @@ async function computeBorder0Present(): Promise<boolean | null> {
     } catch {
         return null;
     }
+}
+
+function computeBorder0Present(): Promise<boolean | null> {
+    return computeBorderPresent(fetchBorders0Land);
+}
+
+function computeBorder1Present(): Promise<boolean | null> {
+    return computeBorderPresent(fetchBorders1States);
 }
 
 export interface SubtypeAvailability {
@@ -398,7 +426,10 @@ export function useSubtypeAvailability(
     // can't cut the map). Per-subtype cache key; null=unknown stays available.
     useEffect(() => {
         const gated = values.filter(
-            (v) => HSR_GATED.has(v) || BORDER0_GATED.has(v),
+            (v) =>
+                HSR_GATED.has(v) ||
+                BORDER0_GATED.has(v) ||
+                BORDER1_GATED.has(v),
         );
         if (gated.length === 0) return;
         if (!playAreaPolygon()) return;
@@ -412,7 +443,9 @@ export function useSubtypeAvailability(
             linePresentPending.add(ckey);
             const compute = HSR_GATED.has(v)
                 ? computeHsrPresent
-                : computeBorder0Present;
+                : BORDER1_GATED.has(v)
+                  ? computeBorder1Present
+                  : computeBorder0Present;
             compute().then((present) => {
                 linePresentPending.delete(ckey);
                 if (present != null) linePresentCache.set(ckey, present);
@@ -439,9 +472,14 @@ export function useSubtypeAvailability(
                 };
                 continue;
             }
-            // High-speed rail / international border: disabled only when we
-            // KNOW the reference isn't in the play area. Unknown → available.
-            if (HSR_GATED.has(v) || BORDER0_GATED.has(v)) {
+            // High-speed rail / international + state border: disabled only
+            // when we KNOW the reference isn't in the play area. Unknown →
+            // available.
+            if (
+                HSR_GATED.has(v) ||
+                BORDER0_GATED.has(v) ||
+                BORDER1_GATED.has(v)
+            ) {
                 const present = linePresentCache.get(
                     `${areaSignature()}:${v}`,
                 );

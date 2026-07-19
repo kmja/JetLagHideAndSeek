@@ -9,8 +9,11 @@ import type {
 import {
     area,
     bboxPolygon,
+    circle as turfCircle,
     difference,
+    distance as turfDistance,
     featureCollection,
+    point as turfPoint,
     polygon,
     union,
 } from "@turf/turf";
@@ -104,12 +107,17 @@ type HoledMaskPayload = {
         | Feature<Polygon | MultiPolygon>
         | FeatureCollection<Polygon | MultiPolygon>;
 };
+type BufferPointsPayload = {
+    points: [number, number][];
+    seeker: { lat: number; lng: number };
+};
 type InMessage =
     | { id: number; type: "clip"; payload: ClipPayload }
     | { id: number; type: "combine"; payload: CombinePayload }
     | { id: number; type: "landFromCoast"; payload: LandFromCoastPayload }
     | { id: number; type: "seaFromCoast"; payload: SeaFromCoastPayload }
-    | { id: number; type: "holedMask"; payload: HoledMaskPayload };
+    | { id: number; type: "holedMask"; payload: HoledMaskPayload }
+    | { id: number; type: "bufferPoints"; payload: BufferPointsPayload };
 
 // The world rectangle we punch the play area out of — byte-identical to
 // `BLANK_GEOJSON.features[0]` (src/maps/api/constants.ts), inlined so the
@@ -179,6 +187,65 @@ function landFromCoastImpl(
     }
 }
 
+/**
+ * v978: the "closer than my nearest X" region for a POINT-reference measuring
+ * question (park / mountain / rail station / any *-full POI), OFF the main
+ * thread. The elimination is the union of a disk of radius = the seeker's
+ * distance to the NEAREST reference around EVERY reference. arcgis's geodesic
+ * buffer (`arcBufferToPoint`) did this in ONE synchronous WASM `executeMany`
+ * over hundreds/thousands of point-circles, which froze the app for seconds on
+ * a dense metro (NYC's parks / stations / peaks — the reported freezes). Here
+ * it's pure turf (circles + union), so it runs off-thread like the hiding-zone
+ * union. The hider grades measuring by DISTANCE, not by this polygon, so the
+ * cut geometry moving from arcgis to turf changes only which map pixels dim (by
+ * sub-metre at km scale), never an answer. `null` on a degenerate input
+ * (caller keeps the arcgis fallback).
+ */
+function bufferPointsImpl(
+    p: BufferPointsPayload,
+): Feature<Polygon | MultiPolygon> | null {
+    const pts = p.points.filter(
+        (c) =>
+            Array.isArray(c) &&
+            Number.isFinite(c[0]) &&
+            Number.isFinite(c[1]),
+    );
+    if (pts.length === 0) return null;
+    const seeker = turfPoint([p.seeker.lng, p.seeker.lat]);
+    let minKm = Infinity;
+    for (const c of pts) {
+        const d = turfDistance(seeker, turfPoint(c), { units: "kilometers" });
+        if (Number.isFinite(d) && d < minKm) minKm = d;
+    }
+    if (!Number.isFinite(minKm)) return null;
+    // A zero/near-zero radius (the seeker sits on a reference) still needs a
+    // sliver so the region isn't empty; clamp to ~10 m.
+    const radiusKm = Math.max(minKm, 0.01);
+    const circles: Feature<Polygon>[] = [];
+    for (const c of pts) {
+        try {
+            circles.push(
+                turfCircle(c, radiusKm, {
+                    steps: 48,
+                    units: "kilometers",
+                }) as Feature<Polygon>,
+            );
+        } catch {
+            /* skip a malformed point */
+        }
+    }
+    if (circles.length === 0) return null;
+    if (circles.length === 1) return circles[0];
+    try {
+        const merged = union(
+            featureCollection(circles) as never,
+        ) as Feature<Polygon | MultiPolygon> | null;
+        return merged ?? circles[0];
+    } catch {
+        return circles[0];
+    }
+}
+
 self.onmessage = async (e: MessageEvent<InMessage>) => {
     const msg = e.data;
     const { id, type } = msg;
@@ -212,6 +279,9 @@ self.onmessage = async (e: MessageEvent<InMessage>) => {
             self.postMessage({ id, ok: true, result });
         } else if (type === "holedMask") {
             const result = holedMaskImpl(msg.payload);
+            self.postMessage({ id, ok: true, result });
+        } else if (type === "bufferPoints") {
+            const result = bufferPointsImpl(msg.payload);
             self.postMessage({ id, ok: true, result });
         } else {
             self.postMessage({

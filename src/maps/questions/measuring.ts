@@ -32,6 +32,7 @@ import {
     requestWaterWarmAll,
 } from "@/maps/api/water";
 import { fetchPrewarmedRailStationElements } from "@/lib/journey/stations";
+import { bufferPointsUnion } from "@/lib/geometry/client";
 import { filterCoastlineByStraitRule } from "@/maps/questions/coastlineStrait";
 import { majorCityPoints } from "@/maps/data/majorCities";
 import {
@@ -477,21 +478,53 @@ export const determineMeasuringBoundary = async (
             // 2nd administrative division — county / district borders,
             // typically OSM admin_level=6. Natural Earth has no global
             // dataset for this tier, so this case still goes through
-            // Overpass (cached at our worker, not bundled). A follow-up
-            // could prewarm county borders per-shard to eliminate the
-            // first-seeker cold fetch, but the bundle alternative isn't
-            // available without OSM-derived data we'd have to host
-            // ourselves.
-            const features = osmtogeojson(
+            // Overpass (cached at our worker, not bundled).
+            //
+            // v978 FIX: query RELATIONS, not ways. A county boundary's
+            // `admin_level`/`boundary` tags live on the boundary RELATION;
+            // its member ways are usually untagged, so the old
+            // `way["admin_level"="6"]` returned NOTHING (the "county border
+            // shows no overlay" bug — matching county works because
+            // findAdminBoundary fetches relations). Fetch the relations with
+            // geometry, then convert each boundary POLYGON to its outline
+            // LINE so the seeker-distance buffer measures distance to the
+            // border, same as admin1/coastline.
+            const relFeatures = osmtogeojson(
                 await findPlacesInZone(
                     '["admin_level"="6"]["boundary"="administrative"]',
                     undefined,
-                    "way",
+                    "relation",
                     "geom",
                 ),
             ).features;
-            if (features.length === 0) return [turf.multiPolygon([])];
-            return [highSpeedBase(features)];
+            const lines: Feature[] = [];
+            for (const f of relFeatures) {
+                const g = f.geometry;
+                if (!g) continue;
+                if (g.type === "LineString" || g.type === "MultiLineString") {
+                    lines.push(f as Feature);
+                } else if (
+                    g.type === "Polygon" ||
+                    g.type === "MultiPolygon"
+                ) {
+                    try {
+                        const l = turf.polygonToLine(f as any);
+                        if ((l as any).type === "FeatureCollection") {
+                            for (const lf of (l as any).features) lines.push(lf);
+                        } else {
+                            lines.push(l as Feature);
+                        }
+                    } catch {
+                        /* skip a malformed boundary */
+                    }
+                }
+            }
+            const clipped = clipLinesToBbox(
+                turf.featureCollection(lines as any),
+                bBox,
+            );
+            if (clipped.length === 0) return [turf.multiPolygon([])];
+            return [highSpeedBase(clipped)];
         }
         case "body-of-water": {
             // v625: named water bodies from OSM (rulebook p11: "any named
@@ -743,11 +776,54 @@ const bufferedDeterminerKey = (question: MeasuringQuestion) =>
         manualReference: (question as any).manualReference,
     });
 
+/** Collect every point coordinate if EVERY feature is a Point / MultiPoint —
+ *  the POINT-reference measuring families (park / peak / rail station / any
+ *  *-full POI). Returns null when the geometry has a line/polygon (coast,
+ *  borders, water) that must stay on the geodesic arcgis buffer. */
+function allPointCoords(feats: Feature[]): [number, number][] | null {
+    const coords: [number, number][] = [];
+    for (const f of feats) {
+        const g = f?.geometry;
+        if (!g) continue;
+        if (g.type === "Point") {
+            coords.push(g.coordinates as [number, number]);
+        } else if (g.type === "MultiPoint") {
+            for (const c of g.coordinates) coords.push(c as [number, number]);
+        } else {
+            return null; // a line/polygon feature — not a pure point set
+        }
+    }
+    return coords.length > 0 ? coords : null;
+}
+
 const bufferedDeterminer = memoize(
     async (question: MeasuringQuestion) => {
         const placeData = await determineMeasuringBoundary(question);
 
         if (placeData === false || placeData === undefined) return false;
+
+        // v978: POINT-reference families (park / mountain / rail station /
+        // every *-full POI) buffer the SAME "union of disks of radius =
+        // distance-to-nearest" region — but arcgis did it in one synchronous
+        // WASM call over hundreds of point-circles, freezing the app on a
+        // dense metro. Route the pure-point case through the geometry Web
+        // Worker (turf circles + union, off-thread); the hider grades by
+        // DISTANCE so the sub-metre turf-vs-arcgis difference never changes an
+        // answer. Lines/polygons (coast, borders, water) stay on the geodesic
+        // arcgis buffer. Falls back to arcgis if the worker is unavailable.
+        const pointCoords = allPointCoords(placeData as Feature[]);
+        if (pointCoords) {
+            try {
+                const merged = await bufferPointsUnion(
+                    pointCoords,
+                    question.lat,
+                    question.lng,
+                );
+                return merged ?? false;
+            } catch {
+                /* worker unavailable — fall through to arcgis below */
+            }
+        }
 
         // arcBufferToPoint returns null when the geometry is degenerate or the
         // geodesic buffer failed even after simplification — normalise to the

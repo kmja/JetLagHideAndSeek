@@ -5,7 +5,7 @@ import { type ReactNode, useEffect, useRef, useState } from "react";
 import { adminDivisionName, adminTierToOsmLevel } from "@/lib/adminDivisions";
 import { CATEGORIES, type CategoryId } from "@/lib/categories";
 import { mapGeoLocation } from "@/lib/context";
-import { iconForSubtype } from "@/lib/subtypes";
+import { findSubtypeMeta, iconForSubtype } from "@/lib/subtypes";
 import { cn } from "@/lib/utils";
 
 /**
@@ -52,8 +52,18 @@ function subtypeLabel(type: string | undefined): string | null {
         case "admin1-border":
         case "admin2-border":
             return adminBorderLabel(stripped);
-        default:
+        default: {
+            // v978: prefer the canonical SUBTYPES label ("Rail station",
+            // "Mountain", "Park") over a raw hyphen-replace of the id — the
+            // measuring point subtypes (rail-measure-ordinary, peak, park, …)
+            // otherwise showed the id verbatim in the configure header.
+            const meta =
+                findSubtypeMeta(type) ??
+                findSubtypeMeta(stripped) ??
+                findSubtypeMeta(`${stripped}-full`);
+            if (meta?.label) return meta.label;
             return stripped.replace(/[-_]/g, " ");
+        }
     }
 }
 

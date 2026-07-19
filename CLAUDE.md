@@ -428,7 +428,45 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v977`. Use `git log` for the per-version detail;
+build stamp. Current: `v978`. Use `git log` for the per-version detail;
+
+**v978 — measuring batch: point-family freeze fix (Web Worker), subtype
+naming, border gating, county-border overlay.** From the NYC walkthrough.
+- **Measuring point-family FREEZE fixed (park / mountain / rail station / any
+  *-full POI)** — the "closer than my nearest X" cut is the union of a disk
+  (radius = distance to the nearest reference) around EVERY reference, which
+  arcgis did in ONE synchronous WASM `executeMany` over hundreds/thousands of
+  point-circles → seconds-long main-thread freeze (the reported "freezes the
+  app" + the stuck body-pointer-events "can't click anything" aftermath). New
+  geometry-worker op **`bufferPoints`** (`geometry/worker.ts` + `client.ts`
+  `bufferPointsUnion`) does it with pure turf (circles + union) OFF the main
+  thread — same pattern as the hiding-zones union. `bufferedDeterminer`
+  (`measuring.ts`) routes the pure-point case there (via `allPointCoords`);
+  lines/polygons (coast/borders/water) stay on the geodesic arcgis buffer, and
+  arcgis is the fallback if the worker is unavailable. Safe: the hider grades
+  measuring by DISTANCE, so the sub-metre turf-vs-arcgis cut difference never
+  changes an answer.
+- **Subtype naming in the configure header** (`questionOverlayCard.tsx`) —
+  `subtypeLabel` fell to a raw hyphen-replace for ids it didn't hard-code, so
+  the header read "rail measure ordinary" / "peak" / "park". It now falls back
+  to the canonical `SUBTYPES` label ("Rail station" / "Mountain" / "Park") via
+  `findSubtypeMeta`.
+- **State-border gating** (`subtypeAvailability.ts`) — `admin1-border` (state
+  border) had NO presence gate (only international-border did), so it stayed
+  enabled in NYC even though no state border crosses the play area. Both border
+  gates now test the border LINES against the play-area POLYGON (not just its
+  bbox — NYC's bbox spans the Hudson and clips the NY-NJ border + the coast,
+  neither of which enters the land polygon), so international + state border
+  disable when no such border is actually inside the area.
+- **County-border overlay fixed** (`measuring.ts admin2-border`) — the query
+  was `way["admin_level"="6"]`, but a county boundary's tags live on the
+  RELATION (member ways are untagged), so it returned NOTHING → no overlay
+  (while matching county worked, since it fetches relations). Now fetches the
+  admin_level=6 RELATIONS and converts each boundary polygon to its outline
+  line for the seeker-distance buffer.
+Still open from the same batch (need on-device geometry verification):
+same-landmass NYC (fragile/slow `seaFromCoastline`), same-street live-query
+fragility, sea-level reference number, coastline math.
 
 **v977 — matching configure-overlay correctness: geodesic Voronoi + station-
 length label.** Two NYC-walkthrough bugs where the "same nearest X" matching

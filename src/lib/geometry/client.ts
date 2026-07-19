@@ -99,7 +99,8 @@ function call<T>(
         | "combine"
         | "landFromCoast"
         | "seaFromCoast"
-        | "holedMask",
+        | "holedMask"
+        | "bufferPoints",
     payload: unknown,
     onPhase?: (phase: string) => void,
 ): Promise<T> {
@@ -181,6 +182,28 @@ export async function seaFromCoast(
         lines,
         bbox,
         seeker,
+    });
+}
+
+/**
+ * The "closer than my nearest X" region for a POINT-reference measuring
+ * question, OFF the main thread (v978) — the union of a disk (radius = the
+ * seeker's distance to the nearest reference) around EVERY reference. arcgis's
+ * geodesic buffer did this in ONE synchronous WASM call over hundreds of
+ * point-circles and froze the app on a dense metro (NYC parks / stations /
+ * peaks). Pure turf here. REJECTS if the worker is unavailable so the caller
+ * (`measuring.ts bufferedDeterminer`) keeps its arcgis fallback — the hider
+ * grades by DISTANCE, so the turf-vs-arcgis cut differs only sub-metre and
+ * never changes an answer. `null` on a degenerate input.
+ */
+export async function bufferPointsUnion(
+    points: [number, number][],
+    lat: number,
+    lng: number,
+): Promise<Feature<Polygon | MultiPolygon> | null> {
+    return call<Feature<Polygon | MultiPolygon> | null>("bufferPoints", {
+        points,
+        seeker: { lat, lng },
     });
 }
 
