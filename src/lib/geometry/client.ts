@@ -100,7 +100,8 @@ function call<T>(
         | "landFromCoast"
         | "seaFromCoast"
         | "holedMask"
-        | "bufferPoints",
+        | "bufferPoints"
+        | "bufferAndUnion",
     payload: unknown,
     onPhase?: (phase: string) => void,
 ): Promise<T> {
@@ -203,6 +204,25 @@ export async function bufferPointsUnion(
 ): Promise<Feature<Polygon | MultiPolygon> | null> {
     return call<Feature<Polygon | MultiPolygon> | null>("bufferPoints", {
         points,
+        seeker: { lat, lng },
+    });
+}
+
+/**
+ * v984: the generalized measuring "closer than my nearest X" region for ANY
+ * geometry (points/lines/polygons), OFF the main thread — the turf equivalent
+ * of arcgis's `arcBufferToPoint` (buffer every feature by the seeker's distance
+ * to the nearest, union). Lets body-of-water (ponds + rivers + sea AREA) compute
+ * without freezing / choking arcgis. REJECTS if the worker is unavailable so the
+ * caller keeps its arcgis fallback. `null` on a degenerate input.
+ */
+export async function bufferAndUnion(
+    features: Feature[],
+    lat: number,
+    lng: number,
+): Promise<Feature<Polygon | MultiPolygon> | null> {
+    return call<Feature<Polygon | MultiPolygon> | null>("bufferAndUnion", {
+        features,
         seeker: { lat, lng },
     });
 }

@@ -721,7 +721,13 @@ async function fetchNearestWater(
                     coast.lat >= bb[1] - 3 &&
                     coast.lat <= bb[3] + 3);
             if (inFrame && (!best || coast.distanceMeters < best.distanceMeters)) {
-                best = coast;
+                // For BODY-OF-WATER the coast fold-in is the shore of ANY water
+                // — the sea, a bay, OR a tidal river bank (OSM tags e.g. the
+                // Hudson's banks `natural=coastline`). Calling that "Coastline"
+                // is wrong (a river isn't a coastline, rulebook p218), so label
+                // it the neutral "Shoreline" here. (The dedicated `coastline`
+                // subtype keeps `fetchNearestCoastline`'s "Coastline" name.)
+                best = { ...coast, name: "Shoreline" };
             }
         }
     } catch {

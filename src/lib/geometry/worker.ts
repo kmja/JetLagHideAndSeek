@@ -9,12 +9,16 @@ import type {
 import {
     area,
     bboxPolygon,
+    booleanPointInPolygon,
+    buffer as turfBuffer,
     circle as turfCircle,
     difference,
     distance as turfDistance,
     featureCollection,
     point as turfPoint,
+    pointToLineDistance,
     polygon,
+    polygonToLine,
     union,
 } from "@turf/turf";
 
@@ -111,13 +115,22 @@ type BufferPointsPayload = {
     points: [number, number][];
     seeker: { lat: number; lng: number };
 };
+type BufferAndUnionPayload = {
+    features: Feature[];
+    seeker: { lat: number; lng: number };
+};
 type InMessage =
     | { id: number; type: "clip"; payload: ClipPayload }
     | { id: number; type: "combine"; payload: CombinePayload }
     | { id: number; type: "landFromCoast"; payload: LandFromCoastPayload }
     | { id: number; type: "seaFromCoast"; payload: SeaFromCoastPayload }
     | { id: number; type: "holedMask"; payload: HoledMaskPayload }
-    | { id: number; type: "bufferPoints"; payload: BufferPointsPayload };
+    | { id: number; type: "bufferPoints"; payload: BufferPointsPayload }
+    | {
+          id: number;
+          type: "bufferAndUnion";
+          payload: BufferAndUnionPayload;
+      };
 
 // The world rectangle we punch the play area out of — byte-identical to
 // `BLANK_GEOJSON.features[0]` (src/maps/api/constants.ts), inlined so the
@@ -246,6 +259,106 @@ function bufferPointsImpl(
     }
 }
 
+/** Geodesic-ish distance (km) from a point to ANY geometry — 0 if the point
+ *  is inside a polygon, else the distance to its boundary; the along-line
+ *  distance for lines; the point distance for points. */
+function distanceToFeatureKm(
+    seeker: Feature<import("geojson").Point>,
+    f: Feature,
+): number {
+    const g = f.geometry;
+    if (!g) return Infinity;
+    try {
+        if (g.type === "Point") {
+            return turfDistance(seeker, f as never, { units: "kilometers" });
+        }
+        if (g.type === "MultiPoint") {
+            let best = Infinity;
+            for (const c of g.coordinates) {
+                const d = turfDistance(seeker, turfPoint(c), {
+                    units: "kilometers",
+                });
+                if (d < best) best = d;
+            }
+            return best;
+        }
+        if (g.type === "LineString" || g.type === "MultiLineString") {
+            return pointToLineDistance(seeker, f as never, {
+                units: "kilometers",
+            });
+        }
+        if (g.type === "Polygon" || g.type === "MultiPolygon") {
+            if (booleanPointInPolygon(seeker, f as never)) return 0;
+            const line = polygonToLine(f as never);
+            const lines =
+                (line as { type?: string }).type === "FeatureCollection"
+                    ? (line as FeatureCollection).features
+                    : [line as Feature];
+            let best = Infinity;
+            for (const l of lines) {
+                try {
+                    const d = pointToLineDistance(seeker, l as never, {
+                        units: "kilometers",
+                    });
+                    if (d < best) best = d;
+                } catch {
+                    /* skip */
+                }
+            }
+            return best;
+        }
+    } catch {
+        return Infinity;
+    }
+    return Infinity;
+}
+
+/**
+ * v984: the generalized measuring "closer than my nearest X" region, OFF the
+ * main thread — the SAME buffer+union arcgis's `arcBufferToPoint` does (buffer
+ * every reference by the seeker's distance to the NEAREST one, union), but with
+ * turf so it can run in the worker for ANY geometry (points/lines/polygons), not
+ * just points. This is what lets body-of-water — ponds + rivers + the sea AREA —
+ * compute without freezing the app or choking arcgis (the v982/v983 "no overlay"
+ * regression). `null` on a degenerate input (caller falls back to arcgis).
+ */
+function bufferAndUnionImpl(
+    p: BufferAndUnionPayload,
+): Feature<Polygon | MultiPolygon> | null {
+    const feats = (p.features ?? []).filter((f) => f && f.geometry);
+    if (feats.length === 0) return null;
+    const seeker = turfPoint([p.seeker.lng, p.seeker.lat]);
+    let minKm = Infinity;
+    for (const f of feats) {
+        const d = distanceToFeatureKm(seeker, f);
+        if (Number.isFinite(d) && d < minKm) minKm = d;
+    }
+    if (!Number.isFinite(minKm)) return null;
+    const r = Math.max(minKm, 0.01);
+    const buffered: Feature<Polygon | MultiPolygon>[] = [];
+    for (const f of feats) {
+        try {
+            const b = turfBuffer(f as never, r, {
+                units: "kilometers",
+            }) as Feature<Polygon | MultiPolygon> | undefined;
+            if (b && b.geometry && area(b) > 0) buffered.push(b);
+        } catch {
+            /* skip a feature turf can't buffer */
+        }
+    }
+    if (buffered.length === 0) return null;
+    if (buffered.length === 1) return buffered[0];
+    try {
+        return (
+            (union(
+                featureCollection(buffered) as never,
+            ) as Feature<Polygon | MultiPolygon> | null) ?? buffered[0]
+        );
+    } catch {
+        return buffered[0];
+    }
+}
+
 self.onmessage = async (e: MessageEvent<InMessage>) => {
     const msg = e.data;
     const { id, type } = msg;
@@ -282,6 +395,9 @@ self.onmessage = async (e: MessageEvent<InMessage>) => {
             self.postMessage({ id, ok: true, result });
         } else if (type === "bufferPoints") {
             const result = bufferPointsImpl(msg.payload);
+            self.postMessage({ id, ok: true, result });
+        } else if (type === "bufferAndUnion") {
+            const result = bufferAndUnionImpl(msg.payload);
             self.postMessage({ id, ok: true, result });
         } else {
             self.postMessage({

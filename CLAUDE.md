@@ -428,7 +428,34 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v983`. Use `git log` for the per-version detail;
+build stamp. Current: `v984`. Use `git log` for the per-version detail;
+
+**v984 — body-of-water NO-OVERLAY regression fixed + generalized off-thread
+buffer (`bufferAndUnion` worker) + Hudson-as-"Coastline" label.**
+- **Regression:** v982's double-slash URL fix made `fetchCoastline` actually
+  RETURN data (the global 1:50m coastline). The body-of-water coarse-ocean
+  fallback then ran `turf.lineToPolygon` over the WHOLE world's coastline
+  (~100k vertices) — a multi-second stall that left the elimination with NO
+  overlay (before the URL fix, `fetchCoastline` threw and this block was never
+  reached). Fixed by CLIPPING the coastline to the play-area frame
+  (`clipLinesToBbox`) BEFORE `lineToPolygon`.
+- **Generalized off-thread measuring buffer.** New geometry-worker op
+  **`bufferAndUnion`** (`geometry/worker.ts` + `client.ts`) does the SAME
+  buffer-every-reference-by-the-seeker-distance-then-union that arcgis's
+  `arcBufferToPoint` does, but with turf for ANY geometry (points/lines/
+  polygons), so it runs in the worker. `bufferedDeterminer` routes
+  **body-of-water** through it (ponds + rivers + the sea AREA) — arcgis choked
+  on the sea's vertices (froze / returned null → no overlay); this computes the
+  same region off the main thread. Falls back to arcgis if the worker is
+  unavailable / returns null. (Point families still use `bufferPointsUnion`;
+  coast/borders still use arcgis for now — `bufferAndUnion` can absorb them
+  later.)
+- **Hudson-as-"Coastline" label.** For body-of-water, the coast fold-in is the
+  shore of ANY water — the sea OR a tidal river bank (OSM tags the Hudson's
+  banks `natural=coastline`). Labelling that "Coastline" is wrong (rulebook
+  p218: a river isn't a coastline), so the body-of-water nearest-reference now
+  reads the neutral **"Shoreline"**; the dedicated `coastline` subtype keeps
+  "Coastline".
 
 **v983 — body-of-water open water: progressive sea simplification (fit the
 buffer cap).** v980's single 220 m sea simplification could still blow past the

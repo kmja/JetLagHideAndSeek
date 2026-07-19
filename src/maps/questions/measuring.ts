@@ -33,6 +33,7 @@ import {
 } from "@/maps/api/water";
 import { fetchPrewarmedRailStationElements } from "@/lib/journey/stations";
 import {
+    bufferAndUnion,
     bufferPointsUnion,
     seaFromCoast as seaFromCoastViaWorker,
 } from "@/lib/geometry/client";
@@ -728,7 +729,23 @@ export const determineMeasuringBoundary = async (
                 // detailed sea above wasn't available.
                 if (!seaAdded && bBox) {
                     try {
-                        const coastFC = await fetchCoastline();
+                        // v984: CLIP the bundled coastline to the play-area
+                        // frame BEFORE lineToPolygon. `fetchCoastline` returns
+                        // the GLOBAL 1:50m coastline (~100k vertices) — running
+                        // lineToPolygon over the whole world hung the buffer and
+                        // left body-of-water with NO overlay (the v982 "no
+                        // overlay" regression: before the double-slash URL fix,
+                        // fetchCoastline threw and this block was never reached;
+                        // once it started returning data, the global
+                        // lineToPolygon became a multi-second stall). Clipping to
+                        // the frame first bounds it to the local coast.
+                        const coastFC = {
+                            type: "FeatureCollection",
+                            features: clipLinesToBbox(
+                                await fetchCoastline(),
+                                bBox,
+                            ),
+                        } as GeoJSON.FeatureCollection;
                         const frame = turf.bboxPolygon(bBox as any);
                         const landRaw = turf.lineToPolygon(
                             coastFC as any,
@@ -938,6 +955,24 @@ const bufferedDeterminer = memoize(
                     question.lng,
                 );
                 return merged ?? false;
+            } catch {
+                /* worker unavailable — fall through to arcgis below */
+            }
+        }
+
+        // v984: body-of-water is mixed geometry (ponds + rivers + the sea
+        // AREA) — arcgis's buffer choked on the sea's vertices (froze the app /
+        // returned null → no overlay). Buffer+union it OFF the main thread with
+        // turf (`bufferAndUnion`), the same region arcgis would produce. Falls
+        // back to arcgis below if the worker is unavailable or returns null.
+        if (question.type === "body-of-water") {
+            try {
+                const merged = await bufferAndUnion(
+                    placeData as Feature[],
+                    question.lat,
+                    question.lng,
+                );
+                if (merged) return merged;
             } catch {
                 /* worker unavailable — fall through to arcgis below */
             }
