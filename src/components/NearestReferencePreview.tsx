@@ -65,7 +65,7 @@ type ResolvedFamily =
     | { kind: "coastline" }
     | { kind: "city" }
     | { kind: "brand"; wikidataId: string; brandName: string }
-    | { kind: "rail-station" }
+    | { kind: "rail-station"; broad: boolean }
     | { kind: "water" }
     | { kind: "highspeed-rail" }
     | null;
@@ -101,17 +101,31 @@ export function resolveFamily(typeRaw: string): ResolvedFamily {
     // answer hinges on a *property* of the station (which line, what
     // platform length), but the reference *point* is the station
     // itself — same lookup either way.
+    // v977: `broad` = the MEASURING rail question (rail-measure*), whose
+    // rulebook definition (p206) includes light rail / halts / tram stops —
+    // it uses the broadened prewarmed all-mode rail set. The MATCHING station
+    // questions (same-train-line / same-length / same-first-letter) grade
+    // against the NARROW `[railway=station]` set in `matchingStationBoundary`,
+    // so their nearest-reference LABEL must use that same narrow set — else
+    // the labelled reference (e.g. a subway platform "Malcolm X Boulevard")
+    // disagrees with the station the elimination actually keyed on (a short
+    // "116 Street"), making the drawn "same length" region look wrong (v970
+    // regression: it broadened the label for the matching types too).
     if (
         stripped === "rail-measure" ||
         // v824: the shipped measuring subtype is "rail-measure-ordinary"
         // (see subtypes.ts); without this it resolved to null → no fast
         // nearest-distance path and no answer-view reference overlay.
-        stripped.startsWith("rail-measure") ||
+        stripped.startsWith("rail-measure")
+    ) {
+        return { kind: "rail-station", broad: true };
+    }
+    if (
         stripped === "same-train-line" ||
         stripped === "same-length-station" ||
         stripped === "same-first-letter-station"
     ) {
-        return { kind: "rail-station" };
+        return { kind: "rail-station", broad: false };
     }
     if (stripped === "highspeed-measure-shinkansen")
         return { kind: "highspeed-rail" };
@@ -376,7 +390,7 @@ export async function fetchNearest(
     // measuring elimination buffers, so the label agrees with the cut.
     // Handled before the centroid cache below, which only holds the bare
     // `railway=station` family and would win with a farther heavy station.
-    if (family.kind === "rail-station") {
+    if (family.kind === "rail-station" && family.broad) {
         try {
             const rail = await fetchPrewarmedRailStationElements();
             if (rail && rail.length > 0) {

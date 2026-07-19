@@ -428,7 +428,39 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v976`. Use `git log` for the per-version detail;
+build stamp. Current: `v977`. Use `git log` for the per-version detail;
+
+**v977 — matching configure-overlay correctness: geodesic Voronoi + station-
+length label.** Two NYC-walkthrough bugs where the "same nearest X" matching
+PREVIEW disagreed with the labelled reference / the actual cut.
+- **Geodesic Voronoi in the overlay** (`questionImpact.ts`
+  `voronoiCellAroundMe`). The configure preview drew the "same nearest" cell
+  with PLANAR `turf.voronoi`, but the real ELIMINATION
+  (`determineMatchingBoundary` → `geoSpatialVoronoi`, `d3-geo-voronoi`) is
+  SPHERICAL. At a city's latitude a degree of longitude is much shorter than a
+  degree of latitude, so planar lng/lat cells are stretched E-W — which pushed
+  the seeker's geodesic-nearest reference (the LABELLED one) into a neighbour's
+  planar cell. Symptoms in NYC: matching PARK drew the labelled nearest park as
+  "not matching", matching GOLF marked a different course as "matching". The
+  overlay now uses the SAME `geoSpatialVoronoi` as the elimination (spherical,
+  tiles the whole sphere so the seeker is always in exactly one cell whose site
+  IS the geodesic-nearest), so preview == label == answer. (Airport, museum,
+  every point-family matching type benefits.)
+- **Station-length / train-line label uses the NARROW station set**
+  (`NearestReferencePreview.tsx`). v970 broadened the rail reference to the
+  prewarmed all-mode set (light rail / halts / tram, rulebook p206) — correct
+  for the MEASURING rail question, but the MATCHING station questions grade
+  against the NARROW `[railway=station]` set (`matchingStationBoundary`), so
+  their nearest-reference LABEL now disagreed with the cut: the label read a
+  subway platform ("Malcolm X Boulevard", 19 chars) while the elimination keyed
+  on a short heavy-rail station ("116 Street", 10 chars), making the drawn "same
+  length" region look wrong. The rail-station family now carries a `broad` flag
+  (true only for `rail-measure*`); the matching station types resolve to the
+  narrow set, so label == cut again.
+Known remaining NYC matching/measuring issues (deeper geometry, follow-up):
+same-landmass + measuring point-family freezes (the heavy `seaFromCoastline` /
+`arcBufferToPoint` on the main thread), same-street live-query fragility,
+border-presence disabling, county-border/sea-level previews, coastline math.
 
 **v976 — body-of-water sea rebuilt: drop the fragile per-city sea POLYGON
 (fixes the ~10 s freeze + water-marked-"further" in coastal metros).** The v973

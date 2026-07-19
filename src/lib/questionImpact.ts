@@ -49,6 +49,7 @@ import { matchingDraftRegion } from "@/maps/questions/matching";
 import { measuringDraftBuffer } from "@/maps/questions/measuring";
 import { arcBufferToPoint } from "@/maps/geo-utils";
 import { pointInPlayArea } from "@/maps/geo-utils/playAreaIndex";
+import { geoSpatialVoronoi } from "@/maps/geo-utils/voronoi";
 import {
     type FamilyKey,
     getCachedCategory,
@@ -238,17 +239,20 @@ function toSinglePolygon(
 /** Voronoi cell of the "same nearest candidate as me" region, clipped to
  *  the play area. Null when math fails (caller falls back to dots only).
  *
- *  Selects the cell that CONTAINS the seeker's own point rather than the
- *  cell indexed by the geodesic-nearest candidate: `nearest` is picked by
- *  great-circle distance (`turf.distance`), but `turf.voronoi` partitions
- *  in PLANAR lng/lat space. Near a cell border — or at higher latitudes
- *  where a degree of longitude is much shorter than a degree of latitude —
- *  those disagree, so the geodesic-nearest's planar cell can EXCLUDE the
- *  seeker, painting the seeker's own position into the "not matching"
- *  region (impossible — your nearest X is trivially your nearest X). Using
- *  the containing cell makes the "same nearest" region always include the
- *  seeker. Falls back to the geodesic-nearest cell if no cell contains the
- *  seeker (degenerate Voronoi). */
+ *  v977: uses the SAME geodesic Voronoi (`geoSpatialVoronoi` →
+ *  `d3-geo-voronoi`) the actual ELIMINATION uses
+ *  (`determineMatchingBoundary` → `geoSpatialVoronoi`), NOT planar
+ *  `turf.voronoi`. The two disagree at a city's latitude — a degree of
+ *  longitude is much shorter than a degree of latitude, so planar lng/lat
+ *  cells are stretched E-W — which put the seeker's geodesic-nearest
+ *  reference (the labelled one) into a NEIGHBOUR's planar cell: the "same
+ *  nearest park" overlay then painted the labelled park as "not matching"
+ *  and a different golf course as "matching" (the NYC reports). A spherical
+ *  Voronoi tiles the whole sphere, so the seeker always lands in exactly one
+ *  cell and that cell's site IS the geodesic-nearest — preview, label, and
+ *  the answer's cut now agree. Selects the cell CONTAINING the seeker (the
+ *  seeker is trivially in its own nearest-X cell). `nearest` is kept only for
+ *  the degenerate fallback. */
 function voronoiCellAroundMe(
     me: { lat: number; lng: number },
     nearest: { lat: number; lng: number },
@@ -257,23 +261,10 @@ function voronoiCellAroundMe(
 ): Feature<Polygon | MultiPolygon> | null {
     if (allPoints.length < 2) return null;
     try {
-        const playBbox = turf.bbox(playArea) as [
-            number,
-            number,
-            number,
-            number,
-        ];
-        const pad = 0.5;
-        const padded: [number, number, number, number] = [
-            playBbox[0] - pad,
-            playBbox[1] - pad,
-            playBbox[2] + pad,
-            playBbox[3] + pad,
-        ];
         const fc = turf.featureCollection(
             allPoints.map((p) => turf.point([p.lng, p.lat])),
         );
-        const cells = turf.voronoi(fc, { bbox: padded });
+        const cells = geoSpatialVoronoi(fc);
         if (!cells?.features?.length) return null;
         const mePt = turf.point([me.lng, me.lat]);
         let cell: (typeof cells.features)[number] | null = null;
@@ -288,13 +279,23 @@ function voronoiCellAroundMe(
                 /* skip malformed cell */
             }
         }
-        // Fallback: no cell contained the seeker (degenerate tiling) — use
-        // the geodesic-nearest candidate's cell so we still show something.
+        // Fallback: no cell contained the seeker (should not happen with a
+        // spherical Voronoi, which tiles the whole sphere) — use the cell
+        // that contains the geodesic-nearest candidate so we still show
+        // something coherent.
         if (!cell?.geometry) {
-            const idx = allPoints.findIndex(
-                (p) => p.lat === nearest.lat && p.lng === nearest.lng,
-            );
-            cell = idx >= 0 ? (cells.features[idx] ?? null) : null;
+            const nearPt = turf.point([nearest.lng, nearest.lat]);
+            for (const f of cells.features) {
+                if (!f?.geometry) continue;
+                try {
+                    if (turf.booleanPointInPolygon(nearPt, f as any)) {
+                        cell = f;
+                        break;
+                    }
+                } catch {
+                    /* skip malformed cell */
+                }
+            }
         }
         if (!cell?.geometry) return null;
         try {
