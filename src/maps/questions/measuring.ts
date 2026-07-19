@@ -32,13 +32,8 @@ import {
     requestWaterWarmAll,
 } from "@/maps/api/water";
 import { fetchPrewarmedRailStationElements } from "@/lib/journey/stations";
-import {
-    bufferAndUnion,
-    bufferPointsUnion,
-    seaFromCoast as seaFromCoastViaWorker,
-} from "@/lib/geometry/client";
+import { bufferAndUnion, bufferPointsUnion } from "@/lib/geometry/client";
 import { filterCoastlineByStraitRule } from "@/maps/questions/coastlineStrait";
-import { seaFromCoastline } from "@/maps/questions/seaFromCoastline";
 import { majorCityPoints } from "@/maps/data/majorCities";
 import {
     arcBufferToPoint,
@@ -597,247 +592,26 @@ export const determineMeasuringBoundary = async (
             if (lines.length > 0) {
                 out.push(highSpeedBase(lines));
             }
-            // Fold in the SEA. OSM tags the open sea + large bays as
-            // `natural=coastline` (a SEPARATE family), not `natural=water`, so
-            // a coastal metro's biggest body of water is invisible to the
-            // `natural=water` query above and must be added separately.
-            //
-            // v976 REWRITE. Earlier versions built the sea as a POLYGON from
-            // the DETAILED per-city OSM coastline via `seaFromCoastline`
-            // (node → polygonize → right-of-way face labelling). That proved
-            // both FRAGILE (a dense harbour like NYC mislabels faces or fails
-            // to polygonize → the sea is wrong or null) and SLOW (tens of
-            // thousands of coastline vertices → the geodesic buffer froze the
-            // main thread for ~10 s). The result: NYC's harbour/East River got
-            // marked "further from water", which is impossible.
-            //
-            // Robust approach instead — combine two reliable sources, no
-            // polygonize, no huge single polygon:
-            //   (a) The COARSE OCEAN as an AREA: the play-area frame MINUS the
-            //       bundled Natural Earth 1:50m land. This is small + always
-            //       well-formed, and covers the OPEN sea/harbour/ocean as real
-            //       area so it reads "closer", never "further". Accepted unless
-            //       clearly inverted (a seeker DEEP inside it = genuinely
-            //       offshore); a coastal seeker who falls just inside the
-            //       coarse sea due to 1:50m imprecision is fine.
-            //   (b) The per-city OSM coastline as LINES (the shore). Buffered
-            //       by the seeker distance this covers near-shore land AND
-            //       narrow tidal channels (the East River) that the coarse
-            //       ocean is too coarse to include as area. Cheap (one
-            //       combined + simplified multiline).
-            // The `coastline` measuring subtype + `same-landmass` still use
-            // their own per-city land geometry; only body-of-water dropped the
-            // fragile sea polygon.
+            // v985: fold in the SEA robustly. Earlier versions built a
+            // per-city sea POLYGON (seaFromCoastline) and buffered/unioned it —
+            // both froze the app (main thread) AND, once moved off-thread, the
+            // turf.union of that many-vertex polygon TIMED OUT the worker, so
+            // the whole body-of-water buffer returned null and NO overlay drew.
+            // Robust approach: add the per-city coastline as LINES only. Buffered
+            // by the seeker distance (downstream) a coastline line covers the
+            // near-shore band on both sides AND narrow tidal channels / rivers
+            // (the East River, the Hudson) — cheap and reliable. Wide OPEN water
+            // beyond the buffer band isn't covered as area (a known limitation
+            // vs. a full sea polygon), but the overlay always renders now.
             try {
-                const seeker = { lng: question.lng, lat: question.lat };
-                let seaAdded = false;
-
-                // (a) DETAILED sea AREA from the per-city OSM coastline (v980).
-                // The coarse 1:50m ocean (a-fallback below) is too coarse to
-                // resolve a metro's bays — NYC's Lower Bay / harbour / Jamaica
-                // Bay stayed OUTSIDE the coarse ocean and read "further from
-                // water", which is impossible (open water IS water). The
-                // detailed OSM coastline resolves them. `seaFromCoast` builds
-                // the sea polygon OFF the main thread (v879 worker + v897
-                // per-face right-of-way labelling, seeker-not-in-sea guarded →
-                // null on any inversion/degeneracy). We then SIMPLIFY it to
-                // ~220 m BEFORE it enters the arcgis buffer: a raw harbour
-                // coastline is tens of thousands of vertices and froze the
-                // buffer (the v976 removal), but simplified it's a few hundred
-                // vertices — negligible against a km-scale buffer, and the open
-                // bay shape survives. Narrow tidal channels lost to
-                // simplification are still covered by the coastline LINES band
-                // (b). Falls back to the coarse ocean when the detailed sea is
-                // unavailable/degenerate.
-                if (bBox) {
-                    try {
-                        const coastLines = await fetchAreaCoastlineLines();
-                        if (coastLines && coastLines.length > 0) {
-                            const frame = bBox as [
-                                number,
-                                number,
-                                number,
-                                number,
-                            ];
-                            let sea: Feature<Polygon | MultiPolygon> | null =
-                                null;
-                            try {
-                                sea = await seaFromCoastViaWorker(
-                                    coastLines,
-                                    frame,
-                                    seeker,
-                                );
-                            } catch {
-                                sea = seaFromCoastline(
-                                    coastLines,
-                                    frame,
-                                    seeker,
-                                );
-                            }
-                            if (sea && turf.area(sea as any) > 0) {
-                                // v983: PROGRESSIVELY simplify until the sea
-                                // fits the arcgis-buffer vertex cap, instead of
-                                // a single fixed tolerance that a dense harbour
-                                // (NYC) blew past → the sea was SKIPPED → the
-                                // coarse 1:50m ocean (which misses the bays) →
-                                // open water still read "further" (the reported
-                                // bug). Coarser tolerances still preserve the
-                                // km-wide OPEN bays (the answer geometry); the
-                                // narrow tidal channels they drop are covered by
-                                // the coastline LINES band (b). Only if even the
-                                // coarsest (~1.1 km) sea is over the cap do we
-                                // skip it and fall to the coarse ocean.
-                                let seaOut: Feature<
-                                    Polygon | MultiPolygon
-                                > | null =
-                                    countCoords(sea) <= SEA_VERTEX_CAP
-                                        ? sea
-                                        : null;
-                                for (const tol of [0.002, 0.004, 0.008, 0.012]) {
-                                    if (seaOut) break;
-                                    try {
-                                        const s = turf.simplify(sea as any, {
-                                            tolerance: tol,
-                                            highQuality: false,
-                                            mutate: false,
-                                        }) as Feature<Polygon | MultiPolygon>;
-                                        if (
-                                            turf.area(s as any) > 0 &&
-                                            countCoords(s) <= SEA_VERTEX_CAP
-                                        ) {
-                                            seaOut = s;
-                                        }
-                                    } catch {
-                                        /* try the next tolerance */
-                                    }
-                                }
-                                if (seaOut) {
-                                    out.push(seaOut);
-                                    seaAdded = true;
-                                }
-                            }
-                        }
-                    } catch (e) {
-                        console.warn(
-                            "body-of-water detailed sea failed:",
-                            e,
-                        );
-                    }
-                }
-
-                // (a-fallback) Coarse ocean AREA (1:50m) — only when the
-                // detailed sea above wasn't available.
-                if (!seaAdded && bBox) {
-                    try {
-                        // v984: CLIP the bundled coastline to the play-area
-                        // frame BEFORE lineToPolygon. `fetchCoastline` returns
-                        // the GLOBAL 1:50m coastline (~100k vertices) — running
-                        // lineToPolygon over the whole world hung the buffer and
-                        // left body-of-water with NO overlay (the v982 "no
-                        // overlay" regression: before the double-slash URL fix,
-                        // fetchCoastline threw and this block was never reached;
-                        // once it started returning data, the global
-                        // lineToPolygon became a multi-second stall). Clipping to
-                        // the frame first bounds it to the local coast.
-                        const coastFC = {
-                            type: "FeatureCollection",
-                            features: clipLinesToBbox(
-                                await fetchCoastline(),
-                                bBox,
-                            ),
-                        } as GeoJSON.FeatureCollection;
-                        const frame = turf.bboxPolygon(bBox as any);
-                        const landRaw = turf.lineToPolygon(
-                            coastFC as any,
-                        ) as any;
-                        const landFeatures: any[] =
-                            landRaw?.type === "FeatureCollection"
-                                ? landRaw.features
-                                : [landRaw];
-                        const landPolys = landFeatures.filter(
-                            (f) =>
-                                f?.geometry?.type === "Polygon" ||
-                                f?.geometry?.type === "MultiPolygon",
-                        );
-                        if (landPolys.length > 0) {
-                            const landCombined = turf.combine(
-                                turf.featureCollection(landPolys as any),
-                            ).features[0] as Feature<MultiPolygon>;
-                            const landClipped = turf.bboxClip(
-                                landCombined as any,
-                                bBox as any,
-                            ) as Feature<Polygon | MultiPolygon>;
-                            const hasLand =
-                                (landClipped?.geometry?.coordinates?.length ??
-                                    0) > 0;
-                            const coarse = hasLand
-                                ? (turf.difference(
-                                      turf.featureCollection([
-                                          frame as any,
-                                          landClipped as any,
-                                      ]),
-                                  ) as Feature<
-                                      Polygon | MultiPolygon
-                                  > | null)
-                                : (frame as Feature<Polygon>);
-                            const coarseArea =
-                                coarse != null ? turf.area(coarse as any) : 0;
-                            const frameA = turf.area(frame as any);
-                            // Reject a degenerate/whole-frame ocean, or a
-                            // seeker DEEP in the ocean (> ~2 km from its edge =
-                            // genuinely offshore / an inversion). A coastal
-                            // seeker just inside the coarse ocean near the shore
-                            // is accepted (1:50m imprecision tolerance).
-                            let bad =
-                                coarse == null ||
-                                coarseArea <= 0 ||
-                                (frameA > 0 && coarseArea > 0.97 * frameA);
-                            if (!bad) {
-                                try {
-                                    const seekerPt = turf.point([
-                                        seeker.lng,
-                                        seeker.lat,
-                                    ]);
-                                    if (
-                                        turf.booleanPointInPolygon(
-                                            seekerPt,
-                                            coarse as any,
-                                        )
-                                    ) {
-                                        const edgeKm = turf.pointToLineDistance(
-                                            seekerPt,
-                                            turf.polygonToLine(
-                                                coarse as any,
-                                            ) as any,
-                                            { units: "kilometers" },
-                                        );
-                                        bad = edgeKm > 2;
-                                    }
-                                } catch {
-                                    bad = true;
-                                }
-                            }
-                            if (!bad && coarse) out.push(coarse);
-                        }
-                    } catch (e) {
-                        console.warn("body-of-water coarse ocean failed:", e);
-                    }
-                }
-
-                // (b) Per-city coastline LINES (shore + narrow channels).
-                try {
-                    const cityCoastLines = await fetchAreaCoastlineLines();
-                    const coastLines =
-                        cityCoastLines && cityCoastLines.length > 0
-                            ? cityCoastLines
-                            : clipLinesToBbox(await fetchCoastline(), bBox);
-                    if (coastLines.length > 0)
-                        out.push(highSpeedBase(coastLines));
-                } catch (e) {
-                    console.warn("body-of-water coastline band failed:", e);
-                }
+                const cityCoastLines = await fetchAreaCoastlineLines();
+                const coastLines =
+                    cityCoastLines && cityCoastLines.length > 0
+                        ? cityCoastLines
+                        : clipLinesToBbox(await fetchCoastline(), bBox);
+                if (coastLines.length > 0) out.push(highSpeedBase(coastLines));
             } catch (e) {
-                console.warn("body-of-water sea merge failed:", e);
+                console.warn("body-of-water coastline band failed:", e);
             }
             if (out.length === 0) return [turf.multiPolygon([])];
             return out;
@@ -874,25 +648,6 @@ export const determineMeasuringBoundary = async (
 
 // v933: extracted so the self-evicting wrapper below can address a memo
 // entry by its exact key (mirrors matching.ts's matchingBoundaryMemoKey).
-/** Max vertices of the simplified detailed-sea polygon we'll feed to the
- *  arcgis geodesic buffer (v980). Above this, buffering risks the multi-second
- *  main-thread freeze the coarse-ocean fallback was introduced to avoid, so we
- *  skip the detailed sea and fall back to the coarse ocean instead. */
-const SEA_VERTEX_CAP = 4000;
-
-/** Total coordinate count of a polygon/multipolygon feature (bounded walk). */
-function countCoords(f: Feature<Polygon | MultiPolygon>): number {
-    const g = f.geometry;
-    let n = 0;
-    if (g.type === "Polygon") {
-        for (const ring of g.coordinates) n += ring.length;
-    } else if (g.type === "MultiPolygon") {
-        for (const poly of g.coordinates)
-            for (const ring of poly) n += ring.length;
-    }
-    return n;
-}
-
 const bufferedDeterminerKey = (question: MeasuringQuestion) =>
     // v376: lightweight playAreaSignature instead of stringifying the
     // whole polygon — see matching.ts memo key for the rationale.

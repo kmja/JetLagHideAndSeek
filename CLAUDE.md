@@ -428,7 +428,23 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v984`. Use `git log` for the per-version detail;
+build stamp. Current: `v985`. Use `git log` for the per-version detail;
+
+**v985 — body-of-water: drop the fragile sea POLYGON entirely (reliable
+overlay).** The sea polygon (`seaFromCoastline`) was the recurring failure: it
+froze the main thread (v976), and once moved off-thread (v984) the `turf.union`
+of that many-thousand-vertex polygon TIMED OUT the worker → the whole
+body-of-water buffer returned null → NO overlay drew at all (the v982-onward "no
+overlay" regression). v985 removes the sea polygon from the buffer input: the
+elimination is now `bufferAndUnion(water polys + rivers + per-city coastline
+LINES)` — buffered by the seeker distance, a coastline line covers the
+near-shore band on both sides AND narrow tidal channels/rivers (the Hudson, the
+East River), so the overlay ALWAYS renders now. Trade-off: wide OPEN water
+beyond the buffer band isn't covered as area (a known fidelity gap vs. the sea
+polygon), to be re-addressed with a cheaper sea representation. Removed the now-
+dead `seaFromCoastline`/`seaFromCoast` imports + `SEA_VERTEX_CAP`/`countCoords`
+from this path (`seaFromCoastline` stays live via `coastlineStrait.ts` /
+`same-landmass`).
 
 **v984 — body-of-water NO-OVERLAY regression fixed + generalized off-thread
 buffer (`bufferAndUnion` worker) + Hudson-as-"Coastline" label.**
