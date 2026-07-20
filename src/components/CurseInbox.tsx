@@ -1,5 +1,5 @@
 import { useStore } from "@nanostores/react";
-import { Ban, Check, Hourglass, Skull, Train, X, Zap } from "lucide-react";
+import { Ban, Check, Hourglass, Skull, Train, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { useNow } from "@/hooks/useNow";
@@ -314,7 +314,7 @@ export function CurseInbox({
                                 style={{ background: "rgb(126 34 206)" }}
                                 aria-hidden="true"
                             >
-                                <Zap
+                                <Skull
                                     className="w-4 h-4 text-white"
                                     strokeWidth={2.5}
                                 />
@@ -421,7 +421,7 @@ export function CurseInbox({
                 <DialogContent>
                     <DialogHeader>
                         <DialogTitle className="flex items-center gap-2">
-                            <Zap className="w-4 h-4 text-purple-400 shrink-0" />
+                            <Skull className="w-4 h-4 text-purple-400 shrink-0" />
                             {resolvedDialog?.name}
                         </DialogTitle>
                     </DialogHeader>

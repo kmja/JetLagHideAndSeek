@@ -3,10 +3,10 @@ import {
     AlertOctagon,
     ChevronDown,
     Shuffle,
+    Skull,
     Sparkles,
     Timer,
     Trash2,
-    Zap,
 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "react-toastify";
@@ -321,7 +321,7 @@ export function HiderHandPanel() {
                                                 }
                                                 className="flex-1 gap-1 h-7 px-2 text-[10px]"
                                             >
-                                                <Zap className="w-3 h-3" />
+                                                <Skull className="w-3 h-3" />
                                                 Cast
                                             </Button>
                                         );

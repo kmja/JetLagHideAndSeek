@@ -133,8 +133,9 @@ export function CurseRevealOverlay() {
             onClick={dismiss}
             className="fixed inset-0 z-[1190] flex items-center justify-center overflow-hidden cursor-pointer animate-[curseRevealBackdrop_320ms_ease-out]"
             style={{
-                background:
-                    "radial-gradient(circle at 50% 45%, #7a4a8c 0%, #5a2f6e 55%, #3f1f52 100%)",
+                // A dark, mostly-neutral scrim (not a full-screen purple wash) —
+                // the purple STAR is the colour, the backdrop just dims the game.
+                background: "rgba(18, 12, 26, 0.82)",
             }}
             data-testid="curse-reveal-overlay"
         >
@@ -158,17 +159,19 @@ export function CurseRevealOverlay() {
                 </filter>
             </svg>
 
-            {/* Rotating background layer (slow infinite spin). Nested so the
-                grow-in scales don't fight the spin's transform. The squiggles
-                and the star each have their OWN grow-in so the squiggles can
-                trail the card. */}
+            {/* Rotating background layer (slow infinite spin). The spin box is
+                a REAL sized element centred by the outer flex, so it spins
+                around its own centre = screen centre. The star + squiggles are
+                centred WITHIN it via `inset-0 m-auto` (NOT a translate — the
+                grow-in animations overwrite `transform`, which is exactly what
+                made the star orbit instead of spinning in place). */}
             <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                <div className="motion-safe:animate-[curseRevealSpin_46s_linear_infinite]">
+                <div className="relative w-[135vmin] h-[135vmin] motion-safe:animate-[curseRevealSpin_46s_linear_infinite]">
                     {/* Squiggles — grow OUT from behind the card, delayed +
-                        ease-out (beat 3). */}
+                        ease-out (beat 3). Fill the spin box. */}
                     <svg
                         viewBox="0 0 200 200"
-                        className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[135vmin] h-[135vmin] motion-safe:animate-[curseRevealSquiggleIn_620ms_520ms_cubic-bezier(0.22,1,0.36,1)_both]"
+                        className="absolute inset-0 w-full h-full motion-safe:animate-[curseRevealSquiggleIn_620ms_520ms_cubic-bezier(0.22,1,0.36,1)_both]"
                         aria-hidden="true"
                     >
                         {squiggles.map((d, i) => (
@@ -184,10 +187,10 @@ export function CurseRevealOverlay() {
                         ))}
                     </svg>
                     {/* Star — grows in FAST (beat 1); points just barely leave
-                        the frame. */}
+                        the frame. Centred in the box (87% of it ≈ 118vmin). */}
                     <svg
                         viewBox="0 0 200 200"
-                        className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[118vmin] h-[118vmin] motion-safe:animate-[curseRevealStarIn_360ms_cubic-bezier(0.2,0.9,0.3,1)_both]"
+                        className="absolute inset-0 m-auto w-[87%] h-[87%] motion-safe:animate-[curseRevealStarIn_360ms_cubic-bezier(0.2,0.9,0.3,1)_both]"
                         aria-hidden="true"
                     >
                         <path

@@ -51,6 +51,57 @@ export function curseBlocksAsking(name: string): boolean {
 }
 
 /**
+ * v1035: curses whose rulebook effect is a TASK the seekers must complete
+ * "before asking another question" — a FULL ask-block until they finish the
+ * real-world task and clear the curse. The app can't verify the task itself
+ * (film a bird / build a cairn / find a lemon …), but it CAN stop the seekers
+ * asking their next question until they mark the curse cleared, which is the
+ * enforceable half of the effect.
+ *
+ * Distinct from:
+ *   • the pure movement/transit blockers (Jammed Door, U-Turn, Gambler's Feet,
+ *     Right Turn) — they block BOARDING, not asking, and the app has no transit
+ *     signal, so they stay purely real-world;
+ *   • the "next question must be asked a certain WAY/PLACE" constraints (Ransom
+ *     Note = cut-out letters; Bridge Troll = from under a bridge) — the seekers
+ *     CAN ask, just with a constraint they self-comply with, so those aren't a
+ *     full block.
+ */
+const CURSE_ASK_UNTIL_DONE_BLOCKERS: ReadonlySet<string> = new Set([
+    "Curse of the Unguided Tourist",
+    "Curse of the Mediocre Travel Agent",
+    "Curse of the Distant Cuisine",
+    "Curse of the Bird Guide",
+    "Curse of the Cairn",
+    "Curse of Water Weight",
+    "Curse of the Zoologist",
+    "Curse of the Egg Partner",
+    "Curse of the Luxury Car",
+    "Curse of the Impressionable Consumer",
+    "Curse of the Endless Tumble",
+    "Curse of the Labyrinth",
+    "Curse of the Hidden Hangman",
+    "Curse of the Lemon Phylactery",
+]);
+
+/**
+ * Whether an ACTIVE curse fully blocks the seekers' next question until they
+ * clear it (a "before asking another question" task curse). Known names first;
+ * an unknown (demo) curse falls back to the rulebook phrasing in its
+ * description — but NOT the transit-only "before boarding", which isn't an
+ * ask-block.
+ */
+export function curseBlocksAskingUntilCleared(curse: {
+    name: string;
+    description: string;
+}): boolean {
+    if (CURSE_ASK_UNTIL_DONE_BLOCKERS.has(curse.name)) return true;
+    return /before asking (?:another|the next|a) question|(?:cannot|can't|can not) ask another question|until they have acquired/i.test(
+        curse.description,
+    );
+}
+
+/**
  * v970 (rulebook audit B): the rulebook's one-at-a-time limit covers EVERY
  * curse "actively preventing the seekers from asking questions or taking
  * transit" (p386) — not just the three the app enforces in the question UI.
@@ -319,6 +370,18 @@ export function computeAskingRestrictions(
         blockedAll = true;
         reason =
             "Urban Explorer: you can't ask questions while on transit or in a transit station.";
+    }
+
+    // v1035: a "before asking another question" task curse (Bird Guide, Cairn,
+    // Zoologist, Labyrinth, …) blocks ALL asking until the seekers complete the
+    // task and clear the curse. The app can't verify the task, but it stops the
+    // next question until the curse is marked cleared.
+    if (!blockedAll) {
+        const taskBlocker = active.find((c) => curseBlocksAskingUntilCleared(c));
+        if (taskBlocker) {
+            blockedAll = true;
+            reason = `${taskBlocker.name}: finish the curse task, then clear the curse before asking your next question.`;
+        }
     }
 
     // If every category ended up disabled, surface it as a full block so

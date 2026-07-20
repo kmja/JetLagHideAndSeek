@@ -428,7 +428,46 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v1034`. Use `git log` for the per-version detail;
+build stamp. Current: `v1035`. Use `git log` for the per-version detail;
+
+**v1035 — Bird Guide viewfinder, curse-reveal fixes, skull icon everywhere,
+"before asking another question" curses now block asking.**
+- **Bird Guide film timer gets a live camera VIEWFINDER** (`CastCurseDialog`) —
+  a rear-camera `<video>` (`getUserMedia({facingMode:{ideal:"environment"}})`,
+  stopped on close/unmount, degrades to a text hint on permission/hardware
+  failure) sits above the stopwatch with a REC badge while running, so the hider
+  frames the bird and starts/stops the timer with it in view. The camera is a
+  framing aid only — the captured DURATION (`filmSeconds`) is still what's sent.
+- **Curse reveal (`CurseRevealOverlay`) two fixes:** (1) the star no longer
+  ORBITS — the star/squiggles were centred with Tailwind `-translate-x/y-1/2`,
+  which the grow-in animation's own `transform` overwrote, leaving the star
+  offset so the parent spin swung it around screen centre. Now the spin box is a
+  real sized element (`w-[135vmin]`) centred by flex, and the star/squiggles are
+  centred WITHIN it via `inset-0 m-auto` / `inset-0 w-full h-full` (no transform
+  to clobber), so the star spins around its own axis in place. (2) The
+  full-screen purple radial-gradient wash is gone — the backdrop is a dark
+  neutral scrim (`rgba(18,12,26,0.82)`); the purple STAR is the only colour.
+- **Curse iconography unified to `Skull`** everywhere (lucide has no
+  skull-and-crossbones, so the user's fallback: skull throughout). Replaced the
+  inconsistent lightning `Zap` / `Sparkles` curse glyphs in `CurseInbox`
+  (received banner + dialog title), `CastCurseDialog` (header), `HiderHandPanel`
+  (Cast button), and `HandLimitEnforcer` (curse discard row); the compact
+  active-pill was already `Skull`.
+- **"Before asking another question" task curses now BLOCK asking**
+  (`curseEnforcement.ts` `curseBlocksAskingUntilCleared` + `computeAskingRestrictions`).
+  The 14 task curses whose rulebook effect is "the seekers must do X before
+  asking another question" (Bird Guide, Cairn, Zoologist, Labyrinth, Water
+  Weight, Egg Partner, Lemon Phylactery, Luxury Car, Distant Cuisine, Unguided
+  Tourist, Mediocre Travel Agent, Impressionable Consumer, Endless Tumble, Hidden
+  Hangman) now set `blockedAll` (with a curse-named reason) while active, so the
+  New-question button is disabled until the seekers clear the curse. Distinct
+  from the pure movement/transit blockers (Jammed Door / U-Turn / Gambler's Feet
+  / Right Turn — block boarding, not asking, and the app has no transit signal)
+  and the ask-a-certain-WAY constraints (Ransom Note / Bridge Troll — the seekers
+  self-comply, not a full block). Unknown/demo curses fall back to the rulebook
+  phrasing in the description. Unit-tested (`tests/curseBlockers.test.ts`, 12
+  cases). The pre-existing category blockers (Drained Brain / Spotty Memory /
+  Urban Explorer) are unchanged.
 
 **v1034 — lobby/settings preload estimate reads the REAL pack size.** The v1033
 note flagged the ~57 MB lobby estimate badly undershooting London's real 129 MB

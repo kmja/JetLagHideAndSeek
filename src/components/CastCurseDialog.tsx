@@ -10,10 +10,10 @@ import {
     Plus,
     RotateCw,
     Send,
+    Skull,
     Square,
     Trash2,
     Video,
-    Zap,
 } from "lucide-react";
 import type { ComponentType, CSSProperties } from "react";
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
@@ -239,6 +239,13 @@ export function CastCurseDialog({
     const [filmRunning, setFilmRunning] = useState(false);
     const [filmElapsedMs, setFilmElapsedMs] = useState(0);
     const filmStartRef = useRef<number | null>(null);
+    // Bird Guide: a live camera VIEWFINDER shown while the film-cost section is
+    // open, so the hider can frame the bird and start/stop the timer with it in
+    // view. `videoRef` holds the <video>, `streamRef` the MediaStream (stopped
+    // on close). `cameraError` degrades to a text hint + the plain stopwatch.
+    const videoRef = useRef<HTMLVideoElement | null>(null);
+    const streamRef = useRef<MediaStream | null>(null);
+    const [cameraError, setCameraError] = useState(false);
     // Rock-tower casting cost (Curse of the Cairn): the number of rocks the
     // hider's tower reached — the target the seekers must match.
     const [rockCount, setRockCount] = useState<number | null>(null);
@@ -344,6 +351,47 @@ export function CastCurseDialog({
         }, 200);
         return () => window.clearInterval(id);
     }, [filmRunning]);
+
+    // Bird Guide viewfinder: acquire the rear camera while the film-cost
+    // section is on-screen so the hider frames the bird, then start/stop the
+    // timer. Stops the stream on close/unmount; any failure (no permission /
+    // no camera) falls back to the plain stopwatch.
+    useEffect(() => {
+        const wantsCamera =
+            open && !!card && curseCostRequiresVideo(card.castingCost);
+        if (!wantsCamera) return;
+        if (!navigator.mediaDevices?.getUserMedia) {
+            setCameraError(true);
+            return;
+        }
+        let cancelled = false;
+        setCameraError(false);
+        navigator.mediaDevices
+            .getUserMedia({
+                video: { facingMode: { ideal: "environment" } },
+                audio: false,
+            })
+            .then((stream) => {
+                if (cancelled) {
+                    stream.getTracks().forEach((t) => t.stop());
+                    return;
+                }
+                streamRef.current = stream;
+                if (videoRef.current) {
+                    videoRef.current.srcObject = stream;
+                    void videoRef.current.play().catch(() => {});
+                }
+            })
+            .catch(() => {
+                if (!cancelled) setCameraError(true);
+            });
+        return () => {
+            cancelled = true;
+            streamRef.current?.getTracks().forEach((t) => t.stop());
+            streamRef.current = null;
+            if (videoRef.current) videoRef.current.srcObject = null;
+        };
+    }, [open, card?.id, card?.castingCost]);
 
     if (!card) return null;
 
@@ -859,7 +907,7 @@ export function CastCurseDialog({
                 )}
                 <div className="px-6 pt-5 pb-3 shrink-0 border-b border-border flex items-start gap-3">
                     <span className="inline-flex items-center justify-center w-9 h-9 rounded shrink-0 bg-purple-500/20 mt-0.5">
-                        <Zap className="w-4 h-4 text-purple-400" />
+                        <Skull className="w-4 h-4 text-purple-400" />
                     </span>
                     <div className="min-w-0 flex-1">
                         <div className="text-[10px] uppercase tracking-[0.16em] font-poppins font-bold text-muted-foreground">
@@ -1267,6 +1315,33 @@ export function CastCurseDialog({
                                 is what the seekers must beat. */}
                             {costRequiresVideo && (
                                 <div className="mt-2.5 flex flex-col items-center gap-2">
+                                    {/* Live camera viewfinder — frame the bird,
+                                        then start/stop the timer with it in
+                                        view. Falls back to a hint if the camera
+                                        can't be opened. */}
+                                    {cameraError ? (
+                                        <p className="text-[11px] text-muted-foreground text-center max-w-xs leading-snug">
+                                            Camera unavailable — point your
+                                            phone's own camera at the bird and
+                                            use the timer below.
+                                        </p>
+                                    ) : (
+                                        <div className="relative w-full max-w-xs aspect-video overflow-hidden rounded-lg border border-border bg-black">
+                                            <video
+                                                ref={videoRef}
+                                                playsInline
+                                                muted
+                                                autoPlay
+                                                className="w-full h-full object-cover"
+                                            />
+                                            {filmRunning && (
+                                                <div className="absolute top-2 left-2 flex items-center gap-1.5 rounded-full bg-black/60 px-2 py-0.5 text-[11px] font-semibold text-white">
+                                                    <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+                                                    REC
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
                                     <div className="font-inter-tight font-black tabular-nums text-4xl">
                                         {formatClock(
                                             (filmSeconds != null

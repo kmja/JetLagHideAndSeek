@@ -3,10 +3,23 @@ import { describe, expect, it } from "vitest";
 import {
     blockingCurseExpired,
     curseBlocksAsking,
+    curseBlocksAskingUntilCleared,
+    computeAskingRestrictions,
     cursePreventsAskingOrTransit,
     spottyCategoryForRoll,
 } from "@/lib/curseEnforcement";
+import type { ReceivedCurse } from "@/lib/seekerInbound";
 import { curseDiceCount } from "@/lib/curseMeta";
+
+/** Minimal ReceivedCurse for the enforcement tests. */
+function rc(name: string, description = ""): ReceivedCurse {
+    return {
+        name,
+        description,
+        castingCost: "",
+        receivedAt: 1,
+    } as ReceivedCurse;
+}
 
 /**
  * v970 (rulebook audit B) — the widened one-active-blocking-curse pool
@@ -96,6 +109,60 @@ describe("blocking-curse pool (v970)", () => {
         expect(
             blockingCurseExpired("Curse of the Jammed Door", null, "medium", 0),
         ).toBe(false);
+    });
+});
+
+describe("ask-until-cleared task blockers (v1035)", () => {
+    it("classifies the task curses that block asking until cleared", () => {
+        for (const name of [
+            "Curse of the Bird Guide",
+            "Curse of the Cairn",
+            "Curse of the Zoologist",
+            "Curse of the Labyrinth",
+            "Curse of Water Weight",
+            "Curse of the Lemon Phylactery",
+        ]) {
+            expect(curseBlocksAskingUntilCleared(rc(name))).toBe(true);
+        }
+    });
+
+    it("does NOT block asking for movement/transit-only or constraint curses", () => {
+        for (const name of [
+            "Curse of the Jammed Door",
+            "Curse of the U-Turn",
+            "Curse of the Gambler's Feet",
+            "Curse of the Right Turn",
+            "Curse of the Ransom Note",
+            "Curse of the Bridge Troll",
+        ]) {
+            expect(curseBlocksAskingUntilCleared(rc(name))).toBe(false);
+        }
+    });
+
+    it("falls back to the description for an unknown task curse", () => {
+        expect(
+            curseBlocksAskingUntilCleared(
+                rc(
+                    "Curse of the Demo",
+                    "Seekers must juggle three oranges before asking another question.",
+                ),
+            ),
+        ).toBe(true);
+    });
+
+    it("an active Bird Guide fully blocks asking; clearing it unblocks", () => {
+        const active = computeAskingRestrictions([rc("Curse of the Bird Guide")], {
+            onTransit: false,
+            spottyCategory: null,
+        });
+        expect(active.blockedAll).toBe(true);
+        expect(active.reason).toMatch(/Bird Guide/);
+
+        const cleared = computeAskingRestrictions(
+            [{ ...rc("Curse of the Bird Guide"), dismissed: true } as ReceivedCurse],
+            { onTransit: false, spottyCategory: null },
+        );
+        expect(cleared.blockedAll).toBe(false);
     });
 });
 
