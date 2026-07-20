@@ -428,7 +428,18 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v1040`. Use `git log` for the per-version detail;
+build stamp. Current: `v1041`. Use `git log` for the per-version detail;
+
+**v1041 — Bird Guide: the seekers get the same viewfinder + timer to CLEAR it.**
+The hider films a bird to cast Curse of the Bird Guide; the seekers must then film
+one for at least as long before clearing. Extracted the cast dialog's camera
+viewfinder + stopwatch into a shared **`FilmViewfinder`** (rear-camera `<video>`
+via `getUserMedia`, REC badge, Start/Stop, captured-duration callback, degrades to
+a plain stopwatch on camera failure) and rendered it in the seeker's `CurseInbox`
+dialog for a curse carrying `filmSeconds`. The **Clear curse** button is now
+DISABLED until the seekers' filmed time meets the hider's target
+(`birdBlocksClear`), gating the clear on the actual task. Filmed time resets when
+the open curse dialog changes.
 
 **v1040 — custom brand icons: a real skull-and-crossbones + a golf-course glyph.**
 Lucide has no skull-and-crossbones (only a plain `Skull`), so `src/components/icons/gameIcons.tsx`

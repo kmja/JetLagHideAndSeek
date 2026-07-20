@@ -40,6 +40,7 @@ import { toast } from "react-toastify";
 
 import { renderBodyText } from "./CardTile";
 import { DiceRoller } from "./DiceRoller";
+import { FilmViewfinder } from "./FilmViewfinder";
 import { SectionPill } from "./JetLagLogo";
 import { ZonePreviewMap } from "./ZonePreviewMap";
 
@@ -105,6 +106,10 @@ export function CurseInbox({
     const [jammedCooldownUntil, setJammedCooldownUntil] = useState<
         number | null
     >(null);
+    // v1041: Curse of the Bird Guide — the seekers must film a bird for at least
+    // the hider's time before clearing. Holds the seconds they've filmed in the
+    // in-dialog viewfinder; the Clear button is gated on it meeting the target.
+    const [birdFilmedSecs, setBirdFilmedSecs] = useState<number | null>(null);
 
     const unack = $curses.filter((c) => !c.acknowledged);
     const active = $curses.filter((c) => c.acknowledged && !c.dismissed);
@@ -132,6 +137,11 @@ export function CurseInbox({
             spottyMemoryCategory.set(null);
         }
     }, [spottyActive]);
+
+    // Reset the Bird Guide filmed-time whenever the open dialog changes.
+    useEffect(() => {
+        setBirdFilmedSecs(null);
+    }, [dialogCurse?.receivedAt]);
 
     // Per-curse derived metadata (memo-free; cheap string ops).
     const meta = (c: ReceivedCurse) => {
@@ -217,6 +227,12 @@ export function CurseInbox({
         ? ($curses.find((c) => c.receivedAt === dialogCurse.receivedAt) ?? null)
         : null;
     const dlgMeta = resolvedDialog ? meta(resolvedDialog) : null;
+
+    // The Bird Guide's film requirement (target seconds) for the open curse.
+    const birdTarget = resolvedDialog?.filmSeconds ?? null;
+    const birdBlocksClear =
+        birdTarget != null &&
+        (birdFilmedSecs == null || birdFilmedSecs < birdTarget);
 
     return (
         <>
@@ -448,11 +464,22 @@ export function CurseInbox({
                             />
                         )}
                         {resolvedDialog?.filmSeconds != null && (
-                            <p className="text-sm text-purple-300 font-semibold tabular-nums">
-                                Film a bird for at least{" "}
-                                {formatFilmTarget(resolvedDialog.filmSeconds)}{" "}
-                                before asking your next question.
-                            </p>
+                            <div className="space-y-2">
+                                <p className="text-sm text-purple-300 font-semibold tabular-nums">
+                                    Film a bird for at least{" "}
+                                    {formatFilmTarget(resolvedDialog.filmSeconds)}{" "}
+                                    before asking your next question.
+                                </p>
+                                {/* v1041: the seekers film with the SAME
+                                    viewfinder + timer the hider used to cast —
+                                    the Clear button unlocks once they've filmed
+                                    long enough. */}
+                                <FilmViewfinder
+                                    active={resolvedDialog !== null}
+                                    targetSeconds={resolvedDialog.filmSeconds}
+                                    onElapsed={setBirdFilmedSecs}
+                                />
+                            </div>
                         )}
                         {resolvedDialog?.rockCount != null && (
                             <p className="text-sm text-purple-300 font-semibold tabular-nums">
@@ -736,10 +763,19 @@ export function CurseInbox({
                             </div>
                         ) : (
                             // Open-ended curse: cleared by doing the task in
-                            // the real world — trust the seekers' word.
+                            // the real world — trust the seekers' word. For the
+                            // Bird Guide the Clear button unlocks only once the
+                            // seekers have filmed for at least the target time
+                            // in the viewfinder above (v1041).
                             <Button
                                 variant="outline"
                                 className="flex-1 gap-1.5"
+                                disabled={birdBlocksClear}
+                                title={
+                                    birdBlocksClear
+                                        ? "Film a bird for at least the target time above first."
+                                        : undefined
+                                }
                                 onClick={() =>
                                     dismiss(resolvedDialog!.receivedAt)
                                 }
