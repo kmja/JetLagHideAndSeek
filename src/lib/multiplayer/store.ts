@@ -530,7 +530,10 @@ export function setLocationTrackingExternal(external: boolean) {
  * offline play just flips the local atom and relies on the
  * persistent store to keep the banner across reloads.
  */
-export function seekerStartEndgame(zone?: EndgameZone | null) {
+export function seekerStartEndgame(
+    zone?: EndgameZone | null,
+    force?: boolean,
+) {
     if (endgameStartedAt.get() !== null) return;
     const at = Date.now();
     if (!multiplayerEnabled.get()) {
@@ -550,7 +553,7 @@ export function seekerStartEndgame(zone?: EndgameZone | null) {
     // authoritative verdict arrives. Stash the declared zone so a correct
     // verdict can promote it to the focus zone (v959).
     pendingEndgameZone.set(zone ?? null);
-    getTransport().send({ t: "startEndgame", at });
+    getTransport().send({ t: "startEndgame", at, force });
 }
 
 /**
@@ -1578,9 +1581,11 @@ function handleServerMessage(msg: ServerMessage) {
                     tag: "endgame",
                 });
             }
-            // The declared zone was wrong (or premature) — drop it so a later
-            // correct claim starts clean.
-            pendingEndgameZone.set(null);
+            // v1025: on an OFF-ZONE denial the declared zone was wrong — drop
+            // it so a later correct claim starts clean. On a TRANSIT denial the
+            // zone was RIGHT (they just need to get off transit), so KEEP it so
+            // the "declare anyway" override re-declares the same zone.
+            if (!onTransit) pendingEndgameZone.set(null);
             endgameDeniedReason.set(onTransit ? "transit" : "off-zone");
             endgameDeniedAt.set(Date.now());
             return;

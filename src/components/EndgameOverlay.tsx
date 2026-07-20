@@ -8,8 +8,10 @@ import {
     endgameDeniedAt,
     endgameDeniedReason,
     endgameSuccessAt,
+    pendingEndgameZone,
 } from "@/lib/gameSetup";
 import { playerRole } from "@/lib/hiderRole";
+import { seekerStartEndgame } from "@/lib/multiplayer/store";
 import { play } from "@/lib/sound";
 import { cn } from "@/lib/utils";
 
@@ -243,6 +245,29 @@ export function EndgameOverlay() {
                 <p className="text-sm text-muted-foreground leading-snug pt-1">
                     {body}
                 </p>
+                {/* v1025: on an ON-TRANSIT denial, the seeker can override —
+                    the speed check is a heuristic (it can't tell walking from a
+                    slow vehicle), so if they really are off transit they force
+                    the claim (server still checks they're at the zone). */}
+                {transitDenied && !isHider && (
+                    <Button
+                        onClick={() => {
+                            seekerStartEndgame(
+                                pendingEndgameZone.get(),
+                                true,
+                            );
+                            dismiss();
+                        }}
+                        size="lg"
+                        className={cn(
+                            "w-full mt-2 gap-2 text-base h-14",
+                            "font-display font-extrabold uppercase tracking-[0.02em]",
+                        )}
+                    >
+                        <Target className="w-5 h-5" />
+                        I&apos;m off transit — declare anyway
+                    </Button>
+                )}
                 <Button
                     onClick={dismiss}
                     size="lg"

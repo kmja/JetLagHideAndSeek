@@ -269,6 +269,14 @@ export interface CMsgSetLocationTracking {
 export interface CMsgStartEndgame {
     t: "startEndgame";
     at: number;
+    /**
+     * v1025: the seeker overrides an on-transit denial ("I'm actually off
+     * transit"). When true the server skips the transit-speed check (rulebook
+     * p75 is self-attested — the app can't reliably tell walking from a slow
+     * vehicle) but STILL validates the seeker is at the hider's zone. Absent
+     * on the first claim.
+     */
+    force?: boolean;
 }
 
 /**

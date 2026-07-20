@@ -679,7 +679,7 @@ export class GameRoom {
             case "setLocationTracking":
                 return this.handleSetLocationTracking(socket, msg.external);
             case "startEndgame":
-                return this.handleStartEndgame(socket, msg.at);
+                return this.handleStartEndgame(socket, msg.at, msg.force);
             case "cancelEndgame":
                 return this.handleCancelEndgame(socket);
             case "confirmEndgame":
@@ -1407,7 +1407,7 @@ export class GameRoom {
      * setupChanged so every client reconciles their endgame banner from
      * the canonical timestamp.
      */
-    private handleStartEndgame(socket: WebSocket, at: number) {
+    private handleStartEndgame(socket: WebSocket, at: number, force?: boolean) {
         const conn = this.lookupConn(socket);
         if (!conn) return;
         if (this.game.setup.endgameStartedAt !== null) return;
@@ -1420,8 +1420,14 @@ export class GameRoom {
         // v970 (rulebook audit B): even AT the zone, the endgame only begins
         // once the seekers are off transit (rulebook p75) — a seeker riding
         // through the zone can't arm it. Denied with reason:"transit".
+        // v1025: `force` = the seeker manually overrode an on-transit denial
+        // ("I'm actually off transit"); skip the speed check (it's self-
+        // attested — the app can't tell walking from a slow vehicle). The
+        // location check (`correct`) still applies.
         const onTransit =
-            correct && this.seekerLooksOnTransit(conn.participantId);
+            !force &&
+            correct &&
+            this.seekerLooksOnTransit(conn.participantId);
         if (correct && !onTransit) {
             // Endgame BEGINS: arm it (persistent) + confirm, so the seekers
             // proceed to "find them" and the hider locks down. `at` is the

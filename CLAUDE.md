@@ -428,7 +428,19 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v1025`. Use `git log` for the per-version detail;
+build stamp. Current: `v1026`. Use `git log` for the per-version detail;
+
+**v1026 — manual override for an on-transit endgame denial.** When the server
+denies an endgame claim with `reason:"transit"` (the claiming seeker is at the
+zone but the speed heuristic thinks they're still riding — rulebook p75), the
+seeker's `EndgameOverlay` fail card now shows an **"I'm off transit — declare
+anyway"** button. It re-sends `startEndgame` with a new optional `force` flag
+(`CMsgStartEndgame.force`) that makes the server SKIP the transit-speed check
+(self-attested — the app can't tell walking from a slow vehicle) while STILL
+validating the seeker is at the hider's zone. The client keeps
+`pendingEndgameZone` on a transit denial (only an off-zone denial clears it) so
+the override re-declares the same correct zone. Off-zone denials are unchanged
+(no override — they really are in the wrong place).
 
 **v1025 — every device records the finished round (leaderboard sync).** The
 per-round leaderboard append lived ONLY in `startNewRound` (the initiator /
