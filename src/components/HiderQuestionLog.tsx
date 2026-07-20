@@ -171,10 +171,16 @@ function AnsweredCard({ entry }: { entry: InboxEntry }) {
     );
 
     const summary = summarizeQuestion({ id: question.id, data: question.data });
-    const detail = answeredDetail(question) ?? summary.detail;
     const isPhoto = entry.id === "photo";
     const d = question.data as Record<string, unknown>;
     const photoSrc = (d.photoUrl as string) || (d.photoUri as string) || null;
+    // v1018: `answeredDetail` is role-agnostic and says "Photo received" (correct
+    // for the seeker who receives it). On the HIDER's own log that reads wrong —
+    // the hider SENT the photo — so show "Photo sent" here.
+    const detail =
+        isPhoto && photoSrc
+            ? "Photo sent"
+            : (answeredDetail(question) ?? summary.detail);
     // v883: a vetoed / randomized-away question eliminates nothing, so its
     // outcome map (the whole play area) is meaningless — show a note instead.
     const noOutcome = Boolean(d.vetoed) || Boolean(d.randomizedAway);

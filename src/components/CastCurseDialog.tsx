@@ -521,11 +521,21 @@ export function CastCurseDialog({
         rockCount?: number;
         travelDestination?: string;
     } => ({
+        // v1018: gate EVERY optional payload field on whether the CURRENT curse
+        // actually requires it. These input states persist across curse
+        // selections, so an un-gated field leaked stale data into the next
+        // curse's payload — the reported bug: "Test text here" typed for the
+        // Mediocre Travel Agent then showed up as the Impressionable Consumer's
+        // destination.
         ...(isDrainedBrain ? { disabledQuestions: drainedQuestions } : {}),
-        ...(preparedPhoto?.url ? { photoUrl: preparedPhoto.url } : {}),
-        ...(filmSeconds != null ? { filmSeconds } : {}),
-        ...(rockCount != null && rockCount >= 1 ? { rockCount } : {}),
-        ...(travelDest.trim()
+        ...(costRequiresPhoto && preparedPhoto?.url
+            ? { photoUrl: preparedPhoto.url }
+            : {}),
+        ...(costRequiresVideo && filmSeconds != null ? { filmSeconds } : {}),
+        ...(costRequiresRockCount && rockCount != null && rockCount >= 1
+            ? { rockCount }
+            : {}),
+        ...(costRequiresDestination && travelDest.trim()
             ? { travelDestination: travelDest.trim() }
             : {}),
     });

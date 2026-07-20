@@ -1122,6 +1122,35 @@ export const hiderifyMatching = async (question: MatchingQuestion) => {
         return question;
     }
 
+    // v1018: the `-full` POINT-family matching types (aquarium-full, park-full,
+    // museum-full, …) were NEVER graded here — the branch below lists only the
+    // BARE legacy types — so `question.same` kept its stale value and the hider
+    // answer showed a wrong "Match" even when the two nearest references clearly
+    // differ (reported for aquarium: seeker's nearest was Bed-Stuy Aquarium, the
+    // hider's was The River Project, yet the verdict said "Match"). The SEEKER
+    // eliminates these via the geodesic Voronoi cell CONTAINING the seeker
+    // (`determineMatchingBoundary`), so grade the hider by CONTAINMENT in that
+    // exact "same nearest" region — the verdict now agrees with the seeker's map
+    // cut AND the hider answer-map's nearest labels by construction.
+    if (question.type.endsWith("-full")) {
+        try {
+            const boundary = await determineMatchingBoundary(question);
+            if (
+                boundary &&
+                typeof boundary !== "boolean" &&
+                (boundary as Feature).geometry
+            ) {
+                question.same = turf.booleanPointInPolygon(
+                    turf.point([$hiderMode.longitude, $hiderMode.latitude]),
+                    boundary as Feature<Polygon | MultiPolygon>,
+                );
+            }
+        } catch {
+            /* leave the manual answer if the boundary can't be computed */
+        }
+        return question;
+    }
+
     if (
         [
             "aquarium",

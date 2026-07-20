@@ -46,6 +46,20 @@ export function HiderUnansweredOverlay({
         () =>
             $inbox
                 .filter((e) => !e.repliedAt)
+                // v1018: a thermometer the seeker has only STARTED (not yet
+                // finished + sent) must NOT show as an incoming question to
+                // answer — it's still being walked. It only becomes answerable
+                // when the seeker finishes it (status:"finished", which stamps
+                // createdAt). Mirrors the seeker's PendingAnswerOverlay, which
+                // already excludes started thermometers.
+                .filter(
+                    (e) =>
+                        !(
+                            e.id === "thermometer" &&
+                            (e.data as { status?: string })?.status ===
+                                "started"
+                        ),
+                )
                 .sort((a, b) => b.arrivedAt - a.arrivedAt),
         [$inbox],
     );
