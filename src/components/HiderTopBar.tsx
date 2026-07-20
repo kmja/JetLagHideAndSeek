@@ -1,8 +1,8 @@
-import { Settings } from "lucide-react";
+import { BookOpen, Settings } from "lucide-react";
 
 import { HideSeekWordmark } from "@/components/JetLagLogo";
-import { NotificationsIconButton } from "@/components/NotificationsToggle";
 import { moreSheetOpen } from "@/lib/gameSetup";
+import { openRulebookAt } from "@/lib/rulebook";
 import { cn } from "@/lib/utils";
 
 /** Icon button styled for the dark (bg-jetlag) header — matches
@@ -62,8 +62,16 @@ export function HiderTopBar() {
                 (installDebugSecretTap, v883) — no visible launcher. */}
             <HideSeekWordmark className="text-white" />
 
-            {/* Right — notifications. */}
-            <NotificationsIconButton className="w-10 h-10 !bg-white/10 !border-white/30 !text-white hover:!bg-white/20" />
+            {/* Right — rulebook (v1044). Notifications moved into Settings. */}
+            <button
+                type="button"
+                onClick={() => openRulebookAt("")}
+                className={headerBtn}
+                aria-label="Rulebook"
+                title="Open the Hide + Seek rulebook (searchable)"
+            >
+                <BookOpen className="w-4 h-4" />
+            </button>
         </header>
     );
 }

@@ -428,7 +428,40 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v1043`. Use `git log` for the per-version detail;
+build stamp. Current: `v1044`. Use `git log` for the per-version detail;
+
+**v1044 — best-in-class in-app RULEBOOK + deep-links from the game (and it's in
+the header now).** Rebuilt `RulebookSheet` (searchable markdown drawer) to a
+"learn as you play" docs standard, and leaned into the digital advantage —
+linking straight to the relevant rule from anywhere:
+- **Quick-reference landing** — the six question types (each with its own
+  `CATEGORIES` icon + colour + a one-line "what it asks") and the round-phase
+  strip (Set up → Hiding → Seeking → Endgame), every tile a JUMP into the prose.
+  Shown until a search is active.
+- **In-content SEARCH highlighting + a match stepper** — every hit is wrapped in
+  `mark.rb-hit` (TreeWalker over the rendered text; `.rb-hit`/`.rb-hit-active`
+  warning-tinted CSS in `globals.css`), with prev/next buttons + "N of M" that
+  scroll each hit to centre. The TOC still filters to matching sections.
+- **Scroll-spy TOC** — the active section tracks what you're reading (rAF-
+  throttled scroll listener vs. section offsets), on desktop (left sidebar,
+  `border-l-2` active indicator) and mobile (collapsible `<details>`). Plus a
+  back-to-top button after scrolling.
+- **DEEP LINKS (the digital-only advantage).** `src/lib/rulebook.ts` exports
+  `rulebookTarget` (atom) + `openRulebookAt(anchor)` + `RULEBOOK_ANCHORS` (one
+  source for every heading slug) + `rulebookAnchorForCategory(id)`. The sheet is
+  now a **SINGLETON** driven by that atom (mounted once in `App.tsx`), so ANY
+  surface opens it deep-linked: the **question configure dialog** header ("Rules"
+  → that question type's section), the **curse dialog** header ("Rules" → the
+  curses section), and the **hand card play row** ("How this card works" →
+  time-bonus / powerups / curses). Opening at an anchor polls for the section
+  (content renders lazily) then smooth-scrolls to it. The old `RulebookSheet`
+  child-trigger became a thin `RulebookTrigger` wrapper (used by the Settings +
+  OptionDrawers entry points).
+- **Rulebook moved into the app HEADER** — `SeekerTopBar`/`HiderTopBar`'s right
+  slot is now a `BookOpen` button (`openRulebookAt("")`) INSTEAD of the
+  notifications bell; **notifications moved into Settings** (`AppSettingsDrawer`'s
+  App section gets the full-width `NotificationsToggle`, so permission/mute is
+  still reachable). Rulebook also stays in the Settings list.
 
 **v1043 — auto-kept cards fly down to the hand (photo-answer feedback).**
 Answering a photo question is a draw-1-keep-1 reward, so `presentDraw`'s auto-keep

@@ -1,50 +1,71 @@
 import { useStore } from "@nanostores/react";
 import { marked } from "marked";
-import { BookOpen, Search, X } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import {
+    BookOpen,
+    ChevronUp,
+    type LucideIcon,
+    Search,
+    X,
+} from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Drawer as VaulDrawer } from "vaul";
 
 import RULEBOOK_MD from "@/content/rulebook.md?raw";
+import { CATEGORIES } from "@/lib/categories";
+import { openRulebookAt, RULEBOOK_ANCHORS, rulebookTarget } from "@/lib/rulebook";
 import { applyUnitTemplates, resolvedUnits } from "@/lib/units";
 import { cn } from "@/lib/utils";
 
 /**
- * Rulebook viewer — searchable in-app reference for the Jet Lag:
- * The Game *Hide + Seek* rulebook.
+ * Rulebook viewer — the in-app reference for the Jet Lag: The Game *Hide + Seek*
+ * rulebook, built to a best-in-class docs standard (v1044):
  *
- * Source content lives in `src/content/rulebook.md` and is bundled
- * as a raw string via Vite's `?raw` import. We parse it once at
- * module load into a flat list of sections (one per `##`/`###`
- * heading) so search can scan plain text fast and the TOC can jump
- * to anchors without re-rendering the whole document.
+ *   - a QUICK-REFERENCE landing (the six question types + the round phases,
+ *     shown with the game's own icons) that jumps into the prose;
+ *   - fast full-text SEARCH that highlights every hit in the content and lets
+ *     you step through matches (prev / next, "3 of 12");
+ *   - a SCROLL-SPY table of contents whose active item tracks what you're
+ *     reading, on desktop (sidebar) and mobile (collapsible);
+ *   - DEEP LINKS — any surface can open the reader straight at a rule via
+ *     `openRulebookAt(anchor)` (`lib/rulebook.ts`).
  *
- * Distances in the markdown use `{{m:N}}` / `{{km:N}}` templates so
- * the rendered output respects the user's units preference (set in
- * `lib/units.ts`, default "auto" detecting from locale). Re-applies
- * on preference change.
- *
- * The component opens as a bottom Sheet on mobile / right-side Sheet
- * on desktop. The trigger is rendered by the consumer (passed as
- * `children`) so it slots cleanly into the BottomNav "More" sheet
- * without leaking its own button styling.
+ * Source content lives in `src/content/rulebook.md`, bundled as a raw string.
+ * Distances use `{{m:N}}` / `{{km:N}}` templates so the output respects the
+ * user's unit preference (`lib/units.ts`).
  */
 
 interface Section {
-    /** Stable anchor id derived from the heading text. */
     id: string;
-    /** `2` for `##` (top-level section), `3` for `###`, etc. */
     level: number;
     title: string;
-    /** Raw markdown body for this section, NOT including descendant
-     *  sub-section bodies. Used for search and for one-section render
-     *  when the user has filtered. */
     body: string;
-    /** All descendant headings, flattened. Used to render the TOC
-     *  nested without an extra tree pass at render time. */
     parentId: string | null;
 }
 
 const SECTIONS = parseSections(RULEBOOK_MD);
+
+/** Quick-reference: the six question types → their rulebook anchors, shown with
+ *  the app's category icon + colour. Anchors are the slugified `###` headings. */
+const QUESTION_REF: {
+    id: keyof typeof CATEGORIES;
+    anchor: string;
+    blurb: string;
+}[] = [
+    { id: "matching", anchor: RULEBOOK_ANCHORS.matching, blurb: "Same nearest thing as the hider?" },
+    { id: "measuring", anchor: RULEBOOK_ANCHORS.measuring, blurb: "Closer or further than the hider?" },
+    { id: "radius", anchor: RULEBOOK_ANCHORS.radius, blurb: "Is the hider inside a radius?" },
+    { id: "thermometer", anchor: RULEBOOK_ANCHORS.thermometer, blurb: "Warmer or colder after a move?" },
+    { id: "tentacles", anchor: RULEBOOK_ANCHORS.tentacles, blurb: "Which of these is the hider nearest?" },
+    { id: "photo", anchor: RULEBOOK_ANCHORS.photo, blurb: "Ask the hider for a photo." },
+];
+
+/** The round arc, each step linking to its section. */
+const PHASE_REF: { label: string; anchor: string }[] = [
+    { label: "Set up", anchor: RULEBOOK_ANCHORS.setup },
+    { label: "Hiding", anchor: RULEBOOK_ANCHORS.hiding },
+    { label: "Seeking", anchor: RULEBOOK_ANCHORS.seeking },
+    { label: "Endgame", anchor: RULEBOOK_ANCHORS.endgame },
+];
 
 function slugify(s: string): string {
     return s
@@ -55,18 +76,6 @@ function slugify(s: string): string {
         .slice(0, 60);
 }
 
-/**
- * Split a markdown document into a flat list of sections keyed by
- * heading. Each section's `body` is the markdown BETWEEN its heading
- * and the next heading of equal-or-shallower depth — sub-headings
- * remain inside the parent's body so a single `marked` render of
- * the parent shows the full subtree.
- *
- * Two heading-id collisions in the rulebook are deliberate ("Hiding
- * Zones" and "The Hider Deck" appear in both Quickstart and
- * Hiding sections); slugs disambiguate with a `-N` suffix on the
- * second occurrence so anchors stay unique.
- */
 function parseSections(md: string): Section[] {
     const lines = md.split("\n");
     const out: Section[] = [];
@@ -87,7 +96,6 @@ function parseSections(md: string): Section[] {
             flush();
             const level = m[1].length;
             const title = m[2].trim();
-            // Pop parents until we find one strictly shallower than us.
             while (
                 parentStack.length > 0 &&
                 parentStack[parentStack.length - 1].level >= level
@@ -118,9 +126,7 @@ function parseSections(md: string): Section[] {
     return out;
 }
 
-/** Strip `**bold**`, links, code etc. for the search index. We're not
- *  trying to be a full markdown lexer — substring-match against the
- *  plain text is enough for "find rule" use cases. */
+/** Strip markdown for the search index — substring match is enough. */
 function plainText(md: string): string {
     return md
         .replace(/```[\s\S]*?```/g, " ")
@@ -133,39 +139,95 @@ function plainText(md: string): string {
         .replace(/\{\{[a-z]+:([\d.]+)\}\}/g, "$1");
 }
 
-interface RulebookSheetProps {
-    /** What button or label the parent renders inside More / Settings.
-     *  Rendered as a sibling (NOT as a SheetTrigger child) so opening
-     *  the rulebook from inside a host Sheet doesn't tear it down with
-     *  the host's portal — see `handleTriggerClick` for the rAF dance. */
-    children: React.ReactNode;
-    /** Caller can close its own surface (e.g. the More sheet) before
-     *  the rulebook opens so they don't stack. */
-    onBeforeOpen?: () => void;
+/** Wrap every case-insensitive occurrence of `q` inside `root`'s text nodes in
+ *  a `<mark class="rb-hit">`. Returns the created marks in document order. */
+function highlightMatches(root: HTMLElement, q: string): HTMLElement[] {
+    if (!q) return [];
+    const marks: HTMLElement[] = [];
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    const targets: Text[] = [];
+    let n: Node | null;
+    while ((n = walker.nextNode())) {
+        const t = n as Text;
+        if (t.nodeValue && t.nodeValue.toLowerCase().includes(q)) targets.push(t);
+    }
+    for (const t of targets) {
+        const text = t.nodeValue ?? "";
+        const lower = text.toLowerCase();
+        const frag = document.createDocumentFragment();
+        let i = 0;
+        let idx = lower.indexOf(q, i);
+        while (idx !== -1) {
+            if (idx > i) frag.appendChild(document.createTextNode(text.slice(i, idx)));
+            const mark = document.createElement("mark");
+            mark.className = "rb-hit";
+            mark.textContent = text.slice(idx, idx + q.length);
+            frag.appendChild(mark);
+            marks.push(mark);
+            i = idx + q.length;
+            idx = lower.indexOf(q, i);
+        }
+        if (i < text.length) frag.appendChild(document.createTextNode(text.slice(i)));
+        t.replaceWith(frag);
+    }
+    return marks;
 }
 
-export function RulebookSheet({ children, onBeforeOpen }: RulebookSheetProps) {
+/**
+ * A lightweight rulebook TRIGGER — wraps any button/child and opens the shared
+ * singleton `RulebookSheet` (mounted once at the App level). Use this for a
+ * manual "open the rulebook" entry point; deep-links from game surfaces should
+ * call `openRulebookAt(anchor)` directly. `onBeforeOpen` lets a parent close its
+ * own drawer first (e.g. the settings sheet).
+ */
+export function RulebookTrigger({
+    children,
+    onBeforeOpen,
+}: {
+    children: React.ReactNode;
+    onBeforeOpen?: () => void;
+}) {
+    return (
+        <span
+            onClick={() => {
+                onBeforeOpen?.();
+                openRulebookAt("");
+            }}
+            className="contents"
+            role="button"
+            tabIndex={-1}
+        >
+            {children}
+        </span>
+    );
+}
+
+/**
+ * The rulebook drawer itself — a SINGLETON driven entirely by the shared
+ * `rulebookTarget` atom, so ANY surface (settings button, a "learn more" link on
+ * a question / curse / power-up card) can open it via `openRulebookAt(anchor)`.
+ * Mount exactly ONCE, app-level. Takes no props.
+ */
+export function RulebookSheet() {
     const [open, setOpen] = useState(false);
     const [query, setQuery] = useState("");
     const [activeId, setActiveId] = useState<string | null>(null);
-    // v972: units now follow the single Settings toggle (`defaultUnit` →
-    // `resolvedUnits`); the rulebook's own metric/imperial picker was
-    // removed so there's one source of truth.
+    const [showTop, setShowTop] = useState(false);
+    const [hits, setHits] = useState<{ count: number; index: number }>({
+        count: 0,
+        index: 0,
+    });
     const units = useStore(resolvedUnits);
+    const $target = useStore(rulebookTarget);
     const scrollRef = useRef<HTMLDivElement | null>(null);
+    const articleRef = useRef<HTMLElement | null>(null);
+    const markRefs = useRef<HTMLElement[]>([]);
 
-    // Pre-build the search index once. plainText() runs over ~25 KB
-    // of markdown — fast but worth memoizing across re-renders so a
-    // keystroke doesn't re-strip the whole document.
     const searchIndex = useMemo(
         () =>
             SECTIONS.map((s) => ({
                 section: s,
-                haystack: (
-                    s.title +
-                    "\n" +
-                    plainText(s.body)
-                ).toLowerCase(),
+                haystack: (s.title + "\n" + plainText(s.body)).toLowerCase(),
             })),
         [],
     );
@@ -177,7 +239,6 @@ export function RulebookSheet({ children, onBeforeOpen }: RulebookSheetProps) {
         for (const { section, haystack } of searchIndex) {
             if (haystack.includes(q)) matches.add(section.id);
         }
-        // Bubble parents up so the TOC shows the path to every hit.
         const byId = new Map(SECTIONS.map((s) => [s.id, s]));
         for (const id of [...matches]) {
             let cur = byId.get(id);
@@ -197,24 +258,19 @@ export function RulebookSheet({ children, onBeforeOpen }: RulebookSheetProps) {
         [matchedIds],
     );
 
-    const handleJump = (id: string) => {
+    const handleJump = useCallback((id: string) => {
         setActiveId(id);
         const el = scrollRef.current?.querySelector<HTMLElement>(
             `[data-section-id="${id}"]`,
         );
         if (el && scrollRef.current) {
-            // scrollIntoView would scroll the page; we want only the
-            // sheet's internal scroller to move.
             scrollRef.current.scrollTo({
                 top: el.offsetTop - 8,
                 behavior: "smooth",
             });
         }
-    };
+    }, []);
 
-    // Render markdown once per (preference, open) — `units` changing
-    // (and `pref` driving it) is the only reason to re-render content
-    // while the sheet is open.
     const rendered = useMemo(() => {
         if (!open) return "";
         const fullMd = SECTIONS.map((s) => {
@@ -225,58 +281,119 @@ export function RulebookSheet({ children, onBeforeOpen }: RulebookSheetProps) {
         return marked.parse(withUnits, { async: false }) as string;
     }, [open, units]);
 
-    // When opening, reset scroll + query for a predictable first
-    // impression.
+    // Deep-link: opening via `openRulebookAt(anchor)` opens the sheet and jumps.
+    // The content renders lazily once `open` flips, so poll for the target
+    // section (up to ~1.5 s) rather than guessing a fixed delay.
+    useEffect(() => {
+        if ($target === null) return;
+        setOpen(true);
+        const anchor = $target;
+        rulebookTarget.set(null);
+        if (!anchor) return;
+        setQuery("");
+        let tries = 0;
+        let timer = 0;
+        const tryJump = () => {
+            const el = scrollRef.current?.querySelector<HTMLElement>(
+                `[data-section-id="${anchor}"]`,
+            );
+            if (el) {
+                handleJump(anchor);
+            } else if (tries++ < 30) {
+                timer = window.setTimeout(tryJump, 50);
+            }
+        };
+        timer = window.setTimeout(tryJump, 60);
+        return () => window.clearTimeout(timer);
+    }, [$target, handleJump]);
+
+    // Reset on open.
     useEffect(() => {
         if (open) {
             setQuery("");
-            requestAnimationFrame(() => {
-                scrollRef.current?.scrollTo({ top: 0 });
-            });
+            requestAnimationFrame(() => scrollRef.current?.scrollTo({ top: 0 }));
         }
     }, [open]);
 
-    // v234.1: don't close the host More sheet at all — just stack on
-    // top. v234's Vaul conversion was supposed to fix the
-    // "rulebook dismisses instantly" bug but the user reports it
-    // still happens. Stripping the rAF + onBeforeOpen dance entirely
-    // narrows the search: if the rulebook stays open now, the host's
-    // close animation was somehow tearing it down (we'll re-add the
-    // close-on-open behaviour with a more robust mechanism). If it
-    // still dismisses with NO host-state change, the dismissal is
-    // coming from somewhere else (Vaul's own pointer detection?
-    // event bubble landing on its overlay?) and the diagnostic logs
-    // below will tell us what called onOpenChange(false).
-    const handleTriggerClick = () => {
-        console.warn("[rulebook] trigger clicked → setOpen(true)");
-        setOpen(true);
-    };
-
-    const handleOpenChange = (next: boolean) => {
-        if (!next) {
-            console.warn(
-                "[rulebook] onOpenChange(false) fired — stack trace:",
-                new Error("stack only").stack,
+    // Scroll-spy: the active section is the last one whose top has passed the
+    // reading line. Also drives the "back to top" affordance. rAF-throttled.
+    useEffect(() => {
+        if (!open) return;
+        const root = scrollRef.current;
+        if (!root) return;
+        let raf = 0;
+        const compute = () => {
+            raf = 0;
+            const els = Array.from(
+                root.querySelectorAll<HTMLElement>("[data-section-id]"),
             );
+            const y = root.scrollTop + 80;
+            let cur: string | null = null;
+            for (const el of els) {
+                if (el.offsetTop <= y) cur = el.getAttribute("data-section-id");
+                else break;
+            }
+            setActiveId(cur);
+            setShowTop(root.scrollTop > 600);
+        };
+        const onScroll = () => {
+            if (!raf) raf = requestAnimationFrame(compute);
+        };
+        root.addEventListener("scroll", onScroll, { passive: true });
+        compute();
+        return () => {
+            root.removeEventListener("scroll", onScroll);
+            if (raf) cancelAnimationFrame(raf);
+        };
+    }, [open, rendered]);
+
+    // Highlight search hits in the content + collect them for prev/next.
+    useEffect(() => {
+        const art = articleRef.current;
+        if (!art) return;
+        // Clear old marks.
+        art.querySelectorAll("mark.rb-hit").forEach((m) => {
+            m.replaceWith(document.createTextNode(m.textContent ?? ""));
+        });
+        art.normalize();
+        markRefs.current = [];
+        if (!q) {
+            setHits({ count: 0, index: 0 });
+            return;
         }
-        setOpen(next);
-    };
+        const marks = highlightMatches(art, q);
+        markRefs.current = marks;
+        setHits({ count: marks.length, index: marks.length ? 0 : 0 });
+        if (marks.length) scrollToHit(0);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [q, rendered]);
+
+    const scrollToHit = useCallback((index: number) => {
+        const marks = markRefs.current;
+        if (!marks.length) return;
+        const clamped = ((index % marks.length) + marks.length) % marks.length;
+        marks.forEach((m, i) =>
+            m.classList.toggle("rb-hit-active", i === clamped),
+        );
+        const el = marks[clamped];
+        const root = scrollRef.current;
+        if (el && root) {
+            root.scrollTo({
+                top: root.scrollTop + el.getBoundingClientRect().top -
+                    root.getBoundingClientRect().top - root.clientHeight / 2.6,
+                behavior: "smooth",
+            });
+        }
+        setHits((h) => ({ ...h, index: clamped }));
+    }, []);
+
+    const showQuickRef = !q;
 
     return (
         <>
-            <span onClick={handleTriggerClick} className="contents">
-                {children}
-            </span>
-            {/* v234: was a shadcn Sheet (Radix Dialog under the hood);
-                opening it from inside the More sheet caused the host's
-                focus-scope cleanup to steal focus back and dismiss the
-                rulebook on the very next frame. Vaul Drawer manages
-                portal + focus independently per drawer instance, so
-                stacking it on top of the More Sheet is fine — same
-                pattern HowToPlaySheet has used reliably. */}
             <VaulDrawer.Root
                 open={open}
-                onOpenChange={handleOpenChange}
+                onOpenChange={setOpen}
                 shouldScaleBackground={false}
             >
                 <VaulDrawer.Portal>
@@ -323,23 +440,39 @@ export function RulebookSheet({ children, onBeforeOpen }: RulebookSheetProps) {
                                         </button>
                                     )}
                                 </div>
+                                {/* Match stepper — appears once a search has hits. */}
+                                {q && hits.count > 0 && (
+                                    <div className="flex items-center gap-1 shrink-0 text-xs tabular-nums text-muted-foreground">
+                                        <span className="min-w-[3.5rem] text-center">
+                                            {hits.index + 1} of {hits.count}
+                                        </span>
+                                        <button
+                                            type="button"
+                                            aria-label="Previous match"
+                                            onClick={() => scrollToHit(hits.index - 1)}
+                                            className="rounded border border-border px-1.5 py-1 hover:bg-accent"
+                                        >
+                                            ↑
+                                        </button>
+                                        <button
+                                            type="button"
+                                            aria-label="Next match"
+                                            onClick={() => scrollToHit(hits.index + 1)}
+                                            className="rounded border border-border px-1.5 py-1 hover:bg-accent"
+                                        >
+                                            ↓
+                                        </button>
+                                    </div>
+                                )}
                             </div>
-                            {q && matchedIds && (
+                            {q && hits.count === 0 && (
                                 <p className="text-xs text-muted-foreground mt-1">
-                                    {[...matchedIds].filter(
-                                        (id) =>
-                                            !SECTIONS.find((s) => s.id === id)
-                                                ?.parentId ||
-                                            searchIndex
-                                                .find((e) => e.section.id === id)
-                                                ?.haystack.includes(q),
-                                    ).length}{" "}
-                                    section{matchedIds.size === 1 ? "" : "s"} match
+                                    No matches for “{query.trim()}”.
                                 </p>
                             )}
                         </div>
 
-                        <div className="flex-1 flex min-h-0">
+                        <div className="flex-1 flex min-h-0 relative">
                             <nav
                                 className={cn(
                                     "hidden md:block w-64 shrink-0 overflow-y-auto",
@@ -354,9 +487,6 @@ export function RulebookSheet({ children, onBeforeOpen }: RulebookSheetProps) {
                             </nav>
 
                             <div className="flex-1 flex flex-col min-w-0">
-                                {/* Mobile-only TOC at the top of the scroller —
-                                    collapsible details so it doesn't push the
-                                    content way down. */}
                                 <details className="md:hidden border-b border-border bg-secondary/30 px-4 py-2 text-sm">
                                     <summary className="font-semibold cursor-pointer">
                                         Contents
@@ -367,7 +497,6 @@ export function RulebookSheet({ children, onBeforeOpen }: RulebookSheetProps) {
                                             activeId={activeId}
                                             onJump={(id) => {
                                                 handleJump(id);
-                                                // Collapse after pick on mobile.
                                                 (
                                                     scrollRef.current?.closest(
                                                         "details",
@@ -382,17 +511,122 @@ export function RulebookSheet({ children, onBeforeOpen }: RulebookSheetProps) {
                                     ref={scrollRef}
                                     className="flex-1 overflow-y-auto px-4 sm:px-6 py-4"
                                 >
-                                    <article
-                                        className="rulebook-content max-w-3xl mx-auto"
-                                        dangerouslySetInnerHTML={{ __html: rendered }}
-                                    />
+                                    <div className="max-w-3xl mx-auto">
+                                        {showQuickRef && (
+                                            <QuickReference onJump={handleJump} />
+                                        )}
+                                        <article
+                                            ref={articleRef}
+                                            className="rulebook-content"
+                                            dangerouslySetInnerHTML={{
+                                                __html: rendered,
+                                            }}
+                                        />
+                                    </div>
                                 </div>
+
+                                {/* Back to top — appears after scrolling. */}
+                                {showTop && (
+                                    <button
+                                        type="button"
+                                        onClick={() =>
+                                            scrollRef.current?.scrollTo({
+                                                top: 0,
+                                                behavior: "smooth",
+                                            })
+                                        }
+                                        aria-label="Back to top"
+                                        className={cn(
+                                            "absolute bottom-4 right-4 z-10",
+                                            "flex items-center gap-1.5 rounded-full pl-3 pr-3.5 py-2",
+                                            "bg-primary text-primary-foreground shadow-lg",
+                                            "text-xs font-semibold hover:opacity-90 transition-opacity",
+                                        )}
+                                    >
+                                        <ChevronUp className="w-4 h-4" />
+                                        Top
+                                    </button>
+                                )}
                             </div>
                         </div>
                     </VaulDrawer.Content>
                 </VaulDrawer.Portal>
             </VaulDrawer.Root>
         </>
+    );
+}
+
+/**
+ * Quick-reference landing — the six question types (game icons + one-liner) and
+ * the round phases, each a jump into the prose. This is the "learn as you play"
+ * entry point board-game rules apps lead with, instead of a wall of text.
+ */
+function QuickReference({ onJump }: { onJump: (id: string) => void }) {
+    return (
+        <div className="mb-6">
+            <p className="text-[11px] uppercase tracking-[0.14em] font-poppins font-bold text-muted-foreground mb-2">
+                Question types
+            </p>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                {QUESTION_REF.map((qr) => {
+                    const cat = CATEGORIES[qr.id];
+                    const Icon = cat.icon as LucideIcon;
+                    return (
+                        <button
+                            key={qr.id}
+                            type="button"
+                            onClick={() => onJump(qr.anchor)}
+                            className={cn(
+                                "flex items-stretch text-left rounded-lg overflow-hidden",
+                                "border border-border bg-secondary/40 hover:bg-secondary transition-colors",
+                                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                            )}
+                        >
+                            <span
+                                className="w-10 shrink-0 grid place-items-center text-white"
+                                style={{ backgroundColor: cat.color }}
+                                aria-hidden="true"
+                            >
+                                <Icon className="w-5 h-5" />
+                            </span>
+                            <span className="px-2.5 py-1.5 min-w-0">
+                                <span className="block text-sm font-bold leading-tight">
+                                    {cat.label}
+                                </span>
+                                <span className="block text-[11px] text-muted-foreground leading-snug">
+                                    {qr.blurb}
+                                </span>
+                            </span>
+                        </button>
+                    );
+                })}
+            </div>
+
+            <p className="text-[11px] uppercase tracking-[0.14em] font-poppins font-bold text-muted-foreground mt-4 mb-2">
+                How a round flows
+            </p>
+            <div className="flex items-center flex-wrap gap-1.5">
+                {PHASE_REF.map((p, i) => (
+                    <span key={p.anchor} className="flex items-center gap-1.5">
+                        <button
+                            type="button"
+                            onClick={() => onJump(p.anchor)}
+                            className={cn(
+                                "rounded-full px-3 py-1 text-xs font-semibold",
+                                "border border-border bg-secondary/40 hover:bg-secondary transition-colors",
+                                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                            )}
+                        >
+                            {p.label}
+                        </button>
+                        {i < PHASE_REF.length - 1 && (
+                            <span className="text-muted-foreground">→</span>
+                        )}
+                    </span>
+                ))}
+            </div>
+            <hr className="mt-6 border-border" />
+        </div>
     );
 }
 
@@ -411,13 +645,11 @@ function TableOfContents({ sections, activeId, onJump }: TableOfContentsProps) {
                         type="button"
                         onClick={() => onJump(s.id)}
                         className={cn(
-                            "w-full text-left px-3 py-1 rounded transition-colors",
-                            "hover:bg-accent",
+                            "w-full text-left px-3 py-1 rounded transition-colors border-l-2",
                             activeId === s.id
-                                ? "bg-accent text-foreground font-semibold"
-                                : "text-muted-foreground",
-                            s.level === 2 &&
-                                "font-semibold text-foreground pl-3",
+                                ? "bg-accent text-foreground font-semibold border-primary"
+                                : "text-muted-foreground border-transparent hover:bg-accent",
+                            s.level === 2 && "font-semibold text-foreground",
                             s.level === 3 && "pl-6 text-xs",
                             s.level === 4 && "pl-9 text-xs",
                         )}

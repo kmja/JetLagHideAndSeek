@@ -4,8 +4,9 @@ import { Drawer as VaulDrawer } from "vaul";
 
 import { HowToPlaySheet } from "@/components/HowToPlaySheet";
 import { PreloadChoicesPanel } from "@/components/PreloadChoicesPanel";
+import { NotificationsToggle } from "@/components/NotificationsToggle";
 import { PWAInstallButton } from "@/components/PWAInstallButton";
-import { RulebookSheet } from "@/components/RulebookSheet";
+import { RulebookTrigger } from "@/components/RulebookSheet";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { UnitSelect } from "@/components/UnitSelect";
 import {
@@ -81,7 +82,7 @@ export function AppSettingsDrawer() {
                             <HowToPlaySheet
                                 onBeforeOpen={() => moreSheetOpen.set(false)}
                             />
-                            <RulebookSheet
+                            <RulebookTrigger
                                 onBeforeOpen={() => moreSheetOpen.set(false)}
                             >
                                 <button
@@ -98,7 +99,10 @@ export function AppSettingsDrawer() {
                                     <BookOpen className="w-4 h-4" />
                                     Rulebook
                                 </button>
-                            </RulebookSheet>
+                            </RulebookTrigger>
+                            {/* v1044: notifications moved here from the app
+                                header (the header now carries the rulebook). */}
+                            <NotificationsToggle />
                             <PWAInstallButton />
 
                             <div className="pt-3 mt-3 border-t border-border space-y-3">

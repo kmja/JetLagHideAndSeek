@@ -1,5 +1,5 @@
 import { useStore } from "@nanostores/react";
-import { Ban, Check, Hourglass, Train, X } from "lucide-react";
+import { Ban, BookOpen, Check, Hourglass, Train, X } from "lucide-react";
 
 import { SkullCrossbones } from "@/components/icons/gameIcons";
 import { useEffect, useRef, useState } from "react";
@@ -32,6 +32,7 @@ import {
     DialogTitle,
 } from "@/components/ui/dialog";
 import { playerRole } from "@/lib/hiderRole";
+import { openRulebookAt, RULEBOOK_ANCHORS } from "@/lib/rulebook";
 import { sendCurseCleared } from "@/lib/multiplayer/store";
 import { type ReceivedCurse, receivedCurses } from "@/lib/seekerInbound";
 import { cn } from "@/lib/utils";
@@ -438,10 +439,25 @@ export function CurseInbox({
             >
                 <DialogContent>
                     <DialogHeader>
-                        <DialogTitle className="flex items-center gap-2">
-                            <SkullCrossbones className="w-4 h-4 text-purple-400 shrink-0" />
-                            {resolvedDialog?.name}
-                        </DialogTitle>
+                        <div className="flex items-center justify-between gap-2 pr-6">
+                            <DialogTitle className="flex items-center gap-2 min-w-0">
+                                <SkullCrossbones className="w-4 h-4 text-purple-400 shrink-0" />
+                                <span className="truncate">
+                                    {resolvedDialog?.name}
+                                </span>
+                            </DialogTitle>
+                            <button
+                                type="button"
+                                onClick={() =>
+                                    openRulebookAt(RULEBOOK_ANCHORS.curses)
+                                }
+                                className="flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground shrink-0"
+                                title="Read the rulebook on curses"
+                            >
+                                <BookOpen className="w-3.5 h-3.5" />
+                                Rules
+                            </button>
+                        </div>
                     </DialogHeader>
 
                     {/* Curse description (no casting cost — that's the

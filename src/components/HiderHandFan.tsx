@@ -1,5 +1,5 @@
 import { useStore } from "@nanostores/react";
-import { Trash2, X } from "lucide-react";
+import { BookOpen, Trash2, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "react-toastify";
 import { Drawer as VaulDrawer } from "vaul";
@@ -34,6 +34,7 @@ import {
     hiderHand,
     hiderHandLimit,
 } from "@/lib/hiderRole";
+import { openRulebookAt, RULEBOOK_ANCHORS } from "@/lib/rulebook";
 import { playMovePowerup } from "@/lib/roundActions";
 import { cn } from "@/lib/utils";
 
@@ -1045,8 +1046,25 @@ function CardActions({
             $gameSize,
             Date.now(),
         );
+    const rulesAnchor =
+        card.kind === "curse"
+            ? RULEBOOK_ANCHORS.curses
+            : card.kind === "powerup"
+              ? RULEBOOK_ANCHORS.powerups
+              : RULEBOOK_ANCHORS.timeBonuses;
     return (
         <>
+            <div className="mb-2 flex justify-center">
+                <button
+                    type="button"
+                    onClick={() => openRulebookAt(rulesAnchor)}
+                    className="flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground"
+                    title="Read the rulebook for this card"
+                >
+                    <BookOpen className="w-3.5 h-3.5" />
+                    How this card works
+                </button>
+            </div>
             <div className="flex items-stretch gap-2">
                 <DiscardButton card={card} onDiscarded={onActionTaken} />
                 {playable && (

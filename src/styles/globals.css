@@ -1048,6 +1048,21 @@ div.leaflet-control-attribution.leaflet-control {
     border-radius: 3px;
 }
 
+/* v1044 rulebook search highlighting. `mark.rb-hit` wraps every match of the
+ * search term in the rendered content; `.rb-hit-active` is the one the prev/next
+ * stepper is currently focused on. Warning-tinted so hits pop in both themes. */
+.rulebook-content mark.rb-hit {
+    background: hsl(var(--warning) / 0.35);
+    color: inherit;
+    border-radius: 2px;
+    padding: 0 0.05em;
+}
+.rulebook-content mark.rb-hit-active {
+    background: hsl(var(--warning) / 0.9);
+    color: hsl(var(--warning-foreground));
+    box-shadow: 0 0 0 2px hsl(var(--warning) / 0.45);
+}
+
 /* v227's osm-dark-tiles CSS filter retired in v232 — the basemap is
  * now Protomaps vector with native light/dark flavors, so we don't
  * need to invert the canvas to fake a dark style. The rule is left

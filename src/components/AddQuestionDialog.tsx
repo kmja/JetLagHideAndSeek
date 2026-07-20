@@ -1,6 +1,6 @@
 import { useStore } from "@nanostores/react";
 import * as turf from "@turf/turf";
-import { ArrowLeft, Loader2 } from "lucide-react";
+import { ArrowLeft, BookOpen, Loader2 } from "lucide-react";
 import React from "react";
 import { toast } from "react-toastify";
 
@@ -57,6 +57,7 @@ import {
     SEEKER_NOTIFICATION_PROMPT,
 } from "@/lib/notificationPrompt";
 import { encodeQuestionForHider } from "@/lib/shareLinks";
+import { openRulebookAt, rulebookAnchorForCategory } from "@/lib/rulebook";
 import { useSubtypeAvailability } from "@/lib/subtypeAvailability";
 import { getSubtypes, type SubtypeMeta } from "@/lib/subtypes";
 import { applyUnitTemplates, gameRadius, resolvedUnits } from "@/lib/units";
@@ -1423,8 +1424,26 @@ export const AddQuestionDialog = ({
                             "flex flex-col p-0 gap-0",
                         )}
                     >
-                        <div className="px-6 pt-6 pb-3 shrink-0 border-b border-border">
+                        <div className="px-6 pt-6 pb-3 shrink-0 border-b border-border flex items-center justify-between gap-2">
                             <DialogTitle>Configure question</DialogTitle>
+                            {pendingQuestion &&
+                                rulebookAnchorForCategory(pendingQuestion.id) && (
+                                    <button
+                                        type="button"
+                                        onClick={() =>
+                                            openRulebookAt(
+                                                rulebookAnchorForCategory(
+                                                    pendingQuestion.id,
+                                                ),
+                                            )
+                                        }
+                                        className="flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground shrink-0"
+                                        title="Read the rulebook for this question type"
+                                    >
+                                        <BookOpen className="w-3.5 h-3.5" />
+                                        Rules
+                                    </button>
+                                )}
                         </div>
 
                         <div className="flex-1 overflow-y-auto px-6 py-3 min-h-0 relative">

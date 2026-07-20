@@ -45,7 +45,7 @@ import { questionsSchema } from "@/maps/schema";
 
 import { Button } from "./ui/button";
 import { Label } from "./ui/label";
-import { RulebookSheet } from "./RulebookSheet";
+import { RulebookTrigger } from "./RulebookSheet";
 import { ThemeToggle } from "./ThemeToggle";
 import { UnitSelect } from "./UnitSelect";
 
@@ -279,7 +279,7 @@ export const OptionDrawers = ({
             >
                 <HelpCircle className="w-4 h-4" />
             </Button>
-            <RulebookSheet>
+            <RulebookTrigger>
                 <Button
                     variant="outline"
                     size="icon"
@@ -289,7 +289,7 @@ export const OptionDrawers = ({
                 >
                     <BookOpen className="w-4 h-4" />
                 </Button>
-            </RulebookSheet>
+            </RulebookTrigger>
             <Button
                 variant="outline"
                 className="shadow-md shrink-0 gap-2"

@@ -17,6 +17,7 @@ import { PWAUpdatePrompt } from "@/components/PWAUpdatePrompt";
 import { CurseRevealOverlay } from "@/components/CurseRevealOverlay";
 import { ReconnectingBanner } from "@/components/ReconnectingBanner";
 import { RouteTransitionCurtain } from "@/components/RouteTransitionCurtain";
+import { RulebookSheet } from "@/components/RulebookSheet";
 import { SpoofIndicator } from "@/components/SpoofIndicator";
 import { WakeLockController } from "@/components/WakeLockController";
 import { installGpsSpoof } from "@/lib/debugGpsSpoof";
@@ -277,6 +278,11 @@ export function App() {
                 any seeker screen; renders nothing unless its atom is set
                 (only ever on the seeker). */}
             <CurseRevealOverlay />
+            {/* v1044: the rulebook drawer is a SINGLETON here, driven by the
+                shared `rulebookTarget` atom, so any surface (settings, or a
+                "learn more" link on a question / curse / power-up card) can open
+                it deep-linked via `openRulebookAt(anchor)`. Inert until opened. */}
+            <RulebookSheet />
             {/* Toast portal — single instance shared across both
                 routes. v304: progress bar visible (it's the
                 visual countdown), draggable enabled (swipe to
