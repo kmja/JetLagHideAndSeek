@@ -428,7 +428,25 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v1014`. Use `git log` for the per-version detail;
+build stamp. Current: `v1015`. Use `git log` for the per-version detail;
+
+**v1015 — dissolve cache keyed on CONTENT not version (fixes the second
+compute re-dissolving to failure → 30 s freeze).** v1014's pool wasn't enough:
+the log showed the FIRST body-of-water compute dissolving fine (`feats=1
+verts=6627 → ok`, fast), then the headless read's version bump re-ran
+questionImpact and the SECOND compute started a FRESH dissolve of the SAME 79
+polys (the dissolve cache key included `basemapWaterVersion`) — that re-dissolve
+intermittently failed → the caller fell back to the RAW 79 polys →
+`bufferAndUnion threw` → arcgis on the MAIN thread (the ~30 s freeze, incl. the
+frozen main map on dialog close as the seeker `holedMask` fell to the main
+thread behind the same contention). Fix (`basemapWater.ts` `getDissolvedWater`):
+key the dissolve cache on `playArea:sea:polyCount`, NOT the water version, so the
+second compute AWAITS the first dissolve's Promise and reuses its one small
+dissolved shape (`bufferAndUnion` on 1 feature is trivial). A genuinely changed
+water set changes the poly count → re-dissolve. A failed dissolve is evicted (not
+cached) so a retry recomputes instead of re-serving the failure. The version-bump
+recompute still happens once but is now fast (cached dissolve), so it no longer
+piles up in the worker.
 
 **v1014 — geometry worker POOL (fixes the ~30 s freeze / late overlay) +
 settle-the-veil-on-failure + longer deadlock backstop.** The v1013 headless read

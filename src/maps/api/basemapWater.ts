@@ -396,7 +396,16 @@ async function getDissolvedWater(
     }
     const polys = sea ? getBasemapSeaPolys(bbox) : getBasemapWaterPolys(bbox);
     if (!polys || polys.length === 0) return null;
-    const key = `${playAreaKey()}:${basemapWaterVersion.get()}:${sea ? "sea" : "all"}:${polys.length}`;
+    // v1014: key on CONTENT (play area + poly count), NOT the water version.
+    // The headless read bumps the version when it lands, which re-ran
+    // questionImpact — and with the version in the key that second compute
+    // started a FRESH dissolve of the SAME polys instead of reusing the first
+    // successful one; that re-dissolve intermittently failed → the caller fell
+    // back to the RAW polys → `bufferAndUnion threw` → arcgis on the main thread
+    // (the ~30 s freeze). Keying on the poly count means the second compute
+    // AWAITS the first dissolve's (in-flight or done) Promise and reuses its 1
+    // small dissolved shape. A changed water set changes the count → re-dissolve.
+    const key = `${playAreaKey()}:${sea ? "sea" : "all"}:${polys.length}`;
     let run = dissolveCache.get(key);
     if (!run) {
         if (dissolveCache.size > 8) dissolveCache.clear();
@@ -405,7 +414,10 @@ async function getDissolvedWater(
     }
     const dissolved = await run;
     if (!dissolved) {
-        // Dissolve failed/rejected — let the caller buffer the raw pieces.
+        // Dissolve failed/rejected — DON'T keep the poisoned promise (so a
+        // later call re-dissolves instead of re-serving the failure), and let
+        // this caller buffer the raw pieces as a one-off fallback.
+        if (dissolveCache.get(key) === run) dissolveCache.delete(key);
         return polys;
     }
     return [dissolved];
