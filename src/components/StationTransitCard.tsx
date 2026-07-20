@@ -7,6 +7,7 @@ import {
     Loader2,
     MapPin,
     Route,
+    Tent,
     X,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
@@ -25,8 +26,10 @@ import {
     endgameStartedAt,
     hidingPeriodEndsAt,
     TRANSIT_ICONS,
+    type TransitMode,
 } from "@/lib/gameSetup";
-import { roundFoundAt } from "@/lib/hiderRole";
+import { hidingZone, playerRole, roundFoundAt } from "@/lib/hiderRole";
+import { confirmAndCommitZone } from "@/lib/hiderZoneCommit";
 import {
     type Departure,
     type DepartureBoard,
@@ -78,12 +81,18 @@ function modeIconFor(modes?: string[]): LucideIcon {
  */
 export function StationTransitCard({
     allowEndgame = false,
+    allowHiderCommit = false,
 }: {
     /** Seeker surface only: show the "Start endgame here" action, which
      *  declares the seekers have entered THIS candidate zone (rulebook
      *  p43 — the endgame begins once seekers reach the hider's zone). The
      *  hider's copy of this card never gets it. */
     allowEndgame?: boolean;
+    /** Hider surface only (v1020): show a "Hide here" action so the hider
+     *  can commit a tapped zone straight from the map, not just via the
+     *  Zone drawer's picker. Only while the hiding period runs and no zone
+     *  is committed yet. */
+    allowHiderCommit?: boolean;
 } = {}) {
     const station = useStore(selectedMapStation);
     const $gps = useStore(lastKnownPosition);
@@ -91,6 +100,8 @@ export function StationTransitCard({
     const $radiusUnits = useStore(hidingRadiusUnits);
     const $allowed = useStore(allowedTransit);
     const $endsAt = useStore(hidingPeriodEndsAt);
+    const $role = useStore(playerRole);
+    const $committedZone = useStore(hidingZone);
     const $endgame = useStore(endgameStartedAt);
     const $found = useStore(roundFoundAt);
 
@@ -300,6 +311,31 @@ export function StationTransitCard({
         $found === null &&
         seekerReachedZone;
 
+    // v1020: hider can commit the tapped zone directly from the map. Only
+    // while the hiding period is still running and nothing is committed yet.
+    const canCommitZone =
+        allowHiderCommit &&
+        $role === "hider" &&
+        station !== null &&
+        $committedZone === null &&
+        $endsAt !== null &&
+        Date.now() < $endsAt;
+    const handleCommitZone = async () => {
+        if (!station) return;
+        const radiusM =
+            $radius * ($radiusUnits === "miles" ? 1609.34 : 1000);
+        const ok = await confirmAndCommitZone(
+            {
+                lat: station.lat,
+                lng: station.lng,
+                name: station.name,
+                modes: station.modes as TransitMode[] | undefined,
+            },
+            radiusM,
+        );
+        if (ok) selectedMapStation.set(null);
+    };
+
     const handleStartEndgame = async () => {
         // Rulebook p43: the endgame begins only once the seekers physically
         // REACH the hider's zone. Guard against declaring it from a zone the
@@ -436,6 +472,30 @@ export function StationTransitCard({
                                               )} min after the whistle.`}
                                     </p>
                                 </div>
+                            </div>
+                        )}
+
+                        {canCommitZone && (
+                            <div className="mt-3 space-y-1.5">
+                                <button
+                                    type="button"
+                                    onClick={handleCommitZone}
+                                    className={cn(
+                                        "flex w-full items-center justify-center gap-2 rounded-md px-3 py-3",
+                                        "border-2 border-primary/60 bg-primary/15",
+                                        "text-primary",
+                                        "hover:bg-primary/25 active:bg-primary/30 transition-colors",
+                                        "text-sm font-poppins font-bold uppercase tracking-wider",
+                                        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                                    )}
+                                >
+                                    <Tent className="h-4 w-4" strokeWidth={2.5} />
+                                    Hide here
+                                </button>
+                                <p className="text-xs leading-snug text-muted-foreground text-center px-1">
+                                    Lock in this station as your hiding zone for
+                                    the round.
+                                </p>
                             </div>
                         )}
 

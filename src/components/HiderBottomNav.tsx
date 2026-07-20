@@ -1,6 +1,6 @@
 import { useStore } from "@nanostores/react";
 import { List, Map as MapIcon, Tent, Users } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Drawer as VaulDrawer } from "vaul";
 
 import { AppSettingsDrawer } from "@/components/AppSettingsDrawer";
@@ -86,6 +86,24 @@ export function HiderBottomNav() {
         $foundAt === null;
     const [questionsOpen, setQuestionsOpen] = useState(false);
     const [zoneOpen, setZoneOpen] = useState(false);
+    // v1020: close the Zone drawer the moment a zone is committed DURING the
+    // hiding period, so the map + the on-map "end timer early?" callout are
+    // visible (the user picks from the drawer, then wants to see the map).
+    // Only on the fresh null→committed transition while hiding (the seeking-
+    // phase drawer legitimately shows the committed zone info).
+    const prevZoneRef = useRef($hidingZone);
+    useEffect(() => {
+        const justCommitted =
+            prevZoneRef.current === null && $hidingZone !== null;
+        prevZoneRef.current = $hidingZone;
+        if (
+            justCommitted &&
+            $hidingEndsAt !== null &&
+            $hidingEndsAt > Date.now()
+        ) {
+            setZoneOpen(false);
+        }
+    }, [$hidingZone, $hidingEndsAt]);
     const mapActiveCount = useHiderMapOptionsActiveCount();
     // The nav owns the iOS bottom safe-area inset (so its background fills to
     // the screen edge, content padded up) — but ONLY when no hand fan is held.

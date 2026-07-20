@@ -158,7 +158,7 @@ export function HiderPage() {
                 cross into a closer colour band, even with the Zone drawer
                 closed. Renders nothing. */}
             <SeekerProximityWatcher />
-            <StationTransitCard />
+            <StationTransitCard allowHiderCommit />
             <LocationPauseWatcher />
             <HidingZoneOptionsSync />
             <LocationPauseBanner />

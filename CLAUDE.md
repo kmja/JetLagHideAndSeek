@@ -428,7 +428,20 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v1020`. Use `git log` for the per-version detail;
+build stamp. Current: `v1021`. Use `git log` for the per-version detail;
+
+**v1021 — hider can commit a hiding zone from the map + drawer auto-closes.**
+- **Tap a zone on the hider map → "Hide here"** — `StationTransitCard` gained an
+  `allowHiderCommit` prop (passed by `HiderPage`); when the hider taps a zone
+  during the hiding period and hasn't committed yet, the card shows a "Hide here"
+  action that runs the shared `confirmAndCommitZone` (same lock-in confirm + map
+  preview as the Zone drawer's picker) and closes the card. Previously the map tap
+  only opened the card with no commit path.
+- **The Zone drawer closes on lock-in** — `HiderBottomNav` watches the fresh
+  null→committed `hidingZone` transition during the hiding period and closes the
+  Zone drawer, so the map + the on-map "end timer early?" callout are visible right
+  after committing (the seeking-phase drawer, which shows committed-zone info, is
+  left open).
 
 **v1020 — gameplay/UX batch (endgame, radar map, overlays, Move, round reset).**
 - **Pending/hider question overlay: CATEGORY is an eyebrow, subtype is the big
