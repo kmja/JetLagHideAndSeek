@@ -428,7 +428,31 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v1009`. Use `git log` for the per-version detail;
+build stamp. Current: `v1010`. Use `git log` for the per-version detail;
+
+**v1010 — body-of-water ROOT CAUSE FIXED (buffer chokes on the unbounded
+basemap-water capture).** The v1009 diagnostic paid off immediately: the overlay
+worked the FIRST time (`feats=8`) then, after switching apps and back, THREW
+(`src=basemap-water feats=93 verts=48495 → bufferAndUnion threw`). Root cause:
+`captureBasemapWater` (`basemapWater.ts`) ACCUMULATES water polygons across every
+map `idle` — panning / zoom / an app-switch re-render loads more tiles, and each
+new tile-clipped piece is appended (the `geomKey` dedupe only catches an
+identical re-seen piece, not the same body at a different zoom/detail), so the
+set grows UNBOUNDED. `bufferAndUnion` then buffers + incrementally unions that
+volume and throws (a hard turf throw OR the client's 30 s worker-call timeout —
+both volume-driven; both surface as "threw"). Water needs no fine detail (we
+buffer by hundreds of metres to kilometres), so the fix caps input complexity IN
+THE WORKER: `bufferAndUnionImpl` (`geometry/worker.ts`) now runs
+`reduceToVertexBudget` on the buffer targets — `turf.simplify` each polygon at a
+PROGRESSIVELY coarser tolerance (0.0002→0.0064) until the whole set is under
+`BUFFER_VERTEX_BUDGET` (8000 verts), points/lines untouched. Crucially each
+simplified polygon is PAIRED with its ORIGINAL: if the simplified buffer fails
+(a simplify-induced self-intersection — the v1001 "sea dropped" regression), it
+RETRIES the original at full detail, so a large body (the sea) is never silently
+lost to over-simplification. Simplify is pure vertex decimation (never throws);
+the incremental union is already per-part guarded. This is a targeted fix for the
+CONFIRMED 48k-vertex throw, not a blind geometry change — the v1009 diagnostic
+stays in so the next test shows `feats=93 verts=48495 → bufferAndUnion ok`.
 
 **v1009 — body-of-water ON-DEVICE DIAGNOSTIC (stop guessing which stage
 fails).** After v1008 reverted the body-of-water path to the byte-identical

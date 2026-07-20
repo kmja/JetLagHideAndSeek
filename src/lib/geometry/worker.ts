@@ -19,6 +19,7 @@ import {
     pointToLineDistance,
     polygon,
     polygonToLine,
+    simplify as turfSimplify,
     union,
 } from "@turf/turf";
 
@@ -324,6 +325,69 @@ function distanceToFeatureKm(
  * compute without freezing the app or choking arcgis (the v982/v983 "no overlay"
  * regression). `null` on a degenerate input (caller falls back to arcgis).
  */
+/** Count the coordinate vertices of a geometry (any type). */
+function geomVertexCount(g: Feature["geometry"] | undefined): number {
+    if (!g || !("coordinates" in g)) return 0;
+    let n = 0;
+    const walk = (c: unknown): void => {
+        if (!Array.isArray(c)) return;
+        if (typeof c[0] === "number") {
+            n++;
+            return;
+        }
+        for (const x of c) walk(x);
+    };
+    walk((g as { coordinates: unknown }).coordinates);
+    return n;
+}
+
+/**
+ * v1010: cap the total vertex count of a polygon set so the geodesic
+ * buffer+union downstream can't throw / time out on it.
+ *
+ * The body-of-water basemap-water capture accumulates polygons across every
+ * map idle (panning / zoom / app-switch loads more tiles), so the set grows
+ * UNBOUNDED — a real device saw it go 8 features → 93 features / 48 495 verts,
+ * at which point `bufferAndUnion` THREW. Buffering + unioning that many dense
+ * polygons is what fails. Water needs no fine detail (we buffer by hundreds of
+ * metres to kilometres), so we `turf.simplify` each polygon at a PROGRESSIVELY
+ * coarser tolerance until the whole set is under a vertex budget. Points / lines
+ * pass through untouched. Simplify is pure vertex decimation (it never throws),
+ * and each result is paired with its ORIGINAL so a downstream buffer failure on
+ * a simplified polygon can retry the original — the sea is never silently lost
+ * to over-simplification (the v1001 regression). Returns {simp, orig} pairs.
+ */
+const BUFFER_VERTEX_BUDGET = 8000;
+function reduceToVertexBudget(
+    feats: Feature[],
+    budget: number,
+): { simp: Feature; orig: Feature }[] {
+    const total = feats.reduce((s, f) => s + geomVertexCount(f.geometry), 0);
+    if (total <= budget) return feats.map((f) => ({ simp: f, orig: f }));
+    const tolerances = [0.0002, 0.0004, 0.0008, 0.0016, 0.0032, 0.0064];
+    let best: Feature[] = feats;
+    for (const tol of tolerances) {
+        const out = feats.map((f) => {
+            const t = f.geometry?.type;
+            if (t !== "Polygon" && t !== "MultiPolygon") return f;
+            try {
+                const s = turfSimplify(f as never, {
+                    tolerance: tol,
+                    highQuality: false,
+                    mutate: false,
+                }) as Feature | undefined;
+                return s && s.geometry ? s : f;
+            } catch {
+                return f;
+            }
+        });
+        best = out;
+        const t2 = out.reduce((s, f) => s + geomVertexCount(f.geometry), 0);
+        if (t2 <= budget) break;
+    }
+    return best.map((f, i) => ({ simp: f, orig: feats[i] }));
+}
+
 function bufferAndUnionImpl(
     p: BufferAndUnionPayload,
 ): Feature<Polygon | MultiPolygon> | null {
@@ -372,15 +436,36 @@ function bufferAndUnionImpl(
     }
     if (Number.isFinite(minKm)) {
         const r = Math.max(minKm, 0.01);
-        for (const f of targets) {
+        // v1010: simplify the target polygons to a vertex budget BEFORE
+        // buffering so a huge accumulated water set (the 48k-vertex case that
+        // THREW) can't blow up the buffer/union. Each simplified poly keeps its
+        // original for a fallback retry, so the sea is never dropped.
+        const pairs = reduceToVertexBudget(targets, BUFFER_VERTEX_BUDGET);
+        for (const { simp, orig } of pairs) {
+            let buffered: Feature<Polygon | MultiPolygon> | undefined;
             try {
-                const b = turfBuffer(f as never, r, {
+                const b = turfBuffer(simp as never, r, {
                     units: "kilometers",
                 }) as Feature<Polygon | MultiPolygon> | undefined;
-                if (b && b.geometry && area(b) > 0) parts.push(b);
+                if (b && b.geometry && area(b) > 0) buffered = b;
             } catch {
-                /* skip a feature turf can't buffer */
+                /* the simplified buffer failed — retry the original below */
             }
+            if (!buffered && simp !== orig) {
+                // v1010: a simplify-induced self-intersection can make the
+                // simplified buffer fail (v1001's "sea dropped" bug). Retry the
+                // ORIGINAL geometry so a large body (the sea) is preserved at
+                // full detail rather than silently lost.
+                try {
+                    const b = turfBuffer(orig as never, r, {
+                        units: "kilometers",
+                    }) as Feature<Polygon | MultiPolygon> | undefined;
+                    if (b && b.geometry && area(b) > 0) buffered = b;
+                } catch {
+                    /* skip a feature turf genuinely can't buffer */
+                }
+            }
+            if (buffered) parts.push(buffered);
         }
     }
     if (parts.length === 0) return null;
