@@ -24,7 +24,9 @@ import {
     Square,
     TramFront,
 } from "lucide-react";
+import { useEffect, useState } from "react";
 
+import { mapGeoLocation } from "@/lib/context";
 import {
     hidingPeriodEndsAt,
     preloadBucketBytes,
@@ -39,6 +41,7 @@ import {
     type PreloadChoices,
 } from "@/lib/gameSetup";
 import { resumePreload, runPreloadForBucket, stopPreload } from "@/lib/preload";
+import { fetchTilePackBytes } from "@/lib/tilePack";
 import { cn } from "@/lib/utils";
 
 import { Checkbox } from "./ui/checkbox";
@@ -109,6 +112,51 @@ export function formatSize(mb: number): string {
     return `${Math.round(mb)} MB`;
 }
 
+/**
+ * The Map bucket's size, in MB, PREFERRING the REAL city-pack byte size
+ * (a cheap HEAD on `<id>.pmtiles`) over the area-derived estimate — the
+ * `sqrt(km²)·1.5` formula badly undershot big packs (London's real 129 MB
+ * pack read as ~57 MB). Falls back to the formula when the play area isn't
+ * an OSM relation (no pack), no pack is uploaded (404), or the HEAD fails.
+ */
+function useRealMapPackMb(): number | null {
+    const loc = useStore(mapGeoLocation);
+    const props = loc?.properties as
+        | { osm_id?: number | string; osm_type?: string }
+        | undefined;
+    const osmId =
+        props?.osm_type === "R" &&
+        props.osm_id !== undefined &&
+        props.osm_id !== null
+            ? Number(props.osm_id)
+            : null;
+    const [mb, setMb] = useState<number | null>(null);
+
+    useEffect(() => {
+        setMb(null);
+        if (osmId === null || !Number.isFinite(osmId)) return;
+        const ctrl = new AbortController();
+        void fetchTilePackBytes(osmId, ctrl.signal).then((bytes) => {
+            if (ctrl.signal.aborted) return;
+            setMb(bytes !== null ? bytes / 1_000_000 : null);
+        });
+        return () => ctrl.abort();
+    }, [osmId]);
+
+    return mb;
+}
+
+/** A bucket's displayed size, overriding the Map bucket with the real
+ *  pack MB when known (see `useRealMapPackMb`). */
+function bucketDisplayMb(
+    b: BucketDef,
+    areaKm2: number | null,
+    realMapMb: number | null,
+): number {
+    if (b.id === "map" && realMapMb !== null) return realMapMb;
+    return b.estimateMb(areaKm2);
+}
+
 
 interface PreloadChoicesPanelProps {
     /** Play-area polygon area in km². Drives per-bucket size
@@ -162,6 +210,7 @@ function PreloadChoicesPanelFull({
     const bucketBytes = useStore(preloadBucketBytes);
     const $setup = useStore(setupCompleted);
     const paused = useStore(preloadPaused);
+    const realMapMb = useRealMapPackMb();
 
     // Default: show status once game is set up
     const displayStatus = showStatus ?? $setup;
@@ -214,7 +263,7 @@ function PreloadChoicesPanelFull({
         if (downloaded) {
             if (actualBytes !== null) totalMb += actualBytes / 1_000_000;
         } else {
-            totalMb += b.estimateMb(areaKm2);
+            totalMb += bucketDisplayMb(b, areaKm2, realMapMb);
             anyEstimate = true;
         }
     }
@@ -224,7 +273,7 @@ function PreloadChoicesPanelFull({
             {BUCKETS.map((b) => {
                 const Icon = b.icon;
                 const on = choices[b.id];
-                const sizeMb = b.estimateMb(areaKm2);
+                const sizeMb = bucketDisplayMb(b, areaKm2, realMapMb);
 
                 const bucketInFlight =
                     b.id === "map"
@@ -419,6 +468,7 @@ function CompactPreloadBar({
     const paused = useStore(preloadPaused);
     const mapProgress = useStore(preloadMapProgress);
     const transitProgress = useStore(preloadTransitProgress);
+    const realMapMb = useRealMapPackMb();
 
     const ids = ["map", "references", "transit"] as const;
     const enabled = ids.filter((id) => choices[id]);
@@ -437,7 +487,7 @@ function CompactPreloadBar({
               ? inFlight.references
               : inFlight.transit;
     const weightOf = (id: keyof PreloadChoices) =>
-        BUCKETS.find((b) => b.id === id)!.estimateMb(areaKm2);
+        bucketDisplayMb(BUCKETS.find((b) => b.id === id)!, areaKm2, realMapMb);
 
     const fracOf = (id: keyof PreloadChoices): number => {
         if (doneAt(id) !== null) return 1;

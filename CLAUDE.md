@@ -428,7 +428,22 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v1033`. Use `git log` for the per-version detail;
+build stamp. Current: `v1034`. Use `git log` for the per-version detail;
+
+**v1034 — lobby/settings preload estimate reads the REAL pack size.** The v1033
+note flagged the ~57 MB lobby estimate badly undershooting London's real 129 MB
+pack — the Map bucket's size came from an area-derived formula
+(`0.5 + sqrt(km²)·1.5`), not the pack. `PreloadChoicesPanel` now resolves the
+TRUE pack byte size via a cheap HEAD (`useRealMapPackMb` → `fetchTilePackBytes`
+on the current play-area OSM relation id, abort-guarded, re-fetched on
+`mapGeoLocation` change) and uses it for the Map bucket's displayed size + the
+folded total in BOTH the full panel and the lobby's `CompactPreloadBar`
+(byte-weighted blend). Falls back to the `sqrt(km²)` formula when the play area
+isn't an OSM relation (custom polygon), no pack is uploaded (404), or the HEAD
+fails — so a non-curated area behaves exactly as before. The wizard's single
+`estimatePreloadMb` checkbox (a static, hookless helper) still uses the formula.
+NOTE: the transit-preload failure from the v1033 diagnostic is still awaiting the
+next London repro to read the "Preload:" line.
 
 **v1033 — tile-pack download survives a chunk blip + on-device preload
 diagnostics (London flakiness).** A London game (129 MB pack) fell from the tile
