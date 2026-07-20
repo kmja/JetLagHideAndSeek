@@ -2,6 +2,7 @@ import { persistentAtom } from "@nanostores/persistent";
 import type { FeatureCollection, MultiPolygon, Polygon } from "geojson";
 import { atom, computed, onSet } from "nanostores";
 
+import type { CategoryId } from "@/lib/categories";
 import type { MapShim } from "@/lib/mapShim";
 import type {
     AdditionalMapGeoLocations,
@@ -333,6 +334,20 @@ export const zoneSidebarOpen = __globalAtom<boolean>(
  * drawer and BUMPS this signal; the always-mounted `AddQuestionDialog`
  * (in `BottomNav`, `respondToSignal`) opens in response — never nested. */
 export const addQuestionSignal = atom<number>(0);
+
+/**
+ * v1027: when the hider plays Randomize, they send back only a "randomized"
+ * answer (no substitute). The SEEKER then asks a fresh random question so the
+ * hider gets a NEW answer window (the two-timers perk). This atom carries the
+ * app-rolled replacement category (+ a rolled subtype for the subtyped
+ * categories) to the always-mounted `AddQuestionDialog`, which opens pre-filled
+ * on that category's configure step (anchored at the seeker's current GPS) for
+ * the seeker to confirm + send. Cleared once consumed.
+ */
+export const randomizeReplacement = atom<{
+    category: CategoryId;
+    subtype?: string;
+} | null>(null);
 
 export const defaultUnit = persistentAtom<Units>("defaultUnit", "kilometers");
 export const hiderMode = persistentAtom<

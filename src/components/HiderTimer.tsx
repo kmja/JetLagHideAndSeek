@@ -124,7 +124,9 @@ export function HiderTimer({ preview }: { preview?: HiderTimerPreview } = {}) {
     // game is paused, so this countdown actually stops during a pause
     // (the old private Date.now() interval kept ticking — the reported
     // "pause doesn't pause the hiding timer" bug).
-    const now = useNow(Boolean($endsAt && $setupCompleted));
+    // v1028: stop ticking once the round is over ($foundAt set) so the map
+    // timer freezes at the final time instead of counting up forever.
+    const now = useNow(Boolean($endsAt && $setupCompleted && !$foundAt));
 
     // v848: the live current-round rank on the seeking leaderboard, for the
     // climb flourish. Null while not seeking. Computed before the early
@@ -163,7 +165,13 @@ export function HiderTimer({ preview }: { preview?: HiderTimerPreview } = {}) {
 
     if (!$setupCompleted || !$endsAt) return null;
 
-    const inHidingPeriod = now < $endsAt;
+    // v1028: once the hider is marked FOUND the round is over — freeze the
+    // clock at the found timestamp so the map timer stops ticking (it kept
+    // counting up before). `useNow` already freezes during a pause; this adds
+    // the round-end freeze.
+    const clockNow = $foundAt ?? now;
+
+    const inHidingPeriod = clockNow < $endsAt;
     const phaseLabel = inHidingPeriod ? "Hiding period" : "Hidden for";
 
     const formatTtb = (ms: number) => {
@@ -180,14 +188,18 @@ export function HiderTimer({ preview }: { preview?: HiderTimerPreview } = {}) {
     // so the seeking leaderboard can rank the LIVE time against past rounds.
     let currentElapsedMs: number | null = null;
     if (inHidingPeriod) {
-        display = formatTimeRemaining($endsAt - now);
+        display = formatTimeRemaining($endsAt - clockNow);
     } else {
         // Elapsed since hiding period ended, plus time banked by a Move
         // powerup, minus time paused for overdue answers (rulebook p61)
-        // — so the live tally matches the final score.
+        // — so the live tally matches the final score. `clockNow` is frozen at
+        // the found timestamp once the round ends, so this stops climbing.
         currentElapsedMs = Math.max(
             0,
-            now - $endsAt + hiddenCreditMs.get() - effectiveHiddenDebitMs(now),
+            clockNow -
+                $endsAt +
+                hiddenCreditMs.get() -
+                effectiveHiddenDebitMs(clockNow),
         );
         display = formatTtb(currentElapsedMs);
     }

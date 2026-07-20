@@ -1,5 +1,5 @@
 import { useStore } from "@nanostores/react";
-import { Ban, Camera, Dices, Loader2, MapPin } from "lucide-react";
+import { Ban, Camera, Dices, ImagePlus, Loader2, MapPin } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "react-toastify";
 
@@ -39,8 +39,7 @@ import {
     roundFoundAt,
     settleLateAnswer,
 } from "@/lib/hiderRole";
-import { gameSize } from "@/lib/gameSetup";
-import { findSubtypeMeta, getSubtypes } from "@/lib/subtypes";
+import { findSubtypeMeta } from "@/lib/subtypes";
 import {
     currentGameCode,
     multiplayerEnabled,
@@ -462,11 +461,11 @@ function HiderQuestionAnswer({ question }: { question: Question }) {
  *   - Veto: discard the card, mark this question handled WITHOUT an
  *     answer (so it stops nagging as unanswered) and earn no card. The
  *     seekers get no answer but may ask their next question.
- *   - Randomize: discard the card; the app picks a random different
- *     substitute question of the same category, auto-grades it through
- *     the universal `hiderifyQuestion` engine (the same code the seeker
- *     uses to preview answer regions), and sends the verdict. Works for
- *     every question type.
+ *   - Randomize (v1028): discard the card and tell the seekers the hider
+ *     redirected this question (a `randomizedAway` marker — no answer, no
+ *     elimination). The SEEKERS then roll + ask a fresh random question, which
+ *     gives the hider a NEW answer window (the two-timers perk). Works for
+ *     every question type including photo.
  */
 function ResponseCardActions({
     question,
@@ -483,14 +482,10 @@ function ResponseCardActions({
     const randomizeCard = $hand.find(
         (c) => c.kind === "powerup" && c.powerup === "randomize",
     );
-    // Randomize swaps the question to a random different substitute of
-    // the SAME category. For the five spatial types it auto-grades the
-    // substitute through the universal hider engine and sends the verdict
-    // immediately. For photo there's nothing to auto-grade — a substitute
-    // photo still has to be taken — so it swaps the requested subtype in
-    // place and leaves the dialog open for the hider to take that photo.
+    // v1028: Randomize redirects the question back to the seekers, who ask a
+    // fresh random one (giving the hider a new answer window). No substitute is
+    // graded here — same behaviour for every type including photo.
     const showRandomize = Boolean(randomizeCard);
-    const isPhoto = question.id === "photo";
     if (!vetoCard && !showRandomize) return null;
 
     const markHandled = (
@@ -540,99 +535,33 @@ function ResponseCardActions({
         answeringQuestion.set(null);
     };
 
-    // Photo randomize: pick a random different photo subtype, swap the
-    // request in place, and keep the dialog open so the hider takes THAT
-    // photo. The randomized markers ride along when the photo is committed
-    // (PhotoAnswer reads them off the question data).
-    const playRandomizePhoto = () => {
+    // v1028: Randomize no longer auto-answers a substitute here. The hider is
+    // DECLINING to answer this question; the SEEKERS then roll + ask a fresh
+    // random question of their own, which gives the hider a NEW answer window
+    // (the two-timers perk). So we just discard the card, close the original's
+    // answer window (banking overtime if late), and send a `randomizedAway`
+    // marker — no substitute grade here, and NO card draw now (the draw comes
+    // when the hider answers the seeker's replacement, like any question).
+    // Works for every type including photo (the old in-place photo swap +
+    // auto-grade paths are gone).
+    const playRandomize = () => {
         if (!randomizeCard || busy) return;
-        const d = question.data as { type?: string };
-        const candidates = (getSubtypes("photo", gameSize.get()) ?? []).filter(
-            (s) => s.value !== d.type,
-        );
-        if (candidates.length === 0) {
-            toast.error("No other photo type to randomize to.");
-            return;
-        }
-        const pick =
-            candidates[Math.floor(Math.random() * candidates.length)];
-        const fromLabel =
-            (d.type && findSubtypeMeta(d.type)?.label) ?? d.type ?? "photo";
-        discardCard(randomizeCard.id);
-        const newData = {
-            ...(question.data as Record<string, unknown>),
-            type: pick.value,
-            randomized: true,
-            randomizedFrom: fromLabel,
-        };
-        // Persist the swap to the inbox and the open dialog so the prompt
-        // + capture flow reflect the new subtype.
-        const inbox = hiderInbox.get();
-        hiderInbox.set(
-            inbox.map((e) =>
-                e.key === question.key ? { ...e, data: newData } : e,
-            ),
-        );
-        answeringQuestion.set({ ...question, data: newData } as Question);
-        toast.success(
-            `Randomized to a "${pick.label}" photo — take that photo instead.`,
-            { autoClose: 5000 },
-        );
-        // Dialog stays open; the hider now takes the new photo.
-    };
-
-    const playRandomize = async () => {
-        if (!randomizeCard || busy) return;
-        if (isPhoto) {
-            playRandomizePhoto();
-            return;
-        }
-        if (!hiderPos) {
-            toast.error("Need your GPS fix before randomizing.");
-            return;
-        }
         setBusy(true);
         try {
-            const result = await computeRandomizedAnswer(question, hiderPos);
-            if (!result) {
-                toast.error(
-                    "Couldn't auto-answer a substitute question here — no usable category to randomize to.",
-                );
-                return;
-            }
             discardCard(randomizeCard.id);
+            // Close the original's answer window cleanly (banks overtime if
+            // late). The original is NOT considered asked (rulebook p376) — it
+            // can be re-asked at its original cost — enforced seeker-side by
+            // the `randomizedAway` marker, which also eliminates nothing.
+            settleLateAnswer(question.key, question.id);
             const reply = {
                 drag: false,
                 randomized: true,
-                randomizedFrom: result.fromLabel,
-                ...result.answer,
+                randomizedAway: true,
             };
-            // v969 (rulebook audit A2): the substitute is "answered as
-            // normal" (rulebook p376), so it earns the category's normal
-            // card draw — this path used to skip presentDraw entirely,
-            // shorting the hider (photo randomize already drew via
-            // recordPhotoAnswerDraw). Same late rule as any answer: an
-            // overdue answer banks the overtime and earns no card.
-            const late = settleLateAnswer(question.key, question.id);
-            // Re-key the answered entry to the SUBSTITUTE question's
-            // identity (result.answer carries the swapped type /
-            // locationType / radius+unit) so repeat-cost counts the
-            // substitute as asked and leaves the original re-askable at
-            // its original cost. Same shape the online echo merges.
-            markHandled(reply, reply);
-            if (!late) {
-                const budget = QUESTION_DRAW_BUDGET[question.id];
-                if (budget) {
-                    presentDraw(
-                        budget.draw,
-                        budget.keep,
-                        question.id,
-                        question.key,
-                    );
-                }
-            }
+            markHandled(reply);
             toast.success(
-                `Randomized to a ${result.toLabel} question — answered automatically and sent to the seeker.`,
+                "Randomized — the seekers will ask a different question, and you'll get a fresh window to answer it.",
                 { autoClose: 5000 },
             );
             answeringQuestion.set(null);
@@ -660,9 +589,9 @@ function ResponseCardActions({
                             {busy ? "Randomizing…" : "Play Randomize"}
                         </span>
                         <span className="block text-[11px] text-muted-foreground leading-snug">
-                            {isPhoto
-                                ? "Switch to a random different photo and take that one instead."
-                                : `Answer a random different ${question.id} question instead — auto-graded and sent.`}
+                            Skip this question — the seekers ask a random
+                            different one instead, and you get a fresh window to
+                            answer that.
                         </span>
                     </span>
                 </button>
@@ -718,117 +647,6 @@ async function gradeViaEngine(
         hiderMode.set(prev);
     }
     return clone.data as Record<string, unknown>;
-}
-
-/** Radar (radius) presets — randomize picks a different one. */
-const RADIUS_PRESETS = [
-    { label: "500 m", radius: 500, unit: "meters" },
-    { label: "1 km", radius: 1, unit: "kilometers" },
-    { label: "2 km", radius: 2, unit: "kilometers" },
-    { label: "5 km", radius: 5, unit: "kilometers" },
-    { label: "10 km", radius: 10, unit: "kilometers" },
-] as const;
-
-/**
- * Auto-grade a randomized substitute through the SAME engine the seeker
- * uses to preview answer regions (`hiderifyQuestion`).
- *
- * The rulebook's Randomize replaces the asked question with a randomly
- * chosen different question of the same category. We do exactly that:
- * clone the question, swap it to a random substitute (a different
- * subtype for matching/measuring/tentacles, a different radius for
- * radar; thermometer has no parameter to vary so it grades as-is), put
- * the engine into hider mode at the hider's live GPS, run
- * `hiderifyQuestion`, then read back the graded fields.
- *
- * Because it's the canonical grader, EVERY question type is gradable —
- * there is no "couldn't auto-compute" path anymore. Returns the wire
- * answer fields (swapped parameters + grade) plus from/to labels for the
- * toast, or null only if there's genuinely no GPS fix.
- */
-async function computeRandomizedAnswer(
-    question: Question,
-    hiderPos: { lat: number; lng: number },
-): Promise<{
-    answer: Record<string, unknown>;
-    fromLabel: string;
-    toLabel: string;
-} | null> {
-    const cat = question.id;
-    // Deep-ish clone so we never mutate the live question while grading.
-    // `drag: true` is what gates the engine into "compute the answer".
-    const clone = {
-        ...question,
-        data: { ...(question.data as Record<string, unknown>), drag: true },
-    } as Question;
-    const data = clone.data as Record<string, unknown>;
-
-    let fromLabel: string = CATEGORIES[cat as CategoryId]?.label ?? cat;
-    let toLabel: string = fromLabel;
-
-    if (cat === "matching" || cat === "measuring" || cat === "tentacles") {
-        const subs = getSubtypes(cat, gameSize.get());
-        const currentSub = (
-            cat === "tentacles" ? data.locationType : data.type
-        ) as string | undefined;
-        const candidates = (subs ?? []).filter((s) => s.value !== currentSub);
-        if (candidates.length > 0) {
-            const pick =
-                candidates[Math.floor(Math.random() * candidates.length)];
-            fromLabel =
-                (currentSub && findSubtypeMeta(currentSub)?.label) ??
-                currentSub ??
-                fromLabel;
-            toLabel = pick.label;
-            if (cat === "tentacles") data.locationType = pick.value;
-            else data.type = pick.value;
-        }
-    } else if (cat === "radius") {
-        const candidates = RADIUS_PRESETS.filter(
-            (p) => !(p.radius === data.radius && p.unit === data.unit),
-        );
-        const pick =
-            candidates[Math.floor(Math.random() * candidates.length)] ??
-            RADIUS_PRESETS[0];
-        fromLabel = `Radar ${data.radius} ${data.unit}`;
-        toLabel = `Radar ${pick.label}`;
-        data.radius = pick.radius;
-        data.unit = pick.unit;
-    }
-    // thermometer: no parameter to randomize — grade the question as-is.
-
-    const out = await gradeViaEngine(clone, hiderPos);
-    // Send the swapped parameters + the engine's verdict. `drag:false`
-    // is added by the caller's `markHandled`.
-    let answer: Record<string, unknown>;
-    switch (cat) {
-        case "radius":
-            answer = {
-                radius: out.radius,
-                unit: out.unit,
-                within: out.within,
-            };
-            break;
-        case "thermometer":
-            answer = { warmer: out.warmer };
-            break;
-        case "matching":
-            answer = {
-                type: out.type,
-                same: out.same,
-                lengthComparison: out.lengthComparison,
-            };
-            break;
-        case "measuring":
-            answer = { type: out.type, hiderCloser: out.hiderCloser };
-            break;
-        case "tentacles":
-            answer = { locationType: out.locationType, location: out.location };
-            break;
-        default:
-            answer = {};
-    }
-    return { answer, fromLabel, toLabel };
 }
 
 /** Title-cases a hyphenated subtype slug ("same-street" → "Same Street"). */
@@ -964,7 +782,14 @@ function AnswerControls({
  * dead-end on photo (no case → "not supported").
  */
 function PhotoAnswer({ question }: { question: Question }) {
-    const fileInputRef = useRef<HTMLInputElement | null>(null);
+    // v1028: two inputs — a CAMERA input (`capture="environment"`, opens the
+    // rear camera viewfinder directly) driven by the big primary button, and a
+    // plain GALLERY input (no `capture`, so the OS offers the photo library /
+    // files) driven by a secondary button. Splitting them gives the hider both
+    // a clear "take a photo" viewfinder AND an explicit "upload instead" path,
+    // instead of one ambiguous chooser.
+    const cameraInputRef = useRef<HTMLInputElement | null>(null);
+    const galleryInputRef = useRef<HTMLInputElement | null>(null);
     const [pendingFile, setPendingFile] = useState<File | null>(null);
     const [busy, setBusy] = useState(false);
 
@@ -1044,13 +869,25 @@ function PhotoAnswer({ question }: { question: Question }) {
                 You can crop and black out identifying detail before it sends.
             </p>
 
+            {/* Camera input — opens the rear camera viewfinder directly. */}
             <input
-                ref={fileInputRef}
+                ref={cameraInputRef}
                 type="file"
                 accept="image/*"
-                /* v1019: no `capture` — let the OS offer camera OR gallery so
-                   the hider can upload an existing photo (the button already
-                   says "Take or choose photo"). */
+                capture="environment"
+                className="sr-only"
+                onChange={(e) => {
+                    const picked = e.currentTarget.files?.[0];
+                    e.currentTarget.value = "";
+                    if (picked) setPendingFile(picked);
+                }}
+            />
+            {/* Gallery / files input — no `capture`, so the OS offers the
+                photo library or a file picker instead of the camera. */}
+            <input
+                ref={galleryInputRef}
+                type="file"
+                accept="image/*"
                 className="sr-only"
                 onChange={(e) => {
                     const picked = e.currentTarget.files?.[0];
@@ -1061,13 +898,24 @@ function PhotoAnswer({ question }: { question: Question }) {
 
             <Button
                 type="button"
-                onClick={() => fileInputRef.current?.click()}
+                onClick={() => cameraInputRef.current?.click()}
                 disabled={busy}
-                className="w-full gap-2 py-7 text-base font-semibold"
+                className="w-full gap-2 py-8 text-base font-semibold"
                 size="lg"
             >
-                <Camera className="w-5 h-5" />
-                {busy ? "Sending…" : "Take or choose photo"}
+                <Camera className="w-6 h-6" />
+                {busy ? "Sending…" : "Take a photo"}
+            </Button>
+
+            <Button
+                type="button"
+                variant="outline"
+                onClick={() => galleryInputRef.current?.click()}
+                disabled={busy}
+                className="w-full gap-2"
+            >
+                <ImagePlus className="w-4 h-4" />
+                Upload from gallery
             </Button>
 
             <Button

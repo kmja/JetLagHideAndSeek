@@ -428,7 +428,46 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v1027`. Use `git log` for the per-version detail;
+build stamp. Current: `v1028`. Use `git log` for the per-version detail;
+
+**v1028 — Randomize is seeker-re-asks + photo viewfinder/gallery split + timer &
+copy fixes.**
+- **Randomize reworked so the SEEKERS ask the replacement (the two-timers
+  perk).** The hider's `playRandomize` (`HiderView.tsx`) no longer auto-grades a
+  substitute + draws a card; it just discards the card, `settleLateAnswer`s the
+  original, and sends a `randomizedAway` marker (no answer, eliminates nothing) —
+  for EVERY type incl. photo (the old in-place photo swap + `computeRandomizedAnswer`
+  / `RADIUS_PRESETS` helpers were deleted). The SEEKER's `mergeIncomingQuestion`
+  (`multiplayer/store.ts`) handles `randomizedAway:true`: marks the original away,
+  then — only on the seeker, only on the genuine live transition (idx≥0 &&
+  !wasAway, so a reconnect snapshot never re-fires) — `rollRandomQuestion()`s a
+  category (+ subtype, size-aware) into the new `randomizeReplacement` atom
+  (`context.ts`) and bumps `addQuestionSignal`. `AddQuestionDialog`'s respondToSignal
+  effect consumes the replacement and jumps STRAIGHT to that category's configure
+  step via `openReplacement` (anchored at the seeker's current GPS through the same
+  runAdd* helpers; thermometer → its own dialog); the seeker confirms + sends → a
+  fresh question with a fresh answer window, so the hider gets a NEW timer. The card
+  draw now comes when the hider answers that replacement (normal flow), not at
+  randomize time. **Schema:** the thermometer data schema lacked `randomizedAway`, so
+  it added it (`schema.ts`) — the marker now survives the wire (Zod strips undeclared
+  keys) for thermometer too.
+- **Hider photo answer: a big "Take a photo" viewfinder + a separate "Upload from
+  gallery" button** (`HiderView.tsx PhotoAnswer` + `cards/photo.tsx`). Two file
+  inputs — one `capture="environment"` (rear-camera viewfinder), one plain
+  (photo library/files) — instead of one ambiguous chooser (v1019 had removed
+  `capture` entirely, so it could ONLY offer the library on some devices).
+- **Photo "I cannot answer" copy generalised** — the seeker-facing decline card
+  said "the subject isn't reachable from their locked spot" (endgame-only framing);
+  rulebook p32 allows it whenever the subject isn't in the hiding zone, so it now
+  reads "the subject isn't in their hiding zone (rulebook p32)". (The mechanic was
+  always correct to allow during seeking — only the wording was wrong.)
+- **Move-card endgame explanation is readable** — the "Move can't be played during
+  the endgame…" note on the hand fan (`HiderHandFan.tsx`) was `text-muted-foreground`
+  over card art; wrapped in a solid `bg-background` bordered container.
+- **Seeker map timer stops when the round ends** — `HiderTimer.tsx` kept counting up
+  after the hider was marked found (`useNow` only freezes during a pause). It now
+  freezes `now` at `$foundAt` (both the display and the tick), matching the hider's
+  `HiderMapTimer` which already froze.
 
 **v1027 — join waits for the server verdict + planning-window Start override.**
 - **A bad join code no longer drops you into a lobby.** `Welcome`'s join handler

@@ -1048,7 +1048,7 @@ function CardActions({
                 )}
             </div>
             {moveBlocked && (
-                <p className="mt-2 text-xs text-muted-foreground leading-snug text-center">
+                <p className="mt-2 rounded-md border border-border bg-background px-3 py-2 text-xs text-foreground leading-snug text-center shadow-sm">
                     Move can't be played during the endgame — you're locked to
                     your final hiding spot.
                 </p>

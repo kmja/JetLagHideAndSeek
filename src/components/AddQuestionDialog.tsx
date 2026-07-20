@@ -37,6 +37,7 @@ import {
     mapGeoLocation,
     questionModified,
     questions,
+    randomizeReplacement,
 } from "@/lib/context";
 import { type GameSize, gameSize, playArea } from "@/lib/gameSetup";
 import {
@@ -340,8 +341,22 @@ export const AddQuestionDialog = ({
         if (!respondToSignal) return;
         if ($addSignal !== lastAddSignal.current) {
             lastAddSignal.current = $addSignal;
-            if ($addSignal > 0) setOpen(true);
+            if ($addSignal <= 0) return;
+            // v1028: a Randomize replacement (the hider redirected their
+            // question) skips the category picker and jumps straight to the
+            // rolled category's configure step, anchored at the seeker's
+            // current GPS. Otherwise open the normal category picker.
+            const repl = randomizeReplacement.get();
+            if (repl) {
+                randomizeReplacement.set(null);
+                openReplacement(repl);
+            } else {
+                setOpen(true);
+            }
         }
+        // openReplacement is a stable closure recreated each render; we
+        // intentionally only run on the signal edge, so exclude it from deps.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [$addSignal, respondToSignal]);
     // Step 2 of the add flow: when the user picks a category that has
     // multiple subtypes (matching / measuring / tentacles / photo), we
@@ -845,6 +860,49 @@ export const AddQuestionDialog = ({
             },
         });
         return true;
+    };
+
+    // v1028: consume a Randomize replacement. The hider redirected their
+    // question, so the app rolled a category (+ subtype) and we jump straight
+    // to that category's configure step — anchored at the seeker's CURRENT GPS
+    // via the same runAdd* helpers the tiles use (they seed from
+    // lastKnownPosition). The seeker just confirms + sends, which gives the
+    // hider a fresh answer window. Thermometer routes to its own configure
+    // dialog (target + fresh GPS fix).
+    const openReplacement = (repl: {
+        category: CategoryId;
+        subtype?: string;
+    }) => {
+        if (repl.category === "thermometer") {
+            setOpen(false);
+            setThermConfigureOpen(true);
+            return;
+        }
+        let ok = false;
+        switch (repl.category) {
+            case "radius":
+                ok = runAddRadius();
+                break;
+            case "matching":
+                ok = runAddMatching(repl.subtype);
+                break;
+            case "measuring":
+                ok = runAddMeasuring(repl.subtype);
+                break;
+            case "tentacles":
+                ok = runAddTentacles(repl.subtype);
+                break;
+            case "photo":
+                ok = runAddPhoto(repl.subtype);
+                break;
+        }
+        if (ok) {
+            promoteLastQuestion();
+        } else {
+            toast.error(
+                "Couldn't set up the randomized replacement question — the map isn't ready. Ask a new question manually.",
+            );
+        }
     };
 
     return (

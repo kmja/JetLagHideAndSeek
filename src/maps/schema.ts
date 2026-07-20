@@ -112,6 +112,11 @@ const thermometerQuestionSchema = z
         vetoed: z.boolean().optional(),
         randomized: z.boolean().optional(),
         randomizedFrom: z.string().optional(),
+        /** v1028: hider played Randomize and redirected this question — it
+         *  carries no answer, eliminates nothing, and the seeker re-asks a
+         *  fresh one. Declared so the marker survives the wire (Zod strips
+         *  undeclared keys) for thermometer questions too. */
+        randomizedAway: z.boolean().optional(),
     })
     .transform((question) => {
         if (question.colorA === question.colorB) {

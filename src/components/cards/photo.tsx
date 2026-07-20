@@ -1,5 +1,5 @@
 import { useStore } from "@nanostores/react";
-import { Ban, Check, ImagePlus, Trash2 } from "lucide-react";
+import { Ban, Camera, Check, ImagePlus, Trash2 } from "lucide-react";
 import { useRef, useState } from "react";
 import { toast } from "react-toastify";
 
@@ -94,6 +94,9 @@ export const PhotoQuestionComponent = ({
             : `${subtypeLabel} · marked answered`;
 
     const fileInputRef = useRef<HTMLInputElement | null>(null);
+    // v1028: a second input with `capture` for a direct camera viewfinder,
+    // alongside the plain gallery/files input above.
+    const cameraInputRef = useRef<HTMLInputElement | null>(null);
     // Photo picked but not yet committed — drives the censor/review dialog.
     const [pendingFile, setPendingFile] = useState<File | null>(null);
 
@@ -246,8 +249,8 @@ export const PhotoQuestionComponent = ({
                                 <p className="text-xs text-muted-foreground leading-snug mt-0.5">
                                     The hider answered &quot;I cannot answer
                                     the question&quot; — the subject
-                                    isn&apos;t reachable from their locked
-                                    spot. A card was still drawn.
+                                    isn&apos;t in their hiding zone (rulebook
+                                    p32). A card was still drawn.
                                 </p>
                             </div>
                         </div>
@@ -280,14 +283,11 @@ export const PhotoQuestionComponent = ({
                         </p>
                     )}
 
+                    {/* Gallery / files input (no `capture`). */}
                     <input
                         ref={fileInputRef}
                         type="file"
                         accept="image/*"
-                        /* v1019: no `capture` attribute — that forced the
-                           rear camera and hid the gallery on mobile. Omitting
-                           it lets the OS offer BOTH "take photo" and "choose
-                           from library". */
                         className="sr-only"
                         onChange={(e) => {
                             const picked = e.currentTarget.files?.[0];
@@ -296,6 +296,19 @@ export const PhotoQuestionComponent = ({
                             // Route through the censor/review step instead
                             // of committing straight away — the hider gets
                             // to black out identifying detail first.
+                            if (picked) setPendingFile(picked);
+                        }}
+                    />
+                    {/* Camera input — opens the rear camera viewfinder. */}
+                    <input
+                        ref={cameraInputRef}
+                        type="file"
+                        accept="image/*"
+                        capture="environment"
+                        className="sr-only"
+                        onChange={(e) => {
+                            const picked = e.currentTarget.files?.[0];
+                            e.currentTarget.value = "";
                             if (picked) setPendingFile(picked);
                         }}
                     />
@@ -313,20 +326,31 @@ export const PhotoQuestionComponent = ({
 
                     <div
                         className={cn(
-                            "flex gap-2",
+                            "flex flex-wrap gap-2",
                             !showManualCapture && "hidden",
                         )}
                     >
                         <Button
                             type="button"
+                            variant="default"
+                            size="sm"
+                            className="flex-1 gap-1.5 min-w-[8rem]"
+                            onClick={() => cameraInputRef.current?.click()}
+                            disabled={$isLoading}
+                        >
+                            <Camera className="w-3.5 h-3.5" />
+                            {imgSrc ? "Retake photo" : "Take photo"}
+                        </Button>
+                        <Button
+                            type="button"
                             variant="outline"
                             size="sm"
-                            className="flex-1 gap-1.5"
+                            className="flex-1 gap-1.5 min-w-[8rem]"
                             onClick={() => fileInputRef.current?.click()}
                             disabled={$isLoading}
                         >
                             <ImagePlus className="w-3.5 h-3.5" />
-                            {imgSrc ? "Replace photo" : "Attach photo"}
+                            {imgSrc ? "Replace from gallery" : "Upload from gallery"}
                         </Button>
                         {data.drag && (
                             <Button
