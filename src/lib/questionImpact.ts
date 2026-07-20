@@ -496,6 +496,10 @@ export function useQuestionImpact(
         if (!family || family.kind === "city") return;
         if (!playArea) return;
         if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+        // eslint-disable-next-line no-console
+        console.log(
+            `[qimpact] measuring effect run type=${type} kind=${family.kind}`,
+        );
         let cancelled = false;
         // v688/v840: for families whose reference is NOT a plain point set
         // — body-of-water (lake shores + river/canal lines), and the
@@ -530,9 +534,17 @@ export function useQuestionImpact(
                   );
                   return arcBufferToPoint(pts, lat, lng);
               })();
-        if (!bufferPromise) return;
+        if (!bufferPromise) {
+            // eslint-disable-next-line no-console
+            console.log(`[qimpact] no bufferPromise for ${type}`);
+            return;
+        }
         Promise.resolve(bufferPromise)
             .then((buffer) => {
+                // eslint-disable-next-line no-console
+                console.log(
+                    `[qimpact] buffer resolved type=${type} buffer=${buffer ? "yes" : "null"} cancelled=${cancelled}`,
+                );
                 if (cancelled) return;
                 // v1013: SETTLE even when the buffer failed/empty (null) — record
                 // the compute as done for this position with no region, so

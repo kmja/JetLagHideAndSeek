@@ -564,7 +564,13 @@ export const determineMeasuringBoundary = async (
             // piled up in the worker and intermittently timed out — the "ok →
             // threw → arcgis" trail). Falls back to the RAW pieces if the
             // dissolve failed, then to the cold OSM path if nothing was captured.
+            // eslint-disable-next-line no-console
+            console.log("[bow] determineMeasuringBoundary body-of-water ENTER");
             const dissolvedWater = await getDissolvedBasemapWater(bbox4(bBox));
+            // eslint-disable-next-line no-console
+            console.log(
+                `[bow] dissolvedWater=${dissolvedWater ? dissolvedWater.length : "null"}`,
+            );
             if (dissolvedWater && dissolvedWater.length > 0) {
                 return dissolvedWater;
             }

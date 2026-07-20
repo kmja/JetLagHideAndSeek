@@ -387,14 +387,21 @@ async function getDissolvedWater(
     // as more tiles idled in). Bounded (4.5 s) so it can't deadlock the veil;
     // degrades to the capture on any failure. Memoised per play area, so it runs
     // once then every open is instant + complete.
+    const tag = sea ? "coast" : "bow";
+    // eslint-disable-next-line no-console
+    console.log(`[${tag}] getDissolvedWater START bbox=${!!bbox}`);
     if (bbox) {
         try {
             await ensureBasemapWaterForArea(bbox);
-        } catch {
+        } catch (e) {
+            // eslint-disable-next-line no-console
+            console.warn(`[${tag}] ensureBasemapWaterForArea threw`, e);
             /* degrade to the viewport capture */
         }
     }
     const polys = sea ? getBasemapSeaPolys(bbox) : getBasemapWaterPolys(bbox);
+    // eslint-disable-next-line no-console
+    console.log(`[${tag}] after ensure: polys=${polys ? polys.length : "null"}`);
     if (!polys || polys.length === 0) return null;
     // v1014: key on CONTENT (play area + poly count), NOT the water version.
     // The headless read bumps the version when it lands, which re-ran

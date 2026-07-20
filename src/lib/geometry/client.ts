@@ -121,6 +121,8 @@ function getWorker(): Worker | null {
         try {
             const n = poolSize();
             for (let i = 0; i < n; i++) workers.push(makeWorker());
+            // eslint-disable-next-line no-console
+            console.log(`[geometry] worker pool created: ${n} workers`);
         } catch (e) {
             console.warn("[geometry] worker construction failed", e);
             poolDead = true;
@@ -154,6 +156,8 @@ function call<T>(
     return new Promise<T>((resolve, reject) => {
         const timer = setTimeout(() => {
             pending.delete(id);
+            // eslint-disable-next-line no-console
+            console.warn(`[geometry] '${type}' TIMED OUT after ${CALL_TIMEOUT_MS}ms`);
             reject(new Error(`geometry worker '${type}' timed out`));
         }, CALL_TIMEOUT_MS);
         pending.set(id, { resolve, reject, onPhase, timer });
