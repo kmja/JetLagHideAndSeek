@@ -5,19 +5,16 @@ import { createPortal } from "react-dom";
 import { toast } from "react-toastify";
 
 import { useNow } from "@/hooks/useNow";
-import type { CategoryId } from "@/lib/categories";
 import {
-    addQuestionSignal,
     configuringQuestionKey,
     pendingOverlayActive,
     pendingRandomize,
     questionModified,
     questions,
-    randomizeReplacement,
+    randomizeRollOpen,
     triggerLocalRefresh,
 } from "@/lib/context";
-import { answerWindowMs, type GameSize, gameSize } from "@/lib/gameSetup";
-import { getSubtypes } from "@/lib/subtypes";
+import { answerWindowMs, gameSize } from "@/lib/gameSetup";
 import { multiplayerEnabled, participants } from "@/lib/multiplayer/session";
 import {
     isHiderConnected,
@@ -32,6 +29,7 @@ import {
     QuestionOverlayCard,
     summarizeQuestion,
 } from "./questionOverlayCard";
+import { RandomizeRollDialog } from "./RandomizeRollDialog";
 import { SidebarContext } from "./ui/sidebar-l";
 
 /**
@@ -218,10 +216,10 @@ export function PendingAnswerOverlay({
     // cancelling never wastes the randomize.
     const askRandomReplacement = () => {
         if (preview || !$pendingRandomize) return;
-        const cat = $pendingRandomize.category;
-        const subtype = rollReplacementSubtype(cat, $gameSize, questions.get());
-        randomizeReplacement.set({ category: cat, subtype });
-        addQuestionSignal.set(addQuestionSignal.get() + 1);
+        // v1038: open the dice-roll dialog (spins through the remaining un-asked
+        // questions of this category, settles deterministically) instead of
+        // jumping straight to a configure step with every option available.
+        randomizeRollOpen.set(true);
     };
 
     const summary = summarizeQuestion(dShown);
@@ -477,49 +475,11 @@ export function PendingAnswerOverlay({
                     </div>,
                     document.body,
                 )}
+            {/* v1038: the dice-roll re-roll dialog for the owed Randomize
+                replacement (opened by the "Ask new" button above). */}
+            <RandomizeRollDialog />
         </div>
     );
-}
-
-/**
- * v1029: roll the subtype for a Randomize replacement — the SAME category as
- * the randomized question, an UN-ASKED subtype (rulebook p376: "a random
- * different question of the same category"). Radar / thermometer have no
- * subtype (their configure carousel already skips used sizes), so they return
- * undefined. If every subtype has been used, fall back to any (so the seeker is
- * never stuck with nothing to ask).
- */
-function rollReplacementSubtype(
-    category: CategoryId,
-    size: GameSize,
-    qs: Question[],
-): string | undefined {
-    if (
-        category !== "matching" &&
-        category !== "measuring" &&
-        category !== "tentacles" &&
-        category !== "photo"
-    ) {
-        return undefined;
-    }
-    const subs = getSubtypes(category, size) ?? [];
-    if (subs.length === 0) return undefined;
-    const used = new Set<string>();
-    for (const q of qs) {
-        if (q.id !== category) continue;
-        const d = q.data as {
-            type?: string;
-            locationType?: string;
-            randomizedAway?: boolean;
-        };
-        // A randomized-away question wasn't really asked (rulebook p376).
-        if (d.randomizedAway === true) continue;
-        const s = category === "tentacles" ? d.locationType : d.type;
-        if (s) used.add(s);
-    }
-    const unused = subs.filter((s) => !used.has(s.value));
-    const pool = unused.length > 0 ? unused : subs;
-    return pool[Math.floor(Math.random() * pool.length)].value;
 }
 
 /**

@@ -347,7 +347,37 @@ export const addQuestionSignal = atom<number>(0);
 export const randomizeReplacement = atom<{
     category: CategoryId;
     subtype?: string;
+    /** Radar replacement: the specific size the roller settled on (meters). */
+    radiusMeters?: number;
+    /** Thermometer replacement: the target-distance preset sig it settled on. */
+    thermoSig?: string;
 } | null>(null);
+
+/**
+ * v1038: the specific "question" a Randomize re-roll settled on. Decided ONCE
+ * (the first time the roller opens) and persisted on `pendingRandomize` so
+ * cancelling + reopening the roller always shows the SAME result — only the
+ * first open randomizes. `label` is the display name shown in the roller's slot.
+ */
+export interface RandomizeChoice {
+    /** matching/measuring/tentacles/photo subtype value. */
+    subtype?: string;
+    /** radar size (meters). */
+    radiusMeters?: number;
+    /** thermometer target-distance preset sig. */
+    thermoSig?: string;
+    label: string;
+}
+
+/** v1038: open state of the `RandomizeRollDialog` (the dice-roll re-roll UI). */
+export const randomizeRollOpen = atom<boolean>(false);
+
+/**
+ * v1038: when a Randomize re-roll settles on a THERMOMETER of a specific target
+ * distance, this carries that preset sig to `ThermometerConfigureDialog` so it
+ * opens pre-selected on the rolled size. Consumed (nulled) by the dialog on open.
+ */
+export const randomizeThermoTarget = atom<string | null>(null);
 
 /**
  * v1029: when the hider plays Randomize, the seeker OWES a replacement question
@@ -362,6 +392,8 @@ export const randomizeReplacement = atom<{
 export const pendingRandomize = atom<{
     category: CategoryId;
     originalKey: number;
+    /** v1038: the specific question the re-roll settled on (decided once). */
+    rolled?: RandomizeChoice;
 } | null>(null);
 
 export const defaultUnit = persistentAtom<Units>("defaultUnit", "kilometers");

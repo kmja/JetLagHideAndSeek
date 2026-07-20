@@ -39,6 +39,7 @@ import {
     questionModified,
     questions,
     randomizeReplacement,
+    randomizeThermoTarget,
 } from "@/lib/context";
 import { type GameSize, gameSize, playArea } from "@/lib/gameSetup";
 import {
@@ -689,7 +690,7 @@ export const AddQuestionDialog = ({
         return resolveCenter();
     };
 
-    const runAddRadius = () => {
+    const runAddRadius = (radiusMeters?: number) => {
         const center = resolveSeekerCenter();
         if (!center) return false;
         const map = mapContext.get();
@@ -697,8 +698,8 @@ export const AddQuestionDialog = ({
         // tended to swallow most cities at typical zoom levels. v972:
         // seed in the SELECTED unit system (5 km → 3 mi imperial) so the
         // carousel opens on the matching size rather than a mismatched
-        // km value.
-        const seed = gameRadius(5000, resolvedUnits.get());
+        // km value. v1038: a Randomize re-roll seeds the SPECIFIC rolled size.
+        const seed = gameRadius(radiusMeters ?? 5000, resolvedUnits.get());
         addQuestion({
             id: "radius",
             data: {
@@ -877,8 +878,12 @@ export const AddQuestionDialog = ({
     const openReplacement = (repl: {
         category: CategoryId;
         subtype?: string;
+        radiusMeters?: number;
+        thermoSig?: string;
     }) => {
         if (repl.category === "thermometer") {
+            // v1038: carry the rolled target size into the thermometer dialog.
+            randomizeThermoTarget.set(repl.thermoSig ?? null);
             setOpen(false);
             setThermConfigureOpen(true);
             return;
@@ -886,7 +891,7 @@ export const AddQuestionDialog = ({
         let ok = false;
         switch (repl.category) {
             case "radius":
-                ok = runAddRadius();
+                ok = runAddRadius(repl.radiusMeters);
                 break;
             case "matching":
                 ok = runAddMatching(repl.subtype);

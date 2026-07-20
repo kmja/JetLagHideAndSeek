@@ -428,7 +428,25 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v1037`. Use `git log` for the per-version detail;
+build stamp. Current: `v1038`. Use `git log` for the per-version detail;
+
+**v1038 — Randomize re-roll is a dice-roll DIALOG (deterministic settle), not a
+straight-to-configure jump.** Tapping "Ask new" on the seeker's randomized-question
+overlay used to open the configure dialog with EVERY option available (wasted a
+randomize if cancelled). Now it opens `RandomizeRollDialog` — a slot/dice-roll
+animation that spins through the remaining UN-ASKED questions of the SAME category
+and settles on ONE. The settled choice is persisted on `pendingRandomize.rolled`
+the FIRST time the roller opens, so cancelling + reopening always lands on the SAME
+question (only the first open randomizes); confirming ("Ask this question") sends the
+seeker to that question's configure step. Covers every category: subtyped ones
+(matching/measuring/tentacles/photo → un-asked subtype), radar (un-asked size →
+`runAddRadius(radiusMeters)` seeds it), and thermometer (un-asked target → the new
+`randomizeThermoTarget` handoff atom pre-selects it in `ThermometerConfigureDialog`).
+New `randomizeRollOpen` + `randomizeThermoTarget` atoms + `RandomizeChoice` type
+(`context.ts`); `pendingRandomize` gained `rolled?`; `randomizeReplacement` gained
+`radiusMeters?`/`thermoSig?`; `RADIUS_TIERS`/`sigForRadius` exported from
+`cards/radius.tsx`. All reset per round. Replaces the old direct
+`rollReplacementSubtype` path in `PendingAnswerOverlay`.
 
 **v1037 — curse clear now syncs to the hider (client-generated `castId`).** A
 seeker who cleared a curse still showed it ACTIVE on the hider (a v1023 regression

@@ -20,6 +20,7 @@ import {
     lastKnownPosition,
     questionModified,
     questions,
+    randomizeThermoTarget,
 } from "@/lib/context";
 import { gameSize } from "@/lib/gameSetup";
 import { thermometerPresetsForSize } from "@/lib/thermometerPresets";
@@ -105,6 +106,18 @@ export function ThermometerConfigureDialog({
         firstAvailable ?? null,
     );
     const [submitting, setSubmitting] = useState(false);
+
+    // v1038: a Randomize re-roll can pre-select a specific target size — consume
+    // the handoff atom when the dialog opens and select the rolled preset.
+    useEffect(() => {
+        if (!open) return;
+        const forced = randomizeThermoTarget.get();
+        if (forced && presets.some((p) => p.sig === forced)) {
+            setSelected(forced);
+        }
+        randomizeThermoTarget.set(null);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [open]);
     // The currently-selected preset — shared by the carousel + the
     // travel-distance map below it.
     const current = presets.find((p) => p.sig === selected);

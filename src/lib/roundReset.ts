@@ -25,6 +25,8 @@ import {
     questionModified,
     questions,
     randomizeReplacement,
+    randomizeRollOpen,
+    randomizeThermoTarget,
 } from "@/lib/context";
 import {
     activeBlockingCurse,
@@ -105,9 +107,11 @@ export function resetSharedRoundState(): void {
     questionModified();
     disabledStations.set([]);
     permanentOverlay.set(null);
-    // Clear any owed / in-flight Randomize replacement (v1029).
+    // Clear any owed / in-flight Randomize replacement (v1029) + roller (v1038).
     pendingRandomize.set(null);
     randomizeReplacement.set(null);
+    randomizeRollOpen.set(false);
+    randomizeThermoTarget.set(null);
 
     // Curses are per-round — clear any the seeker was still under, plus
     // the enforcement state derived from them (Spotty Memory roll, Urban

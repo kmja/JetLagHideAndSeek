@@ -38,7 +38,7 @@ import { ManualAnswerDisclosure,QuestionCard } from "./base";
  *  tracking. The actual value + unit shown/stored is derived per the
  *  selected unit system (v972), so an imperial player picks 0.25/0.5/1/
  *  3/6/10/25/50/100 mi and a metric player picks the km sizes. */
-const RADIUS_TIERS: { sig: string; meters: number }[] = [
+export const RADIUS_TIERS: { sig: string; meters: number }[] = [
     { sig: "500m", meters: 500 },
     { sig: "1km", meters: 1000 },
     { sig: "2km", meters: 2000 },
@@ -68,7 +68,7 @@ function radiusPresetsFor(system: UnitSystem): RadiusPreset[] {
 /** Identify the tier `sig` a stored (radius, unit) belongs to — matching
  *  EITHER system's form, so a unit switch mid-game still recognises an
  *  already-asked size for the one-per-game rule. "custom" otherwise. */
-function sigForRadius(radius: number, unit: Units): string {
+export function sigForRadius(radius: number, unit: Units): string {
     for (const t of RADIUS_TIERS) {
         for (const system of ["metric", "imperial"] as const) {
             const f = gameRadius(t.meters, system);
