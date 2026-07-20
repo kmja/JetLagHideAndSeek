@@ -231,7 +231,11 @@ export function PendingAnswerOverlay({
         ? { ...summary, detail: "Couldn't send to the hider — tap retry" }
         : randomizeOwed
           ? {
+                // A randomized question isn't a pending/answered state — make
+                // it read as a mystery to re-roll: dice icon + "???" title.
                 ...summary,
+                icon: Dices,
+                bigLabel: "???",
                 detail: "Randomized — ask a new question of this category",
             }
           : answered && resolvedAnswer

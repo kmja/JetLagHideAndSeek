@@ -428,7 +428,15 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v1035`. Use `git log` for the per-version detail;
+build stamp. Current: `v1036`. Use `git log` for the per-version detail;
+
+**v1036 — randomized answered-overlay reads as a re-roll, not a pending state.**
+The seeker's `PendingAnswerOverlay` in the `randomizeOwed` state (a question the
+hider randomized away, awaiting the seeker's "Ask new") looked almost identical
+to a normal pending/answered card — same category icon + "5 KM RADAR" title. Now
+its `cardSummary` overrides the icon to `Dices` and the big label to **"???"**
+(the eyebrow still reads "RADAR · RANDOMIZED" for context), so it clearly signals
+a mystery to re-roll rather than a question with a result.
 
 **v1035 — Bird Guide viewfinder, curse-reveal fixes, skull icon everywhere,
 "before asking another question" curses now block asking.**
