@@ -701,6 +701,8 @@ export class GameRoom {
                 );
             case "castCurse":
                 return this.handleCastCurse(socket, msg.curse);
+            case "curseCleared":
+                return this.handleCurseCleared(socket, msg.castId);
             case "subscribePush":
                 return this.handleSubscribePush(socket, msg.subscription);
             case "ping":
@@ -1994,6 +1996,13 @@ export class GameRoom {
         // startNewRound() clears these too, but the canonical state
         // must match so a later snapshot / a late joiner doesn't
         // replay last round's questions.
+        // v1022: a rotate after a COMPLETED round grants the new hider the
+        // rulebook's 10-minute planning window (p81). Set it server-side
+        // (before roundFoundAt is nulled) so it rides setupChanged +
+        // welcome-snapshot to every device — a purely client-set value was
+        // wiped by the startNewRound/applyRoundStarted double-reset.
+        this.game.setup.planningWindowEndsAt =
+            this.game.roundFoundAt !== null ? Date.now() + 10 * 60_000 : null;
         this.game.roundFoundAt = null;
         this.game.questions = [];
         // v1020: null the hiding-period clock on the canonical server state
@@ -2075,6 +2084,26 @@ export class GameRoom {
         }
         // Push to offline seekers via Web Push.
         this.state.waitUntil(this.pushCurseToOfflineSeekers(stamped));
+    }
+
+    /**
+     * A seeker cleared/dismissed a curse (or it auto-expired). Drop it from
+     * the round's backlog (so a rejoining seeker doesn't recover a cleared
+     * curse) and relay to everyone else — the hide team's active-curse mirror
+     * + other seekers — so all devices agree it's no longer active. Any
+     * participant may send this (a seeker's own device is the source).
+     */
+    private handleCurseCleared(socket: WebSocket, castId: number) {
+        const conn = this.lookupConn(socket);
+        if (!conn) return;
+        // Remove from the persisted backlog so it isn't re-delivered on rejoin.
+        this.castCurses = this.castCurses.filter((c) => c.castId !== castId);
+        // Relay to every OTHER connected participant (hide team + seekers).
+        for (const [pid, c] of this.conns.entries()) {
+            if (pid === conn.participantId) continue;
+            this.sendTo(c.socket, { t: "curseCleared", castId });
+        }
+        void this.persist();
     }
 
     private handleSubscribePush(socket: WebSocket, subscription: PushSubscriptionData) {

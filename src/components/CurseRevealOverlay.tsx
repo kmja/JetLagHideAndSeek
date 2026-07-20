@@ -10,20 +10,21 @@ import { gameSize } from "@/lib/gameSetup";
  * Jet-Lag-show-style curse REVEAL animation, shown to the SEEKERS the moment a
  * curse is cast on them (`curseReveal` atom, set by the `curseReceived`
  * handler). Three beats, matching the show:
- *   1. a purple 5-pointed star with a light-blue wiggly edge grows + spins in
- *      from the centre;
- *   2. the curse card spins out, flanked by dark-purple squiggly lines;
- *   3. the card settles still in the centre while the star + squiggles rotate
- *      slowly behind it.
+ *   1. a purple 5-pointed star with a light-blue wiggly edge grows in FAST from
+ *      the centre (its points just barely leave the frame);
+ *   2. the curse card TUMBLES end over end (twice) as it grows in, slower;
+ *   3. dark-navy squiggly lines grow OUT from behind the card (ease-out, a beat
+ *      later), then the whole star + squiggles rotate slowly behind the settled
+ *      card.
  * A full-screen portal overlay; tap anywhere (or wait ~9 s) to dismiss.
  *
- * All motion is CSS keyframes (see `globals.css` `curseReveal*`), so it's
- * cheap and `prefers-reduced-motion`-gated there. Mounted seeker-side only.
+ * All motion is CSS keyframes (see `globals.css` `curseReveal*`), so it's cheap
+ * and `prefers-reduced-motion`-gated there. Mounted seeker-side only.
  */
 
 const STAR_PURPLE = "#6b3f7a"; // the show's mid purple
 const STAR_EDGE = "#a7d3e0"; // light-blue wiggly edge
-const SQUIGGLE = "#232a4d"; // dark navy-purple squiggles
+const SQUIGGLE = "#232a4d"; // dark navy squiggles
 
 /** A slightly-irregular 5-point star path in a 0..200 viewBox. */
 function useStarPath(): string {
@@ -35,9 +36,7 @@ function useStarPath(): string {
         const pts: string[] = [];
         for (let i = 0; i < 10; i++) {
             const r = i % 2 === 0 ? outer : inner;
-            // start pointing up (-90deg), 36deg between each outer/inner vertex
             const a = (-90 + i * 36) * (Math.PI / 180);
-            // a touch of irregularity so the arms read hand-drawn
             const jitter = i % 2 === 0 ? 1 : 0.94 + (i % 3) * 0.03;
             const x = cx + Math.cos(a) * r * jitter;
             const y = cy + Math.sin(a) * r * jitter;
@@ -52,7 +51,6 @@ function squigglePath(angleDeg: number, r0: number, r1: number): string {
     const a = (angleDeg * Math.PI) / 180;
     const ax = Math.cos(a);
     const ay = Math.sin(a);
-    // perpendicular for the wiggle offset
     const px = -ay;
     const py = ax;
     const steps = 5;
@@ -66,7 +64,10 @@ function squigglePath(angleDeg: number, r0: number, r1: number): string {
         const wig = Math.sin(t * Math.PI * 2.2) * amp;
         const x = cx + ax * r + px * wig;
         const y = cy + ay * r + py * wig;
-        d += i === 0 ? `M ${x.toFixed(1)} ${y.toFixed(1)}` : ` L ${x.toFixed(1)} ${y.toFixed(1)}`;
+        d +=
+            i === 0
+                ? `M ${x.toFixed(1)} ${y.toFixed(1)}`
+                : ` L ${x.toFixed(1)} ${y.toFixed(1)}`;
     }
     return d;
 }
@@ -76,8 +77,6 @@ export function CurseRevealOverlay() {
     const $gameSize = useStore(gameSize);
     const timerRef = useRef<number | null>(null);
 
-    // Auto-dismiss after the beat has landed (the show holds the card a few
-    // seconds). A tap dismisses sooner.
     useEffect(() => {
         if (!card) return;
         timerRef.current = window.setTimeout(() => curseReveal.set(null), 9000);
@@ -89,8 +88,6 @@ export function CurseRevealOverlay() {
     const starPath = useStarPath();
     const squiggles = useMemo(
         () =>
-            // 10 squiggles, offset from the star arms so they read as the
-            // dark lines flanking the card.
             Array.from({ length: 10 }, (_, i) =>
                 squigglePath(-90 + i * 36 + 18, 46, 96),
             ),
@@ -113,45 +110,80 @@ export function CurseRevealOverlay() {
             }}
             data-testid="curse-reveal-overlay"
         >
+            {/* SVG rough-paper filter for the card edges. */}
+            <svg width="0" height="0" className="absolute" aria-hidden="true">
+                <filter id="curseCardRough">
+                    <feTurbulence
+                        type="fractalNoise"
+                        baseFrequency="0.012 0.014"
+                        numOctaves={2}
+                        seed={7}
+                        result="noise"
+                    />
+                    <feDisplacementMap
+                        in="SourceGraphic"
+                        in2="noise"
+                        scale={6}
+                        xChannelSelector="R"
+                        yChannelSelector="G"
+                    />
+                </filter>
+            </svg>
+
             {/* Rotating background layer (slow infinite spin). Nested so the
-                grow-in scale doesn't fight the spin's transform. */}
+                grow-in scales don't fight the spin's transform. The squiggles
+                and the star each have their OWN grow-in so the squiggles can
+                trail the card. */}
             <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                <div className="motion-safe:animate-[curseRevealSpin_44s_linear_infinite]">
-                    <div className="motion-safe:animate-[curseRevealStarIn_720ms_cubic-bezier(0.22,1,0.36,1)_both]">
-                        <svg
-                            viewBox="0 0 200 200"
-                            className="w-[135vmax] h-[135vmax]"
-                            aria-hidden="true"
-                        >
-                            {/* dark squiggly lines flanking the star arms */}
-                            {squiggles.map((d, i) => (
-                                <path
-                                    key={i}
-                                    d={d}
-                                    fill="none"
-                                    stroke={SQUIGGLE}
-                                    strokeWidth={3.2}
-                                    strokeLinecap="round"
-                                    opacity={0.9}
-                                />
-                            ))}
-                            {/* the star: purple fill, light-blue wiggly edge */}
+                <div className="motion-safe:animate-[curseRevealSpin_46s_linear_infinite]">
+                    {/* Squiggles — grow OUT from behind the card, delayed +
+                        ease-out (beat 3). */}
+                    <svg
+                        viewBox="0 0 200 200"
+                        className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[112vmax] h-[112vmax] motion-safe:animate-[curseRevealSquiggleIn_620ms_520ms_cubic-bezier(0.22,1,0.36,1)_both]"
+                        aria-hidden="true"
+                    >
+                        {squiggles.map((d, i) => (
                             <path
-                                d={starPath}
-                                fill={STAR_PURPLE}
-                                stroke={STAR_EDGE}
-                                strokeWidth={5}
-                                strokeLinejoin="round"
+                                key={i}
+                                d={d}
+                                fill="none"
+                                stroke={SQUIGGLE}
+                                strokeWidth={3.2}
+                                strokeLinecap="round"
+                                opacity={0.9}
                             />
-                        </svg>
-                    </div>
+                        ))}
+                    </svg>
+                    {/* Star — grows in FAST (beat 1); points just barely leave
+                        the frame. */}
+                    <svg
+                        viewBox="0 0 200 200"
+                        className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[112vmax] h-[112vmax] motion-safe:animate-[curseRevealStarIn_360ms_cubic-bezier(0.2,0.9,0.3,1)_both]"
+                        aria-hidden="true"
+                    >
+                        <path
+                            d={starPath}
+                            fill={STAR_PURPLE}
+                            stroke={STAR_EDGE}
+                            strokeWidth={5}
+                            strokeLinejoin="round"
+                        />
+                    </svg>
                 </div>
             </div>
 
-            {/* The curse card spins out and settles in the centre. */}
-            <div className="relative z-[1] motion-safe:animate-[curseRevealCardIn_760ms_560ms_cubic-bezier(0.34,1.3,0.5,1)_both]">
-                <div className="w-[min(78vw,300px)] drop-shadow-2xl">
-                    <CardTile card={card} gameSize={$gameSize} />
+            {/* The curse card tumbles end over end and settles in the centre.
+                `perspective` on the wrapper makes the rotateX read as a real
+                3-D tumble. */}
+            <div
+                className="relative z-[1] flex flex-col items-center"
+                style={{ perspective: "1400px" }}
+            >
+                <div className="w-[min(78vw,300px)] drop-shadow-2xl motion-safe:animate-[curseRevealCardTumble_980ms_180ms_cubic-bezier(0.3,0.9,0.4,1)_both] [transform-style:preserve-3d]">
+                    <div style={{ filter: "url(#curseCardRough)" }}>
+                        <CardTile card={card} gameSize={$gameSize} />
+                    </div>
                 </div>
                 <p className="mt-4 text-center text-xs font-poppins font-semibold uppercase tracking-[0.14em] text-white/70">
                     Tap to dismiss

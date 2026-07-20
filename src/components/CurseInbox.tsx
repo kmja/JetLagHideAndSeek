@@ -27,6 +27,8 @@ import {
     DialogHeader,
     DialogTitle,
 } from "@/components/ui/dialog";
+import { playerRole } from "@/lib/hiderRole";
+import { sendCurseCleared } from "@/lib/multiplayer/store";
 import { type ReceivedCurse, receivedCurses } from "@/lib/seekerInbound";
 import { cn } from "@/lib/utils";
 import type { WritableAtom } from "nanostores";
@@ -157,6 +159,11 @@ export function CurseInbox({
                         : c,
                 ),
         );
+        // v1022: propagate the clear so the hide team + other seekers drop it
+        // (seeker-side only — the hider's mirror is informational).
+        if (playerRole.get() === "seeker") {
+            for (const c of expired) sendCurseCleared(c.castId);
+        }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [now, $curses, $gameSize]);
 
@@ -175,6 +182,7 @@ export function CurseInbox({
     };
 
     const dismiss = (receivedAt: number) => {
+        const target = source.get().find((c) => c.receivedAt === receivedAt);
         source.set(
             source
                 .get()
@@ -184,6 +192,8 @@ export function CurseInbox({
                         : c,
                 ),
         );
+        // v1022: propagate the clear to the hide team + other seekers.
+        if (playerRole.get() === "seeker") sendCurseCleared(target?.castId);
         setDialogCurse(null);
     };
 

@@ -428,7 +428,38 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v1022`. Use `git log` for the per-version detail;
+build stamp. Current: `v1023`. Use `git log` for the per-version detail;
+
+**v1023 — curse-reveal tuning + Impressionable Consumer + curse-clear sync +
+planning-window gate + hide-here + z-index fix.**
+- **Curse reveal animation tuned** (`CurseRevealOverlay`): star grows in FAST +
+  points just barely leave the frame (112vmax, was 135); the card TUMBLES end
+  over end twice (`rotateX 720°` with parent `perspective`, was a 2-D spin); the
+  squiggly lines grow OUT from behind the card on their own delayed ease-out;
+  the card gets a subtle torn-paper edge (`feTurbulence`+`feDisplacementMap`
+  filter). The old big **"CURSE RECEIVED" notification card is gone** — received
+  curses are marked `acknowledged` on arrival (the reveal IS the notification)
+  so they go straight to the compact active pill. The `?c=` link path also fires
+  the reveal.
+- **Impressionable Consumer** (`freeQuestionDraws` in `hiderRole.ts`): its casting
+  cost "the seekers' next question is free" now arms a no-draw flag; `presentDraw`
+  consumes it — the next answered question yields NO card draw and toasts an
+  explanation. Reset per round.
+- **Curse clear syncs** (`CMsgCurseCleared`/`SMsgCurseCleared`, keyed on `castId`):
+  a seeker clearing/auto-expiring a curse tells the server, which drops it from
+  the round backlog and relays to the hide team + other seekers, so every
+  device's active-curse list agrees. Demo broker no-ops it.
+- **New-hider planning window is server-authoritative** (`SetupState.planningWindowEndsAt`,
+  set in `handleRotateHider` when a round rotates after a completed round) — the
+  client no longer loses it to the `startNewRound`/`applyRoundStarted` reset
+  ordering. The lobby **Start button is DISABLED and counts down** during the
+  window, then unlocks. Demo broker mirrors it.
+- **"Hide here"** on the hider zone card now shows ONLY when the hider's GPS is
+  inside the tapped zone; the reachability banner is hidden in that case.
+- **End-of-round Leave confirm z-index fixed** — `appConfirm`/`appPrompt`
+  (`AlertDialogContent`) now render at `z-[1300]` (overlay `z-[1295]`) so a
+  confirm launched from a high-z overlay (end-of-round card, endgame overlay,
+  curse reveal, photo lightbox) sits ON TOP instead of behind it.
 
 **v1022 — Jet-Lag-show curse REVEAL animation (seeker side).** When a curse is
 cast on the seekers, a full-screen show-style reveal plays: (1) a purple

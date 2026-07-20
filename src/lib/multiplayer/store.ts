@@ -97,7 +97,7 @@ import {
 } from "@/lib/houseRules";
 import { resetSharedRoundState } from "@/lib/roundReset";
 import { triggerCurseReveal } from "@/lib/curseReveal";
-import { receivedCurses } from "@/lib/seekerInbound";
+import { castCurses, receivedCurses } from "@/lib/seekerInbound";
 import {
     type Question,
     type Questions,
@@ -661,6 +661,17 @@ export function hiderCastCurse(curse: CursePayload) {
     getTransport().send({ t: "castCurse", curse });
 }
 
+/**
+ * A seeker cleared/dismissed a curse — tell the server so the hide team's
+ * active-curse mirror + other seekers drop it too (v1022). No-op solo/offline
+ * or for a curse with no server `castId` (a `?c=` link curse).
+ */
+export function sendCurseCleared(castId: number | undefined) {
+    if (castId == null) return;
+    if (!multiplayerEnabled.get()) return;
+    getTransport().send({ t: "curseCleared", castId });
+}
+
 /* ────────────────── Inbound dispatch ────────────────── */
 
 /**
@@ -883,6 +894,8 @@ function applySnapshot(state: GameState) {
     allowedTransit.set(state.setup.allowedTransit);
     gameSize.set(state.setup.gameSize);
     hidingPeriodEndsAt.set(state.setup.hidingPeriodEndsAt);
+    // v1022: server-authoritative new-hider planning window.
+    planningWindowEndsAt.set(state.setup.planningWindowEndsAt ?? null);
     // v946: a snapshot is a JOIN / reconnect resync, never the live moment the
     // clock arms — so it must NOT replay the GO-GO-GO (game start) or SEEK
     // (seeking start) celebration. Stamp the watchers' "already fired" dedupe
@@ -991,7 +1004,11 @@ function curseToReceived(curse: CursePayload) {
         travelDestination: curse.travelDestination,
         castId: curse.castId,
         receivedAt: Date.now(),
-        acknowledged: false,
+        // v1022: the show-style REVEAL animation (CurseRevealOverlay) is now
+        // the "curse received" moment, so skip the old big "CURSE RECEIVED"
+        // notification card — mark it acknowledged on arrival and let it go
+        // straight to the compact active-curse pill (dice / clear / countdown).
+        acknowledged: true,
     };
 }
 
@@ -1245,6 +1262,10 @@ function handleServerMessage(msg: ServerMessage) {
             gameSize.set(msg.setup.gameSize);
             const prevHidingEndsAt = hidingPeriodEndsAt.get();
             hidingPeriodEndsAt.set(msg.setup.hidingPeriodEndsAt);
+            // v1022: server-authoritative new-hider planning window — set on a
+            // round rotate after a completed round, so all devices show the
+            // 10-min lobby countdown (survives the client round-reset ordering).
+            planningWindowEndsAt.set(msg.setup.planningWindowEndsAt ?? null);
             // v814: a guest receiving the host's START push (hiding clock
             // going null → set) plays the game-start flourish OVER the
             // lobby, same as the host. Set the flag SYNCHRONOUSLY with the
@@ -1490,6 +1511,27 @@ function handleServerMessage(msg: ServerMessage) {
             );
             if (fresh.length === 0) return;
             receivedCurses.set([...existing, ...fresh.map(curseToReceived)]);
+            return;
+        }
+        case "curseCleared": {
+            // v1022: a seeker cleared/dismissed a curse (or it auto-expired).
+            // Mark the matching castId dismissed in BOTH the seeker's inbox
+            // (other seekers) and the hider's cast-curse mirror, so every
+            // device drops it from the active list.
+            const markCleared = (
+                store: typeof receivedCurses,
+            ) =>
+                store.set(
+                    store
+                        .get()
+                        .map((c) =>
+                            c.castId === msg.castId
+                                ? { ...c, dismissed: true }
+                                : c,
+                        ),
+                );
+            markCleared(receivedCurses);
+            markCleared(castCurses);
             return;
         }
         case "endgameDenied": {

@@ -274,8 +274,27 @@ export function StationTransitCard({
     // for every station). Only shown during the hiding period with a
     // resolved journey; after the whistle (or with no plan yet) there's
     // nothing to judge.
+    // The zone's hiding-radius in metres (shared by the reachability gate,
+    // the seeker endgame gate, and the hider inside-zone gate).
+    const endgameRadiusM = $radius * ($radiusUnits === "miles" ? 1609.34 : 1000);
+    // v1022: is the HIDER physically inside the tapped zone? "Hide here" only
+    // shows then, and it also suppresses the reachability banner (moot once
+    // you're standing in it). GPS within the radius (+ a small GPS-noise
+    // margin); no fix → can't tell → not offered.
+    const hiderInsideZone =
+        allowHiderCommit &&
+        $role === "hider" &&
+        station !== null &&
+        !!$gps &&
+        haversineMeters($gps.lat, $gps.lng, station.lat, station.lng) <=
+            endgameRadiusM + 100;
+    // v1022: when the hider is already INSIDE the zone (and can commit it),
+    // "can I reach it in time" is moot — hide the reachability banner.
     const reachability =
-        journey && $endsAt !== null && Date.now() < $endsAt
+        journey &&
+        $endsAt !== null &&
+        Date.now() < $endsAt &&
+        !hiderInsideZone
             ? {
                   reachable: journey.arriveAt <= $endsAt,
                   // Minutes of slack before / past the whistle (rounded).
@@ -296,7 +315,6 @@ export function StationTransitCard({
     // being within the zone's hiding-radius (+ a generous margin for GPS
     // noise). With NO GPS fix we can't tell, so we still show it (the server
     // makes the final call).
-    const endgameRadiusM = $radius * ($radiusUnits === "miles" ? 1609.34 : 1000);
     const seekerReachedZone =
         !$gps ||
         station === null ||
@@ -311,12 +329,11 @@ export function StationTransitCard({
         $found === null &&
         seekerReachedZone;
 
-    // v1020: hider can commit the tapped zone directly from the map. Only
-    // while the hiding period is still running and nothing is committed yet.
+    // v1020: hider can commit the tapped zone directly from the map — only
+    // while the hiding period runs, nothing is committed yet, and the hider
+    // is inside the zone (`hiderInsideZone`, computed above).
     const canCommitZone =
-        allowHiderCommit &&
-        $role === "hider" &&
-        station !== null &&
+        hiderInsideZone &&
         $committedZone === null &&
         $endsAt !== null &&
         Date.now() < $endsAt;

@@ -337,6 +337,17 @@ export interface CMsgCastCurse {
     curse: CursePayload;
 }
 
+/**
+ * A seeker cleared/dismissed a curse (manual "Clear curse" or an auto-expiry).
+ * The server marks it cleared in its backlog and relays it so the hide team's
+ * active-curse mirror + other seekers drop it too. Keyed on the server
+ * `castId`.
+ */
+export interface CMsgCurseCleared {
+    t: "curseCleared";
+    castId: number;
+}
+
 /** Client registers its Web Push subscription so the server can notify it offline. */
 export interface CMsgSubscribePush {
     t: "subscribePush";
@@ -368,6 +379,7 @@ export type ClientMessage =
     | CMsgHiderLoc
     | CMsgPing
     | CMsgCastCurse
+    | CMsgCurseCleared
     | CMsgSubscribePush;
 
 /* ────────────────── Server → Client ────────────────── */
@@ -572,6 +584,16 @@ export interface SMsgCurseBacklog {
 }
 
 /**
+ * A curse was cleared/dismissed (a seeker cleared it, or it auto-expired).
+ * Relayed to everyone else — the hide team's active-curse mirror + other
+ * seekers drop it. Keyed on the server `castId`.
+ */
+export interface SMsgCurseCleared {
+    t: "curseCleared";
+    castId: number;
+}
+
+/**
  * v950: the server VALIDATED an endgame claim and found the claiming seeker is
  * NOT at the hider's committed zone. A wrong claim does NOT arm the endgame
  * (so the seekers can re-try at the right station); instead this transient
@@ -614,6 +636,7 @@ export type ServerMessage =
     | SMsgPong
     | SMsgCurseReceived
     | SMsgCurseBacklog
+    | SMsgCurseCleared
     | SMsgEndgameDenied;
 
 /* ────────────────── Shared payload types ────────────────── */

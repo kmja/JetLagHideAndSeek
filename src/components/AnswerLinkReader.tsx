@@ -4,6 +4,7 @@ import { toast } from "react-toastify";
 import { CATEGORIES, type CategoryId } from "@/lib/categories";
 import { questionModified, questions } from "@/lib/context";
 import { notify } from "@/lib/notifications";
+import { triggerCurseReveal } from "@/lib/curseReveal";
 import { receivedCurses } from "@/lib/seekerInbound";
 import {
     decodeAnswerFromUrl,
@@ -35,14 +36,15 @@ export function AnswerLinkReader() {
             const cursePayload = decodeCurseFromUrl(params);
             if (cursePayload) {
                 consumed = "c";
-                receivedCurses.set([
-                    ...receivedCurses.get(),
-                    {
-                        ...cursePayload,
-                        receivedAt: Date.now(),
-                        acknowledged: false,
-                    },
-                ]);
+                const received = {
+                    ...cursePayload,
+                    receivedAt: Date.now(),
+                    // v1022: the reveal animation is the notification — skip
+                    // the old "CURSE RECEIVED" card (go straight to active).
+                    acknowledged: true,
+                };
+                receivedCurses.set([...receivedCurses.get(), received]);
+                triggerCurseReveal(received);
                 toast.error(`${cursePayload.name} cast on you!`, {
                     autoClose: 5000,
                     toastId: `curse-${cursePayload.name}`,

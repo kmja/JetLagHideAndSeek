@@ -119,6 +119,15 @@ export interface SetupState {
     /** Unix ms; null before the host starts the game. */
     hidingPeriodEndsAt: number | null;
     /**
+     * Unix ms end of the new hider's 10-minute planning window (rulebook p81),
+     * set server-side when a round rotates after a COMPLETED round. Null
+     * otherwise. Server-authoritative so it rides the setupChanged broadcast +
+     * welcome snapshot and survives the client round-reset ordering (a purely
+     * client-set value was wiped by `startNewRound`/`applyRoundStarted`
+     * double-resetting). Optional so older clients/servers ignore it.
+     */
+    planningWindowEndsAt?: number | null;
+    /**
      * Unix ms when the seeker has *claimed* the endgame ("we're in your
      * zone"). Null during normal seeking. The hider's UI surfaces a
      * banner when this flips so they know to commit to their final spot

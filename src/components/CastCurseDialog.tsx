@@ -53,6 +53,7 @@ import { getSubtypes } from "@/lib/subtypes";
 import type { CurseCard } from "@/lib/hiderDeck";
 import {
     activateOverflowingChalice,
+    armFreeQuestion,
     discardCard,
     hiderHand,
     hiderInbox,
@@ -345,6 +346,11 @@ export function CastCurseDialog({
     // cost, otherwise the cards the hider selected. Called from each
     // successful-cast branch alongside discarding the curse itself.
     const payCostDiscards = () => {
+        // v1022: Impressionable Consumer's cost is "the seekers' next question
+        // is free" — arm the no-draw flag consumed by `presentDraw`.
+        if (/next question is free/i.test(card.castingCost ?? "")) {
+            armFreeQuestion();
+        }
         if (!discardCost) return;
         const ids = discardCost.whole
             ? costEligible.map((c) => c.id)

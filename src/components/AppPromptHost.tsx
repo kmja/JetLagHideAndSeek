@@ -54,7 +54,10 @@ export function AppPromptHost() {
                 if (!next) resolve(null);
             }}
         >
-            <AlertDialogContent>
+            <AlertDialogContent
+                className="z-[1300]"
+                overlayClassName="z-[1295]"
+            >
                 <AlertDialogHeader>
                     <AlertDialogTitle>
                         {$pending?.title ?? ""}

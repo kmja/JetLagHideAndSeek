@@ -27,10 +27,14 @@ AlertDialogOverlay.displayName = AlertDialogPrimitive.Overlay.displayName;
 
 const AlertDialogContent = React.forwardRef<
     React.ElementRef<typeof AlertDialogPrimitive.Content>,
-    React.ComponentPropsWithoutRef<typeof AlertDialogPrimitive.Content>
->(({ className, ...props }, ref) => (
+    React.ComponentPropsWithoutRef<typeof AlertDialogPrimitive.Content> & {
+        /** Extra class for the dark overlay (e.g. a raised z-index so the
+         *  confirm sits above a high-z overlay like the end-of-round card). */
+        overlayClassName?: string;
+    }
+>(({ className, overlayClassName, ...props }, ref) => (
     <AlertDialogPortal>
-        <AlertDialogOverlay />
+        <AlertDialogOverlay className={overlayClassName} />
         <AlertDialogPrimitive.Content
             ref={ref}
             className={cn(

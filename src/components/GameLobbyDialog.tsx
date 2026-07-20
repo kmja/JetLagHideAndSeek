@@ -495,6 +495,21 @@ export function GameLobbyDialog() {
     // preload kickoff covers).
     const startReady = canStart;
 
+    // v1022: the new hider's 10-minute planning window (rulebook p81) now
+    // GATES the Start button — the host can't start the round until it runs
+    // out, and the button shows the countdown. Host can still start early? No:
+    // the rulebook gives the hider up to 10 min, so we hold Start until then.
+    const nowTick = useNow(true);
+    const planningRemainingMs =
+        $planningEndsAt != null ? Math.max(0, $planningEndsAt - nowTick) : 0;
+    const planningActive = planningRemainingMs > 0;
+    const planningLabel = (() => {
+        const total = Math.ceil(planningRemainingMs / 1000);
+        const mm = Math.floor(total / 60);
+        const ss = String(total % 60).padStart(2, "0");
+        return `${mm}:${ss}`;
+    })();
+
     const minutes =
         $pending && $pending > 0
             ? $pending
@@ -1289,7 +1304,7 @@ export function GameLobbyDialog() {
                                     "font-display uppercase",
                                 )}
                                 onClick={handleStartGame}
-                                disabled={!startReady}
+                                disabled={!startReady || planningActive}
                             >
                                 <span
                                     className="text-base font-extrabold leading-none"
@@ -1300,16 +1315,20 @@ export function GameLobbyDialog() {
                                             Waiting for players
                                             <AnimatedEllipsis />
                                         </>
+                                    ) : planningActive ? (
+                                        "Planning window"
                                     ) : (
                                         "Start round"
                                     )}
                                 </span>
                                 {startReady && (
                                     <span
-                                        className="text-[10px] font-semibold leading-none mt-1 opacity-80"
+                                        className="text-[10px] font-semibold leading-none mt-1 opacity-80 tabular-nums"
                                         style={{ letterSpacing: "0.14em" }}
                                     >
-                                        {minutes}-min hiding period
+                                        {planningActive
+                                            ? `New hider planning · ${planningLabel}`
+                                            : `${minutes}-min hiding period`}
                                     </span>
                                 )}
                             </Button>

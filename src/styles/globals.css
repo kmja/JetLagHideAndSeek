@@ -387,19 +387,24 @@ div.leaflet-control-attribution.leaflet-control {
     from { transform: rotate(0deg); }
     to   { transform: rotate(360deg); }
 }
-/* The star grows + spins in from the centre (beat 1). */
+/* Beat 1: the star grows in FAST from the centre (a touch of spin). */
 @keyframes curseRevealStarIn {
-    0%   { transform: scale(0) rotate(-170deg); opacity: 0; }
-    60%  { opacity: 1; }
-    80%  { transform: scale(1.06) rotate(6deg); }
-    100% { transform: scale(1) rotate(0deg);    opacity: 1; }
-}
-/* The card spins out from the star's centre and settles (beat 2→3). */
-@keyframes curseRevealCardIn {
-    0%   { transform: scale(0) rotate(300deg); opacity: 0; }
-    55%  { opacity: 1; }
-    80%  { transform: scale(1.05) rotate(-6deg); }
+    0%   { transform: scale(0) rotate(-90deg); opacity: 0; }
+    70%  { opacity: 1; }
     100% { transform: scale(1) rotate(0deg);   opacity: 1; }
+}
+/* Beat 3: the squiggly lines grow OUT from behind the card, ease-out + a
+ * short delay so they trail the card's tumble. */
+@keyframes curseRevealSquiggleIn {
+    0%   { transform: scale(0.15); opacity: 0; }
+    100% { transform: scale(1);    opacity: 0.95; }
+}
+/* Beat 2: the card TUMBLES end over end twice (rotateX 720°) as it grows in,
+ * slower than the star. The parent supplies perspective. */
+@keyframes curseRevealCardTumble {
+    0%   { transform: scale(0.25) rotateX(720deg); opacity: 0; }
+    30%  { opacity: 1; }
+    100% { transform: scale(1) rotateX(0deg);      opacity: 1; }
 }
 
 /* Reference-point marker + label used on the configure-dialog inline

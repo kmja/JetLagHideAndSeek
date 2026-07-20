@@ -44,7 +44,10 @@ export function AppConfirmHost() {
                 if (!next) resolve(false);
             }}
         >
-            <AlertDialogContent>
+            <AlertDialogContent
+                className="z-[1300]"
+                overlayClassName="z-[1295]"
+            >
                 <AlertDialogHeader>
                     <AlertDialogTitle>
                         {$pending?.title ?? ""}

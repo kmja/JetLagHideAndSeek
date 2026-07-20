@@ -490,13 +490,28 @@ function handleClientMessage(msg: ClientMessage) {
             // never injected `ended`, and the timer ticked forever (the
             // "can't mark found on round 2" bug). Mirror the fields a real
             // round-rotate clears.
+            // v1022: mirror the real server — a rotate after a completed round
+            // grants the new hider the 10-min planning window (set before
+            // roundFoundAt is nulled), and the hiding clock is reset so all
+            // devices return to the lobby.
+            s.state.setup.planningWindowEndsAt =
+                s.state.roundFoundAt !== null ? Date.now() + 10 * 60_000 : null;
+            s.state.setup.hidingPeriodEndsAt = null;
+            s.state.setup.revealedStation = null;
+            s.state.setup.seekersFrozenUntil = null;
             s.state.roundFoundAt = null;
             s.state.setup.endgameStartedAt = null;
             s.state.setup.endgameConfirmedAt = null;
+            inject({ t: "roundStarted", participants: s.state.participants });
+            inject({ t: "setupChanged", setup: s.state.setup });
             broadcastPresence();
             return;
         }
 
+        case "curseCleared":
+            // Single-device demo: the hider IS the caster, so there's no
+            // separate device to sync a clear to — no-op.
+            return;
         case "loc":
         case "hiderLoc":
         case "ping":

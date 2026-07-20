@@ -1,5 +1,6 @@
 import { persistentAtom } from "@nanostores/persistent";
 import { atom } from "nanostores";
+import { toast } from "react-toastify";
 
 import type { DeckStateShare } from "@protocol/index";
 
@@ -449,6 +450,25 @@ export function activateOverflowingChalice(): void {
     chaliceDrawsRemaining.set(chaliceDrawsRemaining.get() + 3);
 }
 
+/**
+ * Curse of the Impressionable Consumer casting cost: "the seekers' next
+ * question is free" — the hider forfeits the card draw for the NEXT question
+ * they answer. Counter (persistent, reset per round) consumed in
+ * `presentDraw`. Additive if cast twice before the next answer.
+ */
+export const freeQuestionDraws = __globalPersistent<number>(
+    "__jlhs_freeQuestionDraws",
+    "freeQuestionDraws",
+    0,
+    String,
+    (v) => Number(v) || 0,
+);
+
+/** Arm one "next question is free" (no card draw for the hider). */
+export function armFreeQuestion(): void {
+    freeQuestionDraws.set(freeQuestionDraws.get() + 1);
+}
+
 /* ────────────────── Volatile: role-picker open flag ────────────────── */
 
 /** Non-persistent: shown when the user lands on the app with no role set. */
@@ -540,6 +560,7 @@ export function resetHiderRoundState() {
     roundFoundAt.set(null);
     hiderForfeited.set(false);
     chaliceDrawsRemaining.set(0);
+    freeQuestionDraws.set(0);
 }
 
 /* ────────────────── Shared hide-team deck sync (v831 Track 2) ──────────── *
@@ -630,6 +651,18 @@ export function presentDraw(
     sourceCategory: string,
     sourceQuestionKey: number,
 ): boolean {
+    // v1022: Curse of the Impressionable Consumer — its casting cost is "the
+    // seekers' next question is free", i.e. the hider forfeits the draw for
+    // the next question they answer. Consume one charge here (the single
+    // reward chokepoint) and skip the draw entirely, explaining why.
+    if (freeQuestionDraws.get() > 0) {
+        freeQuestionDraws.set(freeQuestionDraws.get() - 1);
+        toast.info(
+            "Curse of the Impressionable Consumer: this question was free — no card draw this time.",
+            { autoClose: 6000 },
+        );
+        return true;
+    }
     // Curse of the Overflowing Chalice: while armed, every question
     // reward draws one extra card (keep count unchanged). Consume one
     // charge here — this is the single chokepoint all question-reward

@@ -911,7 +911,7 @@ export function DebugPhaseControls(_props: { floating?: DebugFloating } = {}) {
                             const received = {
                                 ...curse,
                                 receivedAt: Date.now(),
-                                acknowledged: false,
+                                acknowledged: true,
                             };
                             receivedCurses.set([...list, received]);
                             // v1021: also play the reveal animation so it can
