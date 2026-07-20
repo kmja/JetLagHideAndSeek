@@ -428,7 +428,14 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v1041`. Use `git log` for the per-version detail;
+build stamp. Current: `v1042`. Use `git log` for the per-version detail;
+
+**v1042 — hider questions-log answered cards expand/collapse smoothly.** The
+seeker's log animates card expansion (the grid-rows `0fr`→`1fr` trick in
+`cards/base`); the hider's `HiderQuestionLog` `AnsweredCard` hard-mounted its body
+on expand with no transition. It now uses the SAME grid-rows animation (300 ms
+ease-out) with a `bodyMounted` state so the outcome map / photo reveals + hides
+smoothly and a collapsed card still holds no live MapLibre instance.
 
 **v1041 — Bird Guide: the seekers get the same viewfinder + timer to CLEAR it.**
 The hider films a bird to cast Curse of the Bird Guide; the seekers must then film

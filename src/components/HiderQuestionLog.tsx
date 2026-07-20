@@ -1,6 +1,6 @@
 import { useStore } from "@nanostores/react";
 import { ChevronDown, ChevronRight } from "lucide-react";
-import { lazy, Suspense, useMemo, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 
 import {
     answeringQuestion,
@@ -155,6 +155,18 @@ function WaitingRow({ entry }: { entry: InboxEntry }) {
  */
 function AnsweredCard({ entry }: { entry: InboxEntry }) {
     const [expanded, setExpanded] = useState(false);
+    // v1042: smooth expand/collapse via the grid-rows 0fr→1fr trick (matching
+    // the seeker's `cards/base` card). The body stays mounted through the close
+    // transition then unmounts, so a collapsed card holds no live outcome map.
+    const [bodyMounted, setBodyMounted] = useState(false);
+    useEffect(() => {
+        if (expanded) {
+            setBodyMounted(true);
+            return;
+        }
+        const t = window.setTimeout(() => setBodyMounted(false), 320);
+        return () => window.clearTimeout(t);
+    }, [expanded]);
 
     const question = useMemo(
         () =>
@@ -186,7 +198,7 @@ function AnsweredCard({ entry }: { entry: InboxEntry }) {
     const noOutcome = Boolean(d.vetoed) || Boolean(d.randomizedAway);
 
     return (
-        <div className="space-y-2">
+        <div>
             <QuestionOverlayCard
                 categoryId={entry.id}
                 flat
@@ -211,34 +223,48 @@ function AnsweredCard({ entry }: { entry: InboxEntry }) {
                 onClick={() => setExpanded((v) => !v)}
                 ariaLabel={`${expanded ? "Collapse" : "Expand"} answered ${entry.id} question`}
             />
-            {expanded &&
-                (noOutcome ? (
-                    <p className="px-1 text-xs italic text-muted-foreground">
-                        {d.vetoed
-                            ? "You vetoed this question — no answer was given and nothing was eliminated."
-                            : "This question was randomized away — nothing was eliminated."}
-                    </p>
-                ) : isPhoto ? (
-                    photoSrc ? (
-                        <img
-                            src={photoSrc}
-                            alt="Answer photo"
-                            className="w-full rounded-md border border-border"
-                        />
-                    ) : (
-                        <p className="px-1 text-xs italic text-muted-foreground">
-                            Photo unavailable.
-                        </p>
-                    )
-                ) : (
-                    <Suspense
-                        fallback={
-                            <div className="h-[180px] w-full animate-pulse rounded-md border border-dashed border-border" />
-                        }
-                    >
-                        <QuestionOutcomeMap question={question} />
-                    </Suspense>
-                ))}
+            {/* grid-rows 0fr→1fr smoothly reveals the body; the inner wrapper
+                clips it during the transition. */}
+            <div
+                className={cn(
+                    "grid transition-[grid-template-rows] duration-300 ease-out",
+                    expanded ? "grid-rows-[1fr]" : "grid-rows-[0fr]",
+                )}
+            >
+                <div className="overflow-hidden min-h-0">
+                    {bodyMounted && (
+                        <div className="pt-2">
+                            {noOutcome ? (
+                                <p className="px-1 text-xs italic text-muted-foreground">
+                                    {d.vetoed
+                                        ? "You vetoed this question — no answer was given and nothing was eliminated."
+                                        : "This question was randomized away — nothing was eliminated."}
+                                </p>
+                            ) : isPhoto ? (
+                                photoSrc ? (
+                                    <img
+                                        src={photoSrc}
+                                        alt="Answer photo"
+                                        className="w-full rounded-md border border-border"
+                                    />
+                                ) : (
+                                    <p className="px-1 text-xs italic text-muted-foreground">
+                                        Photo unavailable.
+                                    </p>
+                                )
+                            ) : (
+                                <Suspense
+                                    fallback={
+                                        <div className="h-[180px] w-full animate-pulse rounded-md border border-dashed border-border" />
+                                    }
+                                >
+                                    <QuestionOutcomeMap question={question} />
+                                </Suspense>
+                            )}
+                        </div>
+                    )}
+                </div>
+            </div>
         </div>
     );
 }
