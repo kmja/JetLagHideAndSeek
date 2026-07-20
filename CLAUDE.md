@@ -428,7 +428,34 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v1013`. Use `git log` for the per-version detail;
+build stamp. Current: `v1014`. Use `git log` for the per-version detail;
+
+**v1014 — geometry worker POOL (fixes the ~30 s freeze / late overlay) +
+settle-the-veil-on-failure + longer deadlock backstop.** The v1013 headless read
+WORKS on device (`[water] headless read: 94 water polys`), but body-of-water
+still revealed bare then dropped the overlay ~30 s later with hitches. The
+console showed why: `dissolveWater` + `bufferAndUnion` (configure overlay) + the
+seeker map's `holedMask` behind the dialog + version-bump re-computes all queued
+in ONE serial geometry worker, piled up, and hit the 30 s call timeout — so the
+dissolve fell back to raw polys, `bufferAndUnion threw`, and it dropped to arcgis
+on the MAIN thread (the freeze), resolving ~30 s later. Fixes:
+- **Worker POOL** (`geometry/client.ts`) — 2–4 workers (by `hardwareConcurrency`)
+  round-robin over one shared `pending` map (ids are globally unique), so the
+  dissolve, buffer, and holedMask run in PARALLEL instead of serializing. A crash
+  tears the whole pool down and falls back to the main thread, unchanged.
+- **Veil settles on failure** (`questionImpact.ts`) — `measuringReady` required an
+  actual region (`yes||no`), so a failed/empty buffer left `loading` stuck true
+  and the veil could only be freed by the deadlock backstop. New `measuringSettled`
+  (compute DONE, success or fail) drives `loading`; `measuringReady` (has a region)
+  still gates whether the overlay is DRAWN. The measuring + matching-region effects
+  now `setMeasuring`/`setMatchingRegion` even on a null/empty result. So the veil
+  reveals the moment the overlay is done — drawn OR determined-empty — not on a
+  timer.
+- **Deadlock backstop 6 s → 15 s** (`AddQuestionDialog.tsx`) — 6 s was fine when
+  the veil lifted on `impact !== null` (fast), but v1013 made it wait for the
+  buffer, and a complex question (headless read + heavy buffer) can exceed 6 s.
+  The labelled "Calculating question impact…" row shows meanwhile; the overlay
+  normally settles well before this floor now that the pool keeps it fast.
 
 **v1013 — reveal the configure map WITH its overlay (veil waits for the
 buffer) + deterministic complete water (headless read) + coastline off the fast

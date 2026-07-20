@@ -451,7 +451,17 @@ export function useQuestionImpact(
                 });
             })
             .catch(() => {
-                /* draw nothing on failure */
+                // v1013: settle on failure too so the veil reveals promptly
+                // (draws nothing) instead of stalling until the deadlock
+                // backstop.
+                if (!cancelled)
+                    setMatchingRegion({
+                        key: `${family.type}:${adminLevel ?? ""}`,
+                        lat,
+                        lng,
+                        yes: null,
+                        no: null,
+                    });
             });
         return () => {
             cancelled = true;
@@ -523,7 +533,16 @@ export function useQuestionImpact(
         if (!bufferPromise) return;
         Promise.resolve(bufferPromise)
             .then((buffer) => {
-                if (cancelled || !buffer) return;
+                if (cancelled) return;
+                // v1013: SETTLE even when the buffer failed/empty (null) — record
+                // the compute as done for this position with no region, so
+                // `measuringSettled` flips and the veil reveals promptly (with no
+                // overlay, honestly) instead of stalling until the 15 s deadlock
+                // backstop. Success sets the real yes/no region.
+                if (!buffer) {
+                    setMeasuring({ key: type, lat, lng, yes: null, no: null });
+                    return;
+                }
                 let yes: Feature<Polygon | MultiPolygon> | null = null;
                 let no: Feature<Polygon | MultiPolygon> | null = null;
                 try {
@@ -549,7 +568,8 @@ export function useQuestionImpact(
                 setMeasuring({ key: type, lat, lng, yes, no });
             })
             .catch(() => {
-                /* leave the half-plane fallback in place */
+                if (!cancelled)
+                    setMeasuring({ key: type, lat, lng, yes: null, no: null });
             });
         return () => {
             cancelled = true;
@@ -566,6 +586,16 @@ export function useQuestionImpact(
             measuring.lat === lat &&
             measuring.lng === lng &&
             (measuring.yes || measuring.no),
+    );
+    // v1013: the compute for this position has SETTLED (success OR failure) —
+    // drives `loading` (reveal the veil once the overlay is done, even if it
+    // produced no region), while `measuringReady` (has a region) still gates
+    // whether the overlay is actually DRAWN.
+    const measuringSettled = Boolean(
+        measuring &&
+            measuring.key === type &&
+            measuring.lat === lat &&
+            measuring.lng === lng,
     );
     // Same, for the matching-region boundary (keyed on type + adminLevel).
     const matchingRegionReady = Boolean(
@@ -655,8 +685,10 @@ export function useQuestionImpact(
                   // single-point half-plane (a straight line for a measuring
                   // question with dozens of water bodies) instead of waiting
                   // for the real blobby buffer. Gate it on the buffer, like
-                  // the other full-geometry families.
-                  !measuringReady
+                  // the other full-geometry families. v1013: gate on SETTLED
+                  // (compute done), not READY (found a region), so a failed/
+                  // empty buffer reveals the veil promptly instead of stalling.
+                  !measuringSettled
                 : family.kind === "matching-region"
                   ? !matchingRegionReady
                   : family.kind !== "city" &&

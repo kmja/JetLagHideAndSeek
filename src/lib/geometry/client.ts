@@ -26,14 +26,36 @@ type Pending = {
     timer: ReturnType<typeof setTimeout>;
 };
 
-let worker: Worker | null = null;
-let workerDead = false;
+// v1013: a POOL of geometry workers, not one. The configure dialog fires a
+// water dissolve + buffer while the seeker map behind it runs `holedMask`, and
+// version-bump re-computes queue more — all in a SINGLE serial worker they
+// piled up and hit the 30 s timeout (→ dissolve fell back to raw polys → buffer
+// timed out → arcgis on the main thread → the ~30 s freeze the user saw). A
+// small pool runs them in parallel so no op waits behind an unrelated one. Ids
+// are globally unique, so one shared `pending` map dispatches across all
+// workers; each result carries its id back to the right caller regardless of
+// which worker produced it.
+let workers: Worker[] = [];
+let poolInit = false;
+let poolDead = false;
+let rrIndex = 0;
 let nextId = 1;
 const pending = new Map<number, Pending>();
 
 /** A single combine/clip on a huge boundary can legitimately take a
  *  few seconds in the worker; this only guards a wedged worker. */
 const CALL_TIMEOUT_MS = 30_000;
+
+function poolSize(): number {
+    const cores =
+        typeof navigator !== "undefined" &&
+        typeof navigator.hardwareConcurrency === "number"
+            ? navigator.hardwareConcurrency
+            : 4;
+    // 2–4 workers: enough to overlap dissolve + buffer + holedMask without
+    // spawning a worker per core (each loads the full worker bundle).
+    return Math.max(2, Math.min(4, cores - 2));
+}
 
 function failAllPending(err: Error) {
     for (const [, p] of pending) {
@@ -43,54 +65,73 @@ function failAllPending(err: Error) {
     pending.clear();
 }
 
-function getWorker(): Worker | null {
-    if (workerDead) return null;
-    if (worker) return worker;
-    if (typeof Worker === "undefined") {
-        workerDead = true;
-        return null;
-    }
-    try {
-        worker = new Worker(new URL("./worker.ts", import.meta.url), {
-            type: "module",
-        });
-        worker.onmessage = (
-            e: MessageEvent<{
-                id: number;
-                ok?: boolean;
-                result?: unknown;
-                error?: string;
-                phase?: string;
-            }>,
-        ) => {
-            const { id, ok, result, error, phase } = e.data;
-            const entry = pending.get(id);
-            if (!entry) return;
-            if (phase !== undefined) {
-                entry.onPhase?.(phase);
-                return;
+function makeWorker(): Worker {
+    const w = new Worker(new URL("./worker.ts", import.meta.url), {
+        type: "module",
+    });
+    w.onmessage = (
+        e: MessageEvent<{
+            id: number;
+            ok?: boolean;
+            result?: unknown;
+            error?: string;
+            phase?: string;
+        }>,
+    ) => {
+        const { id, ok, result, error, phase } = e.data;
+        const entry = pending.get(id);
+        if (!entry) return;
+        if (phase !== undefined) {
+            entry.onPhase?.(phase);
+            return;
+        }
+        pending.delete(id);
+        clearTimeout(entry.timer);
+        if (ok) entry.resolve(result);
+        else entry.reject(new Error(error ?? "geometry worker error"));
+    };
+    w.onerror = (ev) => {
+        // A worker crashed. Tear the whole pool down, fail everything in
+        // flight (callers fall back to the main thread), and never try the
+        // pool again this session.
+        console.warn("[geometry] worker error; using main thread", ev);
+        poolDead = true;
+        for (const worker of workers) {
+            try {
+                worker.terminate();
+            } catch {
+                /* ignore */
             }
-            pending.delete(id);
-            clearTimeout(entry.timer);
-            if (ok) entry.resolve(result);
-            else entry.reject(new Error(error ?? "geometry worker error"));
-        };
-        worker.onerror = (ev) => {
-            // The worker crashed. Tear it down, fail everything in
-            // flight (callers fall back to the main thread), and never
-            // try to use it again this session.
-            console.warn("[geometry] worker error; using main thread", ev);
-            workerDead = true;
-            worker = null;
-            failAllPending(new Error("geometry worker crashed"));
-        };
-        return worker;
-    } catch (e) {
-        console.warn("[geometry] worker construction failed", e);
-        workerDead = true;
-        worker = null;
+        }
+        workers = [];
+        failAllPending(new Error("geometry worker crashed"));
+    };
+    return w;
+}
+
+/** Pick the next pool worker round-robin (lazily constructing the pool). */
+function getWorker(): Worker | null {
+    if (poolDead) return null;
+    if (typeof Worker === "undefined") {
+        poolDead = true;
         return null;
     }
+    if (!poolInit) {
+        poolInit = true;
+        try {
+            const n = poolSize();
+            for (let i = 0; i < n; i++) workers.push(makeWorker());
+        } catch (e) {
+            console.warn("[geometry] worker construction failed", e);
+            poolDead = true;
+            workers = [];
+            return null;
+        }
+    }
+    if (workers.length === 0) return null;
+    const w = workers[rrIndex % workers.length];
+    rrIndex++;
+    return w;
 }
 
 function call<T>(

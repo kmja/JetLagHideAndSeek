@@ -400,7 +400,16 @@ export const AddQuestionDialog = ({
         setRevealAnyway(false);
         setLoadingLabels([]);
         if (pendingKey === null) return;
-        const t = window.setTimeout(() => setRevealAnyway(true), 6000);
+        // Deadlock backstop: reveal anyway if the picker never readies (GPS
+        // denied → the map never mounts and the manual place-search lives under
+        // the skeleton). v1013 made the veil wait for the OVERLAY to finish
+        // computing, and a complex question can take the headless water read
+        // (~4.5 s) + a heavy buffer, so 6 s was too short — it fired mid-compute
+        // and revealed the map before its overlay. Raised to 15 s (the picker
+        // shows a labelled "Calculating question impact…" row meanwhile, so it
+        // never looks hung). The overlay normally settles well before this via
+        // the `impact.loading` gate — this is only the genuine-stall floor.
+        const t = window.setTimeout(() => setRevealAnyway(true), 15000);
         return () => window.clearTimeout(t);
     }, [pendingKey]);
     // v823: publish which question is being configured so the seeker's
