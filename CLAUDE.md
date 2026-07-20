@@ -428,7 +428,31 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v1045`. Use `git log` for the per-version detail;
+build stamp. Current: `v1046`. Use `git log` for the per-version detail;
+
+**v1046 — real in-app rulebook DIAGRAMS + fly-to-hand rebuilt as a measured FLIP.**
+- **Rulebook diagrams (`src/content/rulebook.md`).** The rulebook had six text
+  placeholders describing diagrams from the physical book ("*Diagram (rulebook
+  pNN): …*"); they're now real inline **SVG figures** (`<figure class="rb-figure">`)
+  for matching (nearest-mountain Voronoi split), measuring (closer/further to a
+  coastline + to airports), the coastline **2 km strait rule** (wide vs narrow
+  strait), radar (within-radius circle), thermometer (perpendicular-bisector
+  hotter/colder), and tentacles (25 km circle + nearest-zoo wedge). SVGs use
+  `currentColor` for strokes/labels (theme-adaptive) + fixed translucent region
+  tints that read in both themes; distance labels use the `{{km:N}}` templates so
+  they follow the unit preference. CSS in `globals.css` (`.rb-figure`). Search
+  hardened for the new markup: `plainText` strips `<svg>`/HTML tags from the
+  index and `highlightMatches` skips text nodes inside an `<svg>` (can't wrap a
+  `<mark>` there).
+- **Fly-to-hand rebuilt (v1043→v1046).** The auto-kept-card flourish (photo
+  answer) animated to a fixed `vh` position, so it flew off-screen (clipped) and
+  the real card "appeared from nowhere" in the fan — no landing. `CardFlyToHand`
+  is now a **measured FLIP** (Web Animations API): it reads the destination fan
+  slot's real rect (each fan card tagged `data-hand-card={id}`), pops the card in
+  centre-screen, then animates it to THAT exact position + size (shrinking), and
+  reveals the fan slot underneath on arrival — so the card neatly slots into
+  place. Falls back to a short in-place pop when the fan isn't mounted or under
+  `prefers-reduced-motion`. The dead `jlCardToHand*` CSS keyframes were removed.
 
 **v1045 — fly-to-hand animation actually lands on the hand (not off-screen).**
 The v1043 auto-kept-card flourish flew the card to `translate(-50%, 60vh)` —

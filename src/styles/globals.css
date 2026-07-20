@@ -382,27 +382,10 @@ div.leaflet-control-attribution.leaflet-control {
     from { opacity: 0; }
     to   { opacity: 1; }
 }
-/* v1043 (smoothed v1044): an auto-kept card pops in centre, holds a beat, then
- * flies down and LANDS on the hand fan at the bottom, shrinking + staying opaque
- * through the whole travel so it reads as merging into the hand — only a quick
- * fade at the very end. `top/left:50%` origin, so the base transform already
- * centres it (translate -50%,-50%). The landing Y (~38vh below centre ≈ 88vh
- * down the viewport) sits just above the peeking fan, so it never flies off the
- * bottom edge (the old 60vh landed at ~110vh, off-screen → clipped). */
-@keyframes jlCardToHand {
-    0%   { transform: translate(-50%,-50%) scale(.5)  rotate(-8deg); opacity: 0; }
-    14%  { transform: translate(-50%,-50%) scale(1)   rotate(0deg);  opacity: 1; }
-    40%  { transform: translate(-50%,-50%) scale(1)   rotate(0deg);  opacity: 1; }
-    86%  { transform: translate(-50%, 36vh) scale(.34) rotate(5deg); opacity: 1; }
-    100% { transform: translate(-50%, 40vh) scale(.3)  rotate(6deg); opacity: 0; }
-}
-/* Reduced-motion: a simple fade in/out, no travel. */
-@keyframes jlCardToHandFade {
-    0%   { transform: translate(-50%,-50%) scale(.9); opacity: 0; }
-    25%  { transform: translate(-50%,-50%) scale(1);  opacity: 1; }
-    75%  { transform: translate(-50%,-50%) scale(1);  opacity: 1; }
-    100% { transform: translate(-50%,-50%) scale(.95); opacity: 0; }
-}
+/* v1046: the auto-kept-card fly-to-hand flourish is now a MEASURED FLIP done in
+ * JS (Web Animations API in CardFlyToHand.tsx) — it reads the real destination
+ * fan-slot rect and animates the card there, so the old fixed-vh keyframes
+ * (jlCardToHand / jlCardToHandFade) were removed. */
 /* Slow perpetual rotation of the star/squiggle background layer. */
 @keyframes curseRevealSpin {
     from { transform: rotate(0deg); }
@@ -1066,6 +1049,44 @@ div.leaflet-control-attribution.leaflet-control {
     background: hsl(var(--warning) / 0.9);
     color: hsl(var(--warning-foreground));
     box-shadow: 0 0 0 2px hsl(var(--warning) / 0.45);
+}
+
+/* v1045: inline rulebook diagrams. The SVG uses `currentColor` for strokes +
+ * labels so it adapts to light/dark; region tints are fixed translucent colours
+ * that read on both. `figure` centres it with a caption below. */
+.rulebook-content figure.rb-figure {
+    margin: 1.1rem 0;
+    padding: 0.75rem;
+    border: 1px solid hsl(var(--border));
+    border-radius: 0.6rem;
+    background: hsl(var(--secondary) / 0.35);
+}
+.rulebook-content figure.rb-figure svg {
+    display: block;
+    width: 100%;
+    max-width: 420px;
+    height: auto;
+    margin: 0 auto;
+    color: hsl(var(--foreground));
+}
+.rulebook-content figure.rb-figure figcaption {
+    margin-top: 0.6rem;
+    font-size: 0.8rem;
+    line-height: 1.35;
+    color: hsl(var(--muted-foreground));
+    text-align: center;
+}
+.rulebook-content figure.rb-figure .rb-dtitle {
+    font-weight: 700;
+    fill: currentColor;
+}
+.rulebook-content figure.rb-figure .rb-dlabel {
+    font-weight: 700;
+    fill: currentColor;
+}
+.rulebook-content figure.rb-figure .rb-dsub {
+    fill: currentColor;
+    opacity: 0.72;
 }
 
 /* v227's osm-dark-tiles CSS filter retired in v232 — the basemap is

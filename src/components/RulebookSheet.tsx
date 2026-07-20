@@ -129,6 +129,11 @@ function parseSections(md: string): Section[] {
 /** Strip markdown for the search index — substring match is enough. */
 function plainText(md: string): string {
     return md
+        // Drop inline HTML / SVG diagram markup so tag/attr names (path,
+        // circle, rect, fill…) don't pollute search; the SVG's own <text>
+        // labels survive as their content.
+        .replace(/<svg[\s\S]*?<\/svg>/gi, " ")
+        .replace(/<[^>]+>/g, " ")
         .replace(/```[\s\S]*?```/g, " ")
         .replace(/`([^`]+)`/g, "$1")
         .replace(/\*\*([^*]+)\*\*/g, "$1")
@@ -149,6 +154,9 @@ function highlightMatches(root: HTMLElement, q: string): HTMLElement[] {
     let n: Node | null;
     while ((n = walker.nextNode())) {
         const t = n as Text;
+        // Never wrap a <mark> inside an SVG (invalid there) — skip diagram
+        // text nodes.
+        if (t.parentElement?.closest("svg")) continue;
         if (t.nodeValue && t.nodeValue.toLowerCase().includes(q)) targets.push(t);
     }
     for (const t of targets) {

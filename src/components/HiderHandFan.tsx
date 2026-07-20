@@ -463,6 +463,10 @@ function Fan({
                             ref={(el) => {
                                 cardRefs.current[i] = el;
                             }}
+                            // v1046: the fly-to-hand overlay locates the exact
+                            // destination slot by this id so a kept card LANDS
+                            // in its real fan position instead of a guessed vh.
+                            data-hand-card={card.id}
                             type="button"
                             onPointerDown={(e) => startPress(e, i)}
                             // Keyboard fallback: Enter / Space on a

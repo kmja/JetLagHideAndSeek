@@ -152,7 +152,26 @@ Matching questions follow the format, **"Is your nearest \_\_\_ the same as my \
 
 After a matching question has been answered, the hider may **draw 3 cards and keep 1**.
 
-> *Diagram (rulebook p17): Is your nearest mountain the same as my nearest mountain? — splits the map into two regions, one containing the seekers' nearest mountain (yes) and one containing the others (no).*
+<figure class="rb-figure">
+<svg viewBox="0 0 360 210" role="img" aria-label="Matching question diagram: the map splits into a region sharing the seekers' nearest mountain (yes) and a region where it differs (no).">
+<defs><clipPath id="dgMatch"><rect x="10" y="10" width="340" height="190" rx="10"/></clipPath></defs>
+<g clip-path="url(#dgMatch)">
+<polygon points="10,10 205,10 225,200 10,200" fill="rgba(34,197,94,0.16)"/>
+<polygon points="205,10 350,10 350,200 225,200" fill="rgba(239,68,68,0.15)"/>
+<line x1="205" y1="10" x2="225" y2="200" stroke="currentColor" stroke-width="2" stroke-dasharray="6 5" opacity="0.55"/>
+</g>
+<rect x="10" y="10" width="340" height="190" rx="10" fill="none" stroke="currentColor" opacity="0.25"/>
+<polygon points="95,150 120,105 145,150" fill="currentColor" opacity="0.55"/>
+<polygon points="245,150 268,112 291,150" fill="currentColor" opacity="0.32"/>
+<polygon points="291,158 311,126 331,158" fill="currentColor" opacity="0.32"/>
+<circle cx="72" cy="166" r="6" fill="rgb(239,68,68)"/>
+<text x="72" y="186" text-anchor="middle" class="rb-dsub" font-size="11">you</text>
+<text x="120" y="164" text-anchor="middle" class="rb-dsub" font-size="10">nearest</text>
+<text x="22" y="30" font-size="13" font-weight="700" fill="rgb(34,197,94)">SAME → yes</text>
+<text x="338" y="30" text-anchor="end" font-size="13" font-weight="700" fill="rgb(239,68,68)">DIFFERENT → no</text>
+</svg>
+<figcaption>“Is your nearest mountain the same as mine?” The map splits along the midline between the seekers’ nearest mountain and the next-nearest one — everywhere the seekers’ mountain is still closest answers <strong>yes</strong> (green); the rest answers <strong>no</strong> (red).</figcaption>
+</figure>
 
 #### Transit
 
@@ -197,7 +216,40 @@ Measuring questions follow the format, **"Compared to me, are you closer to or f
 
 After a measuring question has been answered, the hider may **draw 3 cards and keep 1**.
 
-> *Diagrams (rulebook p23): "Compared to me, are you closer to or further from a coastline?" — splits the map into an inner red zone (further) and an outer green band (closer). "Compared to me, are you closer to or further from an airport?" — splits into circular zones around each airport (closer) and the area outside them (further).*
+<figure class="rb-figure">
+<svg viewBox="0 0 380 200" role="img" aria-label="Measuring diagram: closer-or-further from a coastline splits into a band along the coast (closer) and the area beyond (further); closer-or-further from an airport splits into disks around each airport (closer) and the area outside (further).">
+<defs>
+<clipPath id="dgMeasA"><rect x="8" y="24" width="176" height="166" rx="8"/></clipPath>
+<clipPath id="dgMeasB"><rect x="196" y="24" width="176" height="166" rx="8"/></clipPath>
+</defs>
+<text x="96" y="16" text-anchor="middle" class="rb-dtitle" font-size="12">Coastline</text>
+<text x="284" y="16" text-anchor="middle" class="rb-dtitle" font-size="12">Airport</text>
+<g clip-path="url(#dgMeasA)">
+<rect x="8" y="24" width="176" height="166" fill="rgba(239,68,68,0.14)"/>
+<rect x="8" y="96" width="176" height="60" fill="rgba(34,197,94,0.18)"/>
+<rect x="8" y="150" width="176" height="46" fill="rgba(59,130,246,0.18)"/>
+<line x1="8" y1="150" x2="184" y2="150" stroke="rgba(59,130,246,0.75)" stroke-width="2.5"/>
+<line x1="8" y1="96" x2="184" y2="96" stroke="currentColor" stroke-width="1.5" stroke-dasharray="5 4" opacity="0.5"/>
+<circle cx="60" cy="96" r="5" fill="rgb(239,68,68)"/>
+</g>
+<rect x="8" y="24" width="176" height="166" rx="8" fill="none" stroke="currentColor" opacity="0.25"/>
+<text x="16" y="58" font-size="12" font-weight="700" fill="rgb(239,68,68)">further</text>
+<text x="16" y="128" font-size="12" font-weight="700" fill="rgb(34,197,94)">closer</text>
+<text x="176" y="174" text-anchor="end" class="rb-dsub" font-size="10">sea</text>
+<text x="72" y="90" class="rb-dsub" font-size="10">you</text>
+<g clip-path="url(#dgMeasB)">
+<rect x="196" y="24" width="176" height="166" fill="rgba(239,68,68,0.14)"/>
+<circle cx="252" cy="80" r="44" fill="rgba(34,197,94,0.2)" stroke="rgba(34,197,94,0.7)" stroke-width="1.5"/>
+<circle cx="322" cy="142" r="44" fill="rgba(34,197,94,0.2)" stroke="rgba(34,197,94,0.7)" stroke-width="1.5"/>
+</g>
+<rect x="196" y="24" width="176" height="166" rx="8" fill="none" stroke="currentColor" opacity="0.25"/>
+<circle cx="252" cy="80" r="4" fill="currentColor"/>
+<circle cx="322" cy="142" r="4" fill="currentColor"/>
+<text x="252" y="84" text-anchor="middle" font-size="11" font-weight="700" fill="rgb(34,197,94)">closer</text>
+<text x="360" y="182" text-anchor="end" font-size="11" font-weight="700" fill="rgb(239,68,68)">further</text>
+</svg>
+<figcaption>“Compared to me, are you closer to or further from a coastline / an airport?” <strong>Coastline:</strong> everywhere within your own distance of the coast answers closer (green); beyond that, further (red). <strong>Airport:</strong> the map fills with a disk around every airport (radius = your distance to your nearest one) — inside a disk is closer (green), outside is further (red).</figcaption>
+</figure>
 
 #### Transit-Related
 
@@ -219,6 +271,42 @@ After a measuring question has been answered, the hider may **draw 3 cards and k
 - **Mountain** — Same as Matching.
 - **Park** — Same as Matching, including the map-icon caveat.
 
+<figure class="rb-figure">
+<svg viewBox="0 0 380 200" role="img" aria-label="Coastline strait rule: a strait at least 2 km wide counts as coastline; a strait narrower than 2 km does not, so the water beyond it is not treated as coastline.">
+<defs>
+<clipPath id="dgCoastA"><rect x="8" y="24" width="176" height="166" rx="8"/></clipPath>
+<clipPath id="dgCoastB"><rect x="196" y="24" width="176" height="166" rx="8"/></clipPath>
+</defs>
+<text x="96" y="16" text-anchor="middle" class="rb-dtitle" font-size="12">Wide strait ≥ {{km:2}}</text>
+<text x="284" y="16" text-anchor="middle" class="rb-dtitle" font-size="12">Narrow strait &lt; {{km:2}}</text>
+<g clip-path="url(#dgCoastA)">
+<rect x="8" y="24" width="176" height="166" fill="rgba(120,120,120,0.16)"/>
+<rect x="8" y="128" width="176" height="62" fill="rgba(59,130,246,0.2)"/>
+<rect x="74" y="24" width="44" height="104" fill="rgba(59,130,246,0.2)"/>
+<path d="M74,24 V128 M118,24 V128 M8,128 H184" fill="none" stroke="rgb(34,197,94)" stroke-width="3"/>
+<line x1="74" y1="72" x2="118" y2="72" stroke="currentColor" stroke-width="1.5"/>
+<line x1="74" y1="66" x2="74" y2="78" stroke="currentColor" stroke-width="1.5"/>
+<line x1="118" y1="66" x2="118" y2="78" stroke="currentColor" stroke-width="1.5"/>
+</g>
+<rect x="8" y="24" width="176" height="166" rx="8" fill="none" stroke="currentColor" opacity="0.25"/>
+<text x="96" y="178" text-anchor="middle" font-size="11" font-weight="700" fill="rgb(34,197,94)">coastline</text>
+<g clip-path="url(#dgCoastB)">
+<rect x="196" y="24" width="176" height="166" fill="rgba(120,120,120,0.16)"/>
+<rect x="196" y="128" width="176" height="62" fill="rgba(59,130,246,0.2)"/>
+<rect x="276" y="86" width="16" height="42" fill="rgba(59,130,246,0.2)"/>
+<ellipse cx="284" cy="62" rx="40" ry="26" fill="rgba(59,130,246,0.2)"/>
+<line x1="196" y1="128" x2="372" y2="128" stroke="rgb(34,197,94)" stroke-width="3"/>
+<ellipse cx="284" cy="62" rx="40" ry="26" fill="none" stroke="currentColor" stroke-width="2" stroke-dasharray="4 4" opacity="0.65"/>
+<line x1="276" y1="107" x2="292" y2="107" stroke="currentColor" stroke-width="1.5"/>
+<line x1="276" y1="101" x2="276" y2="113" stroke="currentColor" stroke-width="1.5"/>
+<line x1="292" y1="101" x2="292" y2="113" stroke="currentColor" stroke-width="1.5"/>
+</g>
+<rect x="196" y="24" width="176" height="166" rx="8" fill="none" stroke="currentColor" opacity="0.25"/>
+<text x="284" y="42" text-anchor="middle" class="rb-dsub" font-size="10">not coastline</text>
+</svg>
+<figcaption>The strait rule: where the water is at least {{km:2}} across at every point, the shore is a <strong>coastline</strong> (green). Where a body of water connects to the sea only through a neck narrower than {{km:2}}, that inner water’s shore is <strong>not</strong> a coastline (dashed) — only the open-sea shore is.</figcaption>
+</figure>
+
 #### Places of Interest
 
 - **Amusement Park**, **Zoo**, **Aquarium**, **Golf Course**, **Museum**, **Movie Theater** — same definitions as in Matching.
@@ -235,7 +323,24 @@ Radar questions follow the format, **"Are you within \_\_\_ of me?"** Valid answ
 
 After a radar question has been answered, the hider may **draw 2 cards and keep 1**.
 
-> *Diagram (rulebook p29): "Are you within {{km:160}} of me?" — circle of radius {{km:160}} centered on the seekers; inside = hit, outside = miss.*
+<figure class="rb-figure">
+<svg viewBox="0 0 360 210" role="img" aria-label="Radar diagram: a circle centered on the seekers; the hider inside answers yes, outside answers no.">
+<defs><clipPath id="dgRadar"><rect x="10" y="10" width="340" height="190" rx="10"/></clipPath></defs>
+<g clip-path="url(#dgRadar)">
+<rect x="10" y="10" width="340" height="190" fill="rgba(239,68,68,0.13)"/>
+<circle cx="180" cy="106" r="86" fill="rgba(34,197,94,0.18)" stroke="rgba(34,197,94,0.75)" stroke-width="2"/>
+</g>
+<rect x="10" y="10" width="340" height="190" rx="10" fill="none" stroke="currentColor" opacity="0.25"/>
+<line x1="180" y1="106" x2="266" y2="106" stroke="currentColor" stroke-width="1.5" stroke-dasharray="4 3" opacity="0.7"/>
+<text x="223" y="99" text-anchor="middle" class="rb-dsub" font-size="11">{{km:160}}</text>
+<circle cx="180" cy="106" r="6" fill="rgb(239,68,68)"/>
+<text x="180" y="128" text-anchor="middle" class="rb-dsub" font-size="11">seekers</text>
+<text x="132" y="70" text-anchor="middle" font-size="18" font-weight="700" fill="currentColor">?</text>
+<text x="180" y="34" text-anchor="middle" font-size="12" font-weight="700" fill="rgb(34,197,94)">inside → yes</text>
+<text x="338" y="192" text-anchor="end" font-size="12" font-weight="700" fill="rgb(239,68,68)">outside → no</text>
+</svg>
+<figcaption>“Are you within {{km:160}} of me?” Draw a circle of that radius around the seekers: the hider <strong>inside</strong> answers yes (green), <strong>outside</strong> answers no (red). (Radar asks about the hider’s location, not their hiding zone.)</figcaption>
+</figure>
 
 Available radar distances:
 
@@ -256,7 +361,27 @@ Thermometer questions follow the format, **"After traveling \_\_\_, am I hotter 
 
 After a thermometer question has been answered, the hider may **draw 2 cards and keep 1**.
 
-> *Diagram (rulebook p31): "After traveling {{km:15}}, am I hotter or colder?" — perpendicular bisector between start and end point splits the map; end-point side = hotter.*
+<figure class="rb-figure">
+<svg viewBox="0 0 360 210" role="img" aria-label="Thermometer diagram: the perpendicular bisector between the start and the new location splits the map; the side toward the new location is hotter.">
+<defs><clipPath id="dgTherm"><rect x="10" y="10" width="340" height="190" rx="10"/></clipPath></defs>
+<g clip-path="url(#dgTherm)">
+<polygon points="10,10 127.5,10 222.5,200 10,200" fill="rgba(59,130,246,0.16)"/>
+<polygon points="127.5,10 350,10 350,200 222.5,200" fill="rgba(239,68,68,0.16)"/>
+<line x1="127.5" y1="10" x2="222.5" y2="200" stroke="currentColor" stroke-width="2" stroke-dasharray="6 5" opacity="0.55"/>
+</g>
+<rect x="10" y="10" width="340" height="190" rx="10" fill="none" stroke="currentColor" opacity="0.25"/>
+<line x1="110" y1="150" x2="246" y2="83" stroke="currentColor" stroke-width="2"/>
+<polygon points="250,80 237,84 241,94" fill="currentColor"/>
+<circle cx="110" cy="150" r="5" fill="currentColor"/>
+<circle cx="250" cy="80" r="5" fill="currentColor"/>
+<text x="104" y="168" class="rb-dsub" font-size="11">start</text>
+<text x="256" y="76" class="rb-dsub" font-size="11">new spot</text>
+<text x="150" y="132" text-anchor="middle" class="rb-dsub" font-size="10">travel {{km:15}}</text>
+<text x="26" y="30" font-size="13" font-weight="700" fill="rgb(59,130,246)">COLDER</text>
+<text x="338" y="30" text-anchor="end" font-size="13" font-weight="700" fill="rgb(239,68,68)">HOTTER</text>
+</svg>
+<figcaption>“After traveling {{km:15}}, am I hotter or colder?” Draw the line exactly halfway between your start and your new spot (the perpendicular bisector): if the hider is on the <strong>new-spot</strong> side you’re <strong>hotter</strong> (red); on the start side you’re <strong>colder</strong> (blue).</figcaption>
+</figure>
 
 Available distances in **Small** games:
 
@@ -310,7 +435,24 @@ Tentacle questions follow the format, **"Within \_\_\_ km of me, which \_\_\_ ar
 
 After a tentacle question has been answered, the hider may **draw 4 cards and keep 2**.
 
-> *Diagram (rulebook p37): seekers' position at center of a {{km:25}} circle; the closest reachable zoo is shown in a yellow wedge; the rest of the {{km:25}} circle (blue) is the area where the hider's nearest zoo would be one of the others.*
+<figure class="rb-figure">
+<svg viewBox="0 0 360 210" role="img" aria-label="Tentacle diagram: within a circle around the seekers, the hider names their nearest zoo; the yellow wedge is the area nearest one particular zoo, the blue rest is nearest another, and outside the circle is out of reach.">
+<circle cx="155" cy="110" r="92" fill="rgba(59,130,246,0.16)" stroke="rgba(59,130,246,0.6)" stroke-width="2"/>
+<path d="M155,110 L223.4,48.4 A92,92 0 0 1 246.1,97.2 Z" fill="rgba(245,206,60,0.55)" stroke="rgba(234,179,8,0.9)" stroke-width="1.5"/>
+<line x1="155" y1="110" x2="96" y2="180" stroke="currentColor" stroke-width="1.5" stroke-dasharray="4 3" opacity="0.7"/>
+<text x="118" y="150" class="rb-dsub" font-size="11">{{km:25}}</text>
+<circle cx="155" cy="110" r="6" fill="rgb(239,68,68)"/>
+<text x="155" y="132" text-anchor="middle" class="rb-dsub" font-size="11">seekers</text>
+<circle cx="221" cy="76" r="5" fill="rgb(180,120,0)"/>
+<circle cx="108" cy="150" r="5" fill="rgb(37,99,235)"/>
+<circle cx="150" cy="64" r="5" fill="rgb(37,99,235)"/>
+<circle cx="322" cy="60" r="5" fill="currentColor" opacity="0.5"/>
+<text x="238" y="60" font-size="11" font-weight="700" fill="rgb(161,98,7)">nearest zoo</text>
+<text x="60" y="100" font-size="11" font-weight="700" fill="rgb(37,99,235)">others</text>
+<text x="338" y="44" text-anchor="end" class="rb-dsub" font-size="11">out of reach</text>
+</svg>
+<figcaption>“Within {{km:25}} of me, which zoo are you nearest to?” Only zoos inside the circle are in play. Each carves out the area closest to it — the hider answers whichever zoo owns the region they’re standing in (the yellow wedge is one zoo, the blue rest is another). Outside the circle, the hider simply answers “not within reach.”</figcaption>
+</figure>
 
 **Tentacle questions cannot be used in Small games.**
 
