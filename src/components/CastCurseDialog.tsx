@@ -44,7 +44,7 @@ import { preparePhotoForSend } from "@/lib/photo";
 import {
     activeBlockingCurse,
     activeBlockingCurseCastAt,
-    blockingCurseExpired,
+    curseBlockedByActive,
     CURSE_DRAINED_BRAIN,
     cursePreventsAskingOrTransit,
 } from "@/lib/curseEnforcement";
@@ -188,17 +188,15 @@ export function CastCurseDialog({
     // the hider cast is still active (the seekers must clear it first);
     // a TIMED blocker (Jammed Door / Gambler's Feet / Right Turn)
     // auto-expires after its printed duration.
-    const isBlockingCurse = card ? cursePreventsAskingOrTransit(card) : false;
-    const blockedByActiveCurse =
-        isBlockingCurse &&
-        $activeBlocker !== null &&
-        $activeBlocker !== card?.name &&
-        !blockingCurseExpired(
-            $activeBlocker,
-            $activeBlockerAt,
-            $gameSize,
-            Date.now(),
-        );
+    const blockedByActiveCurse = card
+        ? curseBlockedByActive(
+              card,
+              $activeBlocker,
+              $activeBlockerAt,
+              $gameSize,
+              Date.now(),
+          )
+        : false;
     // v970 (rulebook audit B): Egg Partner / Lemon Phylactery carry
     // "cannot be played during the endgame" on the card — enforce it once
     // the seekers' endgame claim is armed.

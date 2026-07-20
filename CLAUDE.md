@@ -428,7 +428,25 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v1030`. Use `git log` for the per-version detail;
+build stamp. Current: `v1031`. Use `git log` for the per-version detail;
+
+**v1031 — curse reveal tuning + curse payload on arrival + one-blocker-at-a-time
+disables Play in the hand.**
+- **Curse reveal (`CurseRevealOverlay`) tuning:** the star shrank from `112vmax`
+  to `118vmin` (points now just graze the screen edges, not fill it); squiggles
+  `112vmax`→`135vmin`. The rough `feDisplacementMap` filter no longer distorts
+  the WHOLE card — it's applied to a slightly-larger white "paper" backing behind
+  the card (torn EDGES peek ~6 px around a crisp, unfiltered `CardTile`). And the
+  reveal now shows the **payload as it arrives**: `curseReveal` holds the full
+  `ReceivedCurse` (was just a `CurseCard`), so the overlay renders the proof
+  photo + destination / rock-count / film-target chips below the card.
+- **One-blocking-curse-at-a-time now disables Play in the HAND** (not just in the
+  cast dialog). New shared `curseBlockedByActive(curse, activeBlocker,
+  activeBlockerAt, size, now)` (`curseEnforcement.ts`) — used by `CastCurseDialog`
+  (refactored) AND the hand (`HiderHandFan` Play button + `HiderHandPanel` Cast
+  button), so a second ask/transit-blocking curse (rulebook p44/p386) is disabled
+  up-front with an explanation instead of only being caught after opening the
+  dialog.
 
 **v1030 — Randomize reworked to the intended UX + travel-agent map markers.**
 - **Randomize is now seeker-driven with an explicit button, same category, and

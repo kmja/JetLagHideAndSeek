@@ -117,6 +117,26 @@ export function blockingCurseExpired(
 }
 
 /**
+ * Whether casting `curse` is blocked right now because ANOTHER ask/transit
+ * blocking curse is still active (rulebook p386 — only one at a time). Shared
+ * by `CastCurseDialog` (gates the cast) AND the hand (v1031 — the Play/Cast
+ * button is disabled up-front so the block is visible before opening the
+ * dialog). Returns false for a non-blocking curse or when the active blocker
+ * is this same curse / has expired.
+ */
+export function curseBlockedByActive(
+    curse: { name: string; description: string },
+    activeBlocker: string | null,
+    activeBlockerAt: number | null,
+    size: "small" | "medium" | "large",
+    now: number,
+): boolean {
+    if (!cursePreventsAskingOrTransit(curse)) return false;
+    if (activeBlocker === null || activeBlocker === curse.name) return false;
+    return !blockingCurseExpired(activeBlocker, activeBlockerAt, size, now);
+}
+
+/**
  * The name of the ask-blocking curse the HIDER has cast that is still
  * active on the seekers, or null. Set when the hider casts an ask-blocker
  * and cleared when the hider marks it cleared (the seekers must tell them,

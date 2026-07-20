@@ -17,6 +17,11 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { appConfirm } from "@/lib/confirm";
+import {
+    activeBlockingCurse,
+    activeBlockingCurseCastAt,
+    curseBlockedByActive,
+} from "@/lib/curseEnforcement";
 import { endgameStartedAt, gameSize } from "@/lib/gameSetup";
 import {
     type Card,
@@ -1025,6 +1030,21 @@ function CardActions({
         card.kind === "powerup" &&
         card.powerup === "move" &&
         $endgame !== null;
+    // v1031: a curse that blocks the seekers from asking/taking transit can't
+    // be cast while ANOTHER such curse is still active (rulebook p386) — show
+    // that up-front by disabling Play in the hand, not only in the cast dialog.
+    const $gameSize = useStore(gameSize);
+    const $activeBlocker = useStore(activeBlockingCurse);
+    const $activeBlockerAt = useStore(activeBlockingCurseCastAt);
+    const curseBlocked =
+        card.kind === "curse" &&
+        curseBlockedByActive(
+            card,
+            $activeBlocker,
+            $activeBlockerAt,
+            $gameSize,
+            Date.now(),
+        );
     return (
         <>
             <div className="flex items-stretch gap-2">
@@ -1032,7 +1052,7 @@ function CardActions({
                 {playable && (
                     <Button
                         type="button"
-                        disabled={moveBlocked}
+                        disabled={moveBlocked || curseBlocked}
                         onClick={() => {
                             if (card.kind === "powerup") {
                                 onPlayPowerup(card);
@@ -1051,6 +1071,13 @@ function CardActions({
                 <p className="mt-2 rounded-md border border-border bg-background px-3 py-2 text-xs text-foreground leading-snug text-center shadow-sm">
                     Move can't be played during the endgame — you're locked to
                     your final hiding spot.
+                </p>
+            )}
+            {curseBlocked && (
+                <p className="mt-2 rounded-md border border-border bg-background px-3 py-2 text-xs text-foreground leading-snug text-center shadow-sm">
+                    {$activeBlocker} is still blocking the seekers — only one
+                    such curse can be active at a time. Wait for the seekers to
+                    clear it (rulebook p44).
                 </p>
             )}
         </>

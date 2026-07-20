@@ -24,6 +24,11 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { appConfirm } from "@/lib/confirm";
+import {
+    activeBlockingCurse,
+    activeBlockingCurseCastAt,
+    curseBlockedByActive,
+} from "@/lib/curseEnforcement";
 import { endgameStartedAt, gameSize } from "@/lib/gameSetup";
 import { type Card, type CurseCard, type PowerupCard,tallyTimeBonusMinutes } from "@/lib/hiderDeck";
 import {
@@ -78,6 +83,10 @@ export function HiderHandPanel() {
     // v1020: Move can't be played during the endgame (locked to the final
     // spot) — disable its Play button.
     const $endgame = useStore(endgameStartedAt);
+    // v1031: one ask/transit-blocking curse at a time — disable Cast in the
+    // hand for a second blocker while one is active (rulebook p44/p386).
+    const $activeBlocker = useStore(activeBlockingCurse);
+    const $activeBlockerAt = useStore(activeBlockingCurseCastAt);
 
     const bonusMinutes = tallyTimeBonusMinutes($hand, $gameSize);
     const overCap = $hand.length > $handLimit;
@@ -287,18 +296,36 @@ export function HiderHandPanel() {
                                         Play
                                     </Button>
                                 )}
-                                {card.kind === "curse" && (
-                                    <Button
-                                        type="button"
-                                        variant="default"
-                                        size="sm"
-                                        onClick={() => setCastCurse(card)}
-                                        className="flex-1 gap-1 h-7 px-2 text-[10px]"
-                                    >
-                                        <Zap className="w-3 h-3" />
-                                        Cast
-                                    </Button>
-                                )}
+                                {card.kind === "curse" &&
+                                    (() => {
+                                        const blocked = curseBlockedByActive(
+                                            card,
+                                            $activeBlocker,
+                                            $activeBlockerAt,
+                                            $gameSize,
+                                            Date.now(),
+                                        );
+                                        return (
+                                            <Button
+                                                type="button"
+                                                variant="default"
+                                                size="sm"
+                                                disabled={blocked}
+                                                title={
+                                                    blocked
+                                                        ? `${$activeBlocker} is still blocking the seekers — only one such curse at a time (rulebook p44).`
+                                                        : undefined
+                                                }
+                                                onClick={() =>
+                                                    setCastCurse(card)
+                                                }
+                                                className="flex-1 gap-1 h-7 px-2 text-[10px]"
+                                            >
+                                                <Zap className="w-3 h-3" />
+                                                Cast
+                                            </Button>
+                                        );
+                                    })()}
                                 <DiscardCardButton card={card} />
                             </div>
                         </div>

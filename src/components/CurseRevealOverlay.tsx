@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef } from "react";
 import { createPortal } from "react-dom";
 
 import { CardTile } from "@/components/CardTile";
-import { curseReveal } from "@/lib/curseReveal";
+import { curseCardFromReceived, curseReveal } from "@/lib/curseReveal";
 import { gameSize } from "@/lib/gameSetup";
 
 /**
@@ -72,18 +72,25 @@ function squigglePath(angleDeg: number, r0: number, r1: number): string {
     return d;
 }
 
+/** Format a film-duration target ("Film for m:ss"). */
+function formatFilmTarget(secs: number): string {
+    const m = Math.floor(secs / 60);
+    const s = secs % 60;
+    return m > 0 ? `${m}:${String(s).padStart(2, "0")}` : `${s}s`;
+}
+
 export function CurseRevealOverlay() {
-    const card = useStore(curseReveal);
+    const received = useStore(curseReveal);
     const $gameSize = useStore(gameSize);
     const timerRef = useRef<number | null>(null);
 
     useEffect(() => {
-        if (!card) return;
+        if (!received) return;
         timerRef.current = window.setTimeout(() => curseReveal.set(null), 9000);
         return () => {
             if (timerRef.current) window.clearTimeout(timerRef.current);
         };
-    }, [card]);
+    }, [received]);
 
     const starPath = useStarPath();
     const squiggles = useMemo(
@@ -94,9 +101,30 @@ export function CurseRevealOverlay() {
         [],
     );
 
-    if (!card) return null;
+    if (!received) return null;
 
+    const card = curseCardFromReceived(received);
     const dismiss = () => curseReveal.set(null);
+
+    // Payload delivered with the curse (v1031) — shown as it arrives so the
+    // seekers immediately see what the hider sent (photo / destination / rock
+    // count / film target).
+    const payloadItems: { label: string }[] = [];
+    if (received.rockCount != null) {
+        payloadItems.push({
+            label: `Build a rock tower ${received.rockCount} rock${received.rockCount === 1 ? "" : "s"} high`,
+        });
+    }
+    if (received.filmSeconds != null) {
+        payloadItems.push({
+            label: `Film for at least ${formatFilmTarget(received.filmSeconds)}`,
+        });
+    }
+    if (received.travelDestination) {
+        payloadItems.push({
+            label: `Destination: ${received.travelDestination}`,
+        });
+    }
 
     return createPortal(
         <div
@@ -140,7 +168,7 @@ export function CurseRevealOverlay() {
                         ease-out (beat 3). */}
                     <svg
                         viewBox="0 0 200 200"
-                        className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[112vmax] h-[112vmax] motion-safe:animate-[curseRevealSquiggleIn_620ms_520ms_cubic-bezier(0.22,1,0.36,1)_both]"
+                        className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[135vmin] h-[135vmin] motion-safe:animate-[curseRevealSquiggleIn_620ms_520ms_cubic-bezier(0.22,1,0.36,1)_both]"
                         aria-hidden="true"
                     >
                         {squiggles.map((d, i) => (
@@ -159,7 +187,7 @@ export function CurseRevealOverlay() {
                         the frame. */}
                     <svg
                         viewBox="0 0 200 200"
-                        className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[112vmax] h-[112vmax] motion-safe:animate-[curseRevealStarIn_360ms_cubic-bezier(0.2,0.9,0.3,1)_both]"
+                        className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-[118vmin] h-[118vmin] motion-safe:animate-[curseRevealStarIn_360ms_cubic-bezier(0.2,0.9,0.3,1)_both]"
                         aria-hidden="true"
                     >
                         <path
@@ -180,11 +208,39 @@ export function CurseRevealOverlay() {
                 className="relative z-[1] flex flex-col items-center"
                 style={{ perspective: "1400px" }}
             >
-                <div className="w-[min(78vw,300px)] drop-shadow-2xl motion-safe:animate-[curseRevealCardTumble_980ms_180ms_cubic-bezier(0.3,0.9,0.4,1)_both] [transform-style:preserve-3d]">
-                    <div style={{ filter: "url(#curseCardRough)" }}>
+                <div className="relative w-[min(78vw,300px)] drop-shadow-2xl motion-safe:animate-[curseRevealCardTumble_980ms_180ms_cubic-bezier(0.3,0.9,0.4,1)_both] [transform-style:preserve-3d]">
+                    {/* Torn-paper backing: a slightly-larger card-white
+                        rectangle with the rough filter, so only its EDGES look
+                        torn (peeking ~6px around the crisp card). The card
+                        itself is NOT filtered, so its text/art stay sharp. */}
+                    <div
+                        aria-hidden="true"
+                        className="absolute -inset-[6px] rounded-[6%] bg-white"
+                        style={{ filter: "url(#curseCardRough)" }}
+                    />
+                    <div className="relative">
                         <CardTile card={card} gameSize={$gameSize} />
                     </div>
                 </div>
+                {payloadItems.length > 0 && (
+                    <div className="mt-3 flex flex-col items-center gap-1.5">
+                        {received.photoUrl && (
+                            <img
+                                src={received.photoUrl}
+                                alt="Curse proof"
+                                className="max-h-32 rounded-md border border-white/25 object-contain bg-black/20"
+                            />
+                        )}
+                        {payloadItems.map((p, i) => (
+                            <span
+                                key={i}
+                                className="rounded-full bg-black/35 px-3 py-1 text-center text-xs font-semibold text-white"
+                            >
+                                {p.label}
+                            </span>
+                        ))}
+                    </div>
+                )}
                 <p className="mt-4 text-center text-xs font-poppins font-semibold uppercase tracking-[0.14em] text-white/70">
                     Tap to dismiss
                 </p>
