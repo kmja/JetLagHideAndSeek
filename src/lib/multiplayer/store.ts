@@ -96,6 +96,7 @@ import {
     zoneRadiusBuffer,
 } from "@/lib/houseRules";
 import { resetSharedRoundState } from "@/lib/roundReset";
+import { triggerCurseReveal } from "@/lib/curseReveal";
 import { receivedCurses } from "@/lib/seekerInbound";
 import {
     type Question,
@@ -1458,12 +1459,17 @@ function handleServerMessage(msg: ServerMessage) {
                 ) {
                     return;
                 }
-                receivedCurses.set([...existing, curseToReceived(msg.curse)]);
+                const received = curseToReceived(msg.curse);
+                receivedCurses.set([...existing, received]);
                 notify({
                     title: msg.curse.name,
                     body: msg.curse.description,
                     tag: "curse",
                 });
+                // v1021: play the show-style curse REVEAL animation on the
+                // seeker's screen (fresh live cast only — NOT the backlog
+                // recovery path below, which is a silent resync).
+                triggerCurseReveal(received);
             }
             return;
         case "curseBacklog": {

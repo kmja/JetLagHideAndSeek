@@ -428,7 +428,23 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v1021`. Use `git log` for the per-version detail;
+build stamp. Current: `v1022`. Use `git log` for the per-version detail;
+
+**v1022 — Jet-Lag-show curse REVEAL animation (seeker side).** When a curse is
+cast on the seekers, a full-screen show-style reveal plays: (1) a purple
+5-pointed star with a light-blue wiggly edge grows + spins in from centre; (2)
+the curse card spins out, flanked by dark-navy squiggly lines; (3) the card
+settles still in the centre while the star + squiggles rotate slowly behind it.
+Tap anywhere (or wait ~9 s) to dismiss. New `src/lib/curseReveal.ts` (`curseReveal`
+volatile atom + `triggerCurseReveal(received)` + `curseCardFromReceived`) and
+`src/components/CurseRevealOverlay.tsx` (SVG star/squiggles + `CardTile` for the
+full curse card; all motion is `curseReveal*` CSS keyframes in `globals.css`,
+`prefers-reduced-motion`-gated). Mounted app-level in `App.tsx` (renders nothing
+unless the atom is set — only ever on the seeker). Triggered from the multiplayer
+`curseReceived` handler (covers the demo broker, which routes through it) — NOT
+the `curseBacklog` recovery path (a silent resync) — and from the debug "Cast
+test curse (seeker)" button for testing. Not persisted, so a reload/reconnect
+never replays it.
 
 **v1021 — hider can commit a hiding zone from the map + drawer auto-closes.**
 - **Tap a zone on the hider map → "Hide here"** — `StationTransitCard` gained an

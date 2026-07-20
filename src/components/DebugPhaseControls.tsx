@@ -43,6 +43,7 @@ import {
 } from "@/lib/multiplayer/session";
 import { getTransport } from "@/lib/multiplayer/transport";
 import { endHidingPeriodEarly } from "@/lib/roundActions";
+import { triggerCurseReveal } from "@/lib/curseReveal";
 import { receivedCurses } from "@/lib/seekerInbound";
 import { encodeQuestionForHider } from "@/lib/shareLinks";
 import { cn } from "@/lib/utils";
@@ -907,14 +908,15 @@ export function DebugPhaseControls(_props: { floating?: DebugFloating } = {}) {
                                 DEBUG_TEST_CURSES[
                                     list.length % DEBUG_TEST_CURSES.length
                                 ];
-                            receivedCurses.set([
-                                ...list,
-                                {
-                                    ...curse,
-                                    receivedAt: Date.now(),
-                                    acknowledged: false,
-                                },
-                            ]);
+                            const received = {
+                                ...curse,
+                                receivedAt: Date.now(),
+                                acknowledged: false,
+                            };
+                            receivedCurses.set([...list, received]);
+                            // v1021: also play the reveal animation so it can
+                            // be tested on demand.
+                            triggerCurseReveal(received);
                         }}
                     >
                         Cast test curse (seeker)

@@ -14,6 +14,7 @@ import { BetaGate } from "@/components/BetaGate";
 import { GoGoGoOverlay } from "@/components/GoGoGoOverlay";
 import { MapErrorBoundary } from "@/components/MapErrorBoundary";
 import { PWAUpdatePrompt } from "@/components/PWAUpdatePrompt";
+import { CurseRevealOverlay } from "@/components/CurseRevealOverlay";
 import { ReconnectingBanner } from "@/components/ReconnectingBanner";
 import { RouteTransitionCurtain } from "@/components/RouteTransitionCurtain";
 import { SpoofIndicator } from "@/components/SpoofIndicator";
@@ -271,6 +272,11 @@ export function App() {
                 The web platform can't track in the background — this is the
                 available mitigation. */}
             <WakeLockController />
+            {/* v1021: Jet-Lag-show curse REVEAL animation — plays full-screen
+                when a curse is cast on the seekers. App-level so it shows on
+                any seeker screen; renders nothing unless its atom is set
+                (only ever on the seeker). */}
+            <CurseRevealOverlay />
             {/* Toast portal — single instance shared across both
                 routes. v304: progress bar visible (it's the
                 visual countdown), draggable enabled (swipe to
