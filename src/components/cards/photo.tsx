@@ -1,5 +1,5 @@
 import { useStore } from "@nanostores/react";
-import { Ban, Camera, Check, ImagePlus, Trash2 } from "lucide-react";
+import { Ban, Check, ImagePlus, Trash2 } from "lucide-react";
 import { useRef, useState } from "react";
 import { toast } from "react-toastify";
 
@@ -188,19 +188,16 @@ export const PhotoQuestionComponent = ({
         >
             <SidebarMenuItem>
                 <div className={cn(MENU_ITEM_CLASSNAME, "flex flex-col gap-3")}>
-                    <div className="flex items-start gap-3">
-                        <Camera className="w-5 h-5 mt-0.5 text-muted-foreground shrink-0" />
-                        <div className="min-w-0">
-                            <div className="font-inter-tight font-bold uppercase tracking-wide text-sm">
-                                {subtypeLabel}
-                            </div>
-                            {subtypeDescription && (
-                                <div className="text-xs text-muted-foreground leading-snug mt-0.5">
-                                    {subtypeDescription}
-                                </div>
-                            )}
+                    {/* v1019: the subtype NAME is already the card header
+                        ("PHOTO · THE SKY"), so the old icon + repeated label
+                        here was pure duplication. Show just the rulebook
+                        instruction for this photo (e.g. "Phone on ground, shoot
+                        directly up.") as a clear callout. */}
+                    {subtypeDescription && (
+                        <div className="rounded-md border border-border/60 bg-secondary/40 px-3 py-2 text-sm text-muted-foreground leading-snug">
+                            {subtypeDescription}
                         </div>
-                    </div>
+                    )}
 
                     {imgSrc ? (
                         <div className="relative">
@@ -287,7 +284,10 @@ export const PhotoQuestionComponent = ({
                         ref={fileInputRef}
                         type="file"
                         accept="image/*"
-                        capture="environment"
+                        /* v1019: no `capture` attribute — that forced the
+                           rear camera and hid the gallery on mobile. Omitting
+                           it lets the OS offer BOTH "take photo" and "choose
+                           from library". */
                         className="sr-only"
                         onChange={(e) => {
                             const picked = e.currentTarget.files?.[0];

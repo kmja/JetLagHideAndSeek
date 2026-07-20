@@ -1,6 +1,7 @@
 import { useStore } from "@nanostores/react";
 import { RefreshCw, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { toast } from "react-toastify";
 
 import { useNow } from "@/hooks/useNow";
@@ -71,6 +72,8 @@ export function PendingAnswerOverlay({
     type Phase = "active" | "answered" | "closing";
     const [displayed, setDisplayed] = useState<Question | null>(pending);
     const [phase, setPhase] = useState<Phase>("active");
+    // v1019: full-screen photo viewer for an answered photo question.
+    const [photoLightbox, setPhotoLightbox] = useState<string | null>(null);
     const prevKeyRef = useRef<number | null>(pending?.key ?? null);
 
     useEffect(() => {
@@ -180,6 +183,16 @@ export function PendingAnswerOverlay({
     const liveShown =
         $questions.find((q) => q.key === dShown.key) ?? dShown;
     const resolvedAnswer = answered ? answeredDetail(liveShown) : null;
+    // v1019: a PHOTO answer eliminates nothing on the map, so give the seeker a
+    // clear signal — the answered overlay opens the received photo on tap.
+    const photoAnswerSrc =
+        answered && dShown.id === "photo"
+            ? ((liveShown.data as { photoUrl?: string; photoUri?: string })
+                  .photoUrl ??
+              (liveShown.data as { photoUrl?: string; photoUri?: string })
+                  .photoUri ??
+              null)
+            : null;
 
     const summary = summarizeQuestion(dShown);
     // Failed send → full-card error state with an explanatory detail line.
@@ -349,14 +362,49 @@ export function PendingAnswerOverlay({
                 }
                 answered={answered}
                 error={notYetSent}
-                onClick={answered ? openDetailsAndDismiss : openDetails}
+                onClick={
+                    photoAnswerSrc
+                        ? () => setPhotoLightbox(photoAnswerSrc)
+                        : answered
+                          ? openDetailsAndDismiss
+                          : openDetails
+                }
                 ariaLabel={
-                    answered
-                        ? "Open answered question details"
-                        : "Open question details"
+                    photoAnswerSrc
+                        ? "View the hider's photo"
+                        : answered
+                          ? "Open answered question details"
+                          : "Open question details"
                 }
                 right={rightSlot}
             />
+            {photoLightbox &&
+                createPortal(
+                    <div
+                        className="fixed inset-0 z-[1200] bg-black/90 flex items-center justify-center p-4"
+                        onClick={() => setPhotoLightbox(null)}
+                        role="dialog"
+                        aria-label="Hider's photo"
+                    >
+                        <img
+                            src={photoLightbox}
+                            alt="Hider's photo answer"
+                            className="max-w-full max-h-full object-contain rounded-lg shadow-2xl"
+                        />
+                        <button
+                            type="button"
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                setPhotoLightbox(null);
+                            }}
+                            aria-label="Close photo"
+                            className="absolute top-4 right-4 flex items-center justify-center rounded-full bg-white/15 hover:bg-white/25 text-white p-2"
+                        >
+                            <X className="w-6 h-6" strokeWidth={2.5} />
+                        </button>
+                    </div>,
+                    document.body,
+                )}
         </div>
     );
 }

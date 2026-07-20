@@ -1048,7 +1048,9 @@ function PhotoAnswer({ question }: { question: Question }) {
                 ref={fileInputRef}
                 type="file"
                 accept="image/*"
-                capture="environment"
+                /* v1019: no `capture` — let the OS offer camera OR gallery so
+                   the hider can upload an existing photo (the button already
+                   says "Take or choose photo"). */
                 className="sr-only"
                 onChange={(e) => {
                     const picked = e.currentTarget.files?.[0];

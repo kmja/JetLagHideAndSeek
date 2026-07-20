@@ -428,7 +428,50 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v1017`. Use `git log` for the per-version detail;
+build stamp. Current: `v1019`. Use `git log` for the per-version detail;
+
+**v1019 — photo question UX batch (seeker signal + hider gallery upload +
+configure-card declutter + "photo sent").** From the demo-feedback batch:
+- **Photo configure card decluttered** (`cards/photo.tsx`) — the subtype NAME is
+  already the card header ("PHOTO · THE SKY"), so the old `Camera` icon + repeated
+  `{subtypeLabel}` block was pure duplication. Removed; the rulebook INSTRUCTION
+  for that photo (`subtypeDescription`, e.g. "Phone on the ground, shoot straight
+  up.") is now a clear bordered callout. `Camera` import dropped.
+- **Hider can UPLOAD from the gallery, not just shoot** — the `capture="environment"`
+  attribute forced the rear camera and hid the photo library on mobile. Removed
+  from BOTH photo file inputs (`cards/photo.tsx` + `HiderView.tsx PhotoAnswer`), so
+  the OS offers "take photo" OR "choose from library" (the button already says
+  "Take or choose photo").
+- **Seeker gets a clear answered signal for photo** — a photo answer eliminates
+  nothing on the map (no elimination flash), so the seeker had no clear "answered"
+  moment. `PendingAnswerOverlay` now, for an answered `photo` question, makes the
+  answered overlay card open the received image in a full-screen **lightbox**
+  (`createPortal` → `z-[1200]` black backdrop + close X) on tap instead of the
+  details panel.
+- **Hider log reads "Photo sent"** — `HiderQuestionLog`'s answered-photo detail
+  was the role-agnostic `answeredDetail` → "Photo received", which reads wrong on
+  the hider's OWN log (they SENT it). Now shows "Photo sent".
+
+**v1018 — correctness batch: matching `-full` verdict, curse payload leak,
+thermometer-started overlay, photo-sent naming.**
+- **Matching `-full` questions now AUTO-GRADE the hider's verdict** — a matching
+  aquarium (any `-full` point family) showed the hider "Match" while the map cut
+  put the hider's nearest and the seeker's nearest in DIFFERENT Voronoi cells,
+  because `hiderifyMatching` (`matching.ts`) never handled `-full` types → the
+  verdict was whatever stale `question.same` carried. It now runs
+  `determineMatchingBoundary(question)` (the seeker's own geodesic-Voronoi cut,
+  returning the cell CONTAINING the seeker) and sets `question.same` =
+  `booleanPointInPolygon(hiderPoint, boundary)`, so verdict == cut. Falls back to
+  the manual answer on any failure.
+- **Curse cast payload can't leak a stale field** — `CastCurseDialog.enforceParams()`
+  now gates EVERY optional payload field on the CURRENT curse's requirement flag
+  (`costRequiresPhoto`/`Video`/`RockCount`/`Destination`), so a "Test text here"
+  destination typed for the Mediocre Travel Agent no longer rides along into a
+  later curse (Impressionable Consumer) that has no destination.
+- **A STARTED (not finished) thermometer no longer shows as an incoming question**
+  on the hider — `HiderUnansweredOverlay`'s `waiting` filter excludes a
+  `thermometer` entry whose `status === "started"` (only the seeker's finish stamps
+  `createdAt` + sends), mirroring the seeker's `PendingAnswerOverlay`.
 
 **v1016/v1017 — CLEAN the headless MVT water before it's unioned (fixes the 30 s
 `dissolveWater`/`bufferAndUnion` TIMEOUT) + self-healing worker pool + full-path
