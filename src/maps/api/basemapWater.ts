@@ -219,7 +219,34 @@ export function ensureBasemapWaterForArea(
             const g = f.geometry;
             if (!g || (g.type !== "Polygon" && g.type !== "MultiPolygon"))
                 continue;
-            const gk = geomKey(g as Polygon | MultiPolygon);
+            // v1016: CLEAN the raw MVT-decoded geometry before it's ever
+            // unioned. The pmtiles `water` tiles decode with quantization
+            // artifacts — near-coincident / duplicate vertices and tiny
+            // self-intersections — that make `turf.union` pathologically slow
+            // (the 79-polygon headless set TIMED OUT `dissolveWater` AND
+            // `bufferAndUnion` at 30 s each, unlike the clean `querySourceFeatures`
+            // capture which unions instantly). `truncate` (~1 m) snaps the
+            // near-coincident vertices together and `simplify` (~30 m, invisible
+            // against a ≥km water buffer) drops the redundant density, so the
+            // union is fast. Skip anything that cleans to zero area.
+            let cg = g as Polygon | MultiPolygon;
+            try {
+                const cleaned = turf.simplify(
+                    turf.truncate(
+                        turf.feature(cg),
+                        { precision: 5, coordinates: 2, mutate: false },
+                    ),
+                    { tolerance: 0.0003, highQuality: false, mutate: true },
+                ) as Feature<Polygon | MultiPolygon>;
+                if (cleaned?.geometry && turf.area(cleaned) > 0) {
+                    cg = cleaned.geometry as Polygon | MultiPolygon;
+                } else {
+                    continue;
+                }
+            } catch {
+                /* keep the raw geometry if cleaning fails */
+            }
+            const gk = geomKey(cg);
             if (entry.keys.has(gk)) continue;
             entry.keys.add(gk);
             const props = (f.properties ?? {}) as Record<string, unknown>;
@@ -231,9 +258,13 @@ export function ensureBasemapWaterForArea(
                     kind:
                         typeof props.kind === "string" ? props.kind : undefined,
                 },
-                geometry: g as Polygon | MultiPolygon,
+                geometry: cg,
             });
         }
+        // eslint-disable-next-line no-console
+        console.log(
+            `[water] headless cleaned → ${entry.polys.length} polys stored`,
+        );
         entry.headless = true;
         basemapWaterVersion.set(basemapWaterVersion.get() + 1);
     })().catch(() => {

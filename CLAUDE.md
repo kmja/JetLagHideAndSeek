@@ -428,7 +428,34 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v1015`. Use `git log` for the per-version detail;
+build stamp. Current: `v1017`. Use `git log` for the per-version detail;
+
+**v1016/v1017 — CLEAN the headless MVT water before it's unioned (fixes the 30 s
+`dissolveWater`/`bufferAndUnion` TIMEOUT) + self-healing worker pool + full-path
+diagnostics.** The v1016 diagnostics gave the definitive trace: the first compute
+used the barely-loaded CAPTURE (5 polys → dissolve → `bufferAndUnion ok`, fast,
+but `cancelled=true` — discarded when the headless bump re-ran the effect), then
+the second compute on the 94→79-polygon HEADLESS set hit `[geometry]
+'dissolveWater' TIMED OUT after 30000ms` AND `'bufferAndUnion' TIMED OUT` →
+arcgis on the main thread (the 30 s+ freeze). Root cause: the pmtiles `water`
+tiles decode with quantization artifacts (near-coincident/duplicate vertices,
+tiny self-intersections) that make `turf.union` pathologically slow — the clean
+`querySourceFeatures` capture unions instantly, the raw MVT decode does not.
+Fixes:
+- **Clean the headless geometry at the source** (`ensureBasemapWaterForArea`,
+  `basemapWater.ts`): each decoded polygon is `turf.truncate`d (~1 m, snaps the
+  near-coincident vertices) then `turf.simplify`d (~30 m, invisible against a
+  ≥km water buffer) before it's stored, dropping zero-area results. So the union
+  is fast. `[water] headless cleaned → N polys stored` logs it.
+- **Self-healing worker pool** (`geometry/client.ts`): a Web Worker can't be
+  interrupted, so a wedged op blocks THAT worker forever and slowly depletes the
+  pool. On a call timeout the client now TERMINATES the stuck worker, fails its
+  other pending calls (they fall back to the main thread), and spawns a
+  replacement (`replaceWorker`).
+- **Full-path diagnostics** kept: `[qimpact] measuring effect run`, `[bow]
+  getDissolvedWater START` / `after ensure: polys=N` / `dissolvedWater=N`,
+  `[geometry] worker pool created: N` / `'<op>' TIMED OUT`, `[qimpact] buffer
+  resolved … cancelled=…`, so the next stall is visible end-to-end.
 
 **v1015 — dissolve cache keyed on CONTENT not version (fixes the second
 compute re-dissolving to failure → 30 s freeze).** v1014's pool wasn't enough:

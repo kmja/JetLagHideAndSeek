@@ -24,6 +24,7 @@ type Pending = {
     reject: (err: Error) => void;
     onPhase?: (phase: string) => void;
     timer: ReturnType<typeof setTimeout>;
+    worker: Worker;
 };
 
 // v1013: a POOL of geometry workers, not one. The configure dialog fires a
@@ -109,6 +110,33 @@ function makeWorker(): Worker {
     return w;
 }
 
+/** Terminate a wedged worker and replace it in the pool. Any other calls still
+ *  pending on that worker are failed (their callers fall back to the main
+ *  thread) since the worker will never answer them. */
+function replaceWorker(dead: Worker): void {
+    const idx = workers.indexOf(dead);
+    if (idx === -1) return;
+    try {
+        dead.terminate();
+    } catch {
+        /* ignore */
+    }
+    // Fail everything still pending on the dead worker.
+    for (const [pid, p] of pending) {
+        if (p.worker === dead) {
+            clearTimeout(p.timer);
+            pending.delete(pid);
+            p.reject(new Error("geometry worker terminated (wedged)"));
+        }
+    }
+    try {
+        workers[idx] = makeWorker();
+    } catch {
+        workers.splice(idx, 1);
+        if (workers.length === 0) poolDead = true;
+    }
+}
+
 /** Pick the next pool worker round-robin (lazily constructing the pool). */
 function getWorker(): Worker | null {
     if (poolDead) return null;
@@ -158,9 +186,14 @@ function call<T>(
             pending.delete(id);
             // eslint-disable-next-line no-console
             console.warn(`[geometry] '${type}' TIMED OUT after ${CALL_TIMEOUT_MS}ms`);
+            // A Web Worker can't be interrupted, so a wedged op (e.g. a
+            // pathological turf.union) blocks THAT worker forever. Terminate it
+            // and spawn a replacement so the pool self-heals instead of slowly
+            // depleting to zero live workers.
+            replaceWorker(w);
             reject(new Error(`geometry worker '${type}' timed out`));
         }, CALL_TIMEOUT_MS);
-        pending.set(id, { resolve, reject, onPhase, timer });
+        pending.set(id, { resolve, reject, onPhase, timer, worker: w });
         try {
             w.postMessage({ id, type, payload });
         } catch (e) {
