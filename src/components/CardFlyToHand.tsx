@@ -29,7 +29,7 @@ export function CardFlyToHand() {
     if (!cards || cards.length === 0) return null;
 
     return createPortal(
-        <div className="fixed inset-0 z-[1150] pointer-events-none overflow-hidden">
+        <div className="fixed inset-0 z-[1150] pointer-events-none">
             {cards.map((card, i) => (
                 <div
                     key={card.id}

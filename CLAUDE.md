@@ -428,7 +428,17 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v1044`. Use `git log` for the per-version detail;
+build stamp. Current: `v1045`. Use `git log` for the per-version detail;
+
+**v1045 — fly-to-hand animation actually lands on the hand (not off-screen).**
+The v1043 auto-kept-card flourish flew the card to `translate(-50%, 60vh)` —
+≈110vh down, OFF the bottom edge — where the overlay's `overflow-hidden` CLIPPED
+it and it faded out unseen, so the card just "appeared" in the fan with no
+handoff (the reported no-smoothness / clipping). Now `jlCardToHand` lands the
+card ON the fan (~88vh down, just above the peeking cards), stays fully opaque
+through the whole descent + shrink, and only fades in the final ~14% so it reads
+as MERGING into the hand; the overlay dropped `overflow-hidden` so the in-flight
+card + its drop-shadow are never clipped.
 
 **v1044 — best-in-class in-app RULEBOOK + deep-links from the game (and it's in
 the header now).** Rebuilt `RulebookSheet` (searchable markdown drawer) to a

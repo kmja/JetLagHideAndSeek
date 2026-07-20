@@ -382,14 +382,19 @@ div.leaflet-control-attribution.leaflet-control {
     from { opacity: 0; }
     to   { opacity: 1; }
 }
-/* v1043: an auto-kept card pops in centre, holds, then flies down to the hand
- * fan (bottom of screen), shrinking as it goes. `top/left:50%` origin, so the
- * base transform already centres it (translate -50%,-50%). */
+/* v1043 (smoothed v1044): an auto-kept card pops in centre, holds a beat, then
+ * flies down and LANDS on the hand fan at the bottom, shrinking + staying opaque
+ * through the whole travel so it reads as merging into the hand — only a quick
+ * fade at the very end. `top/left:50%` origin, so the base transform already
+ * centres it (translate -50%,-50%). The landing Y (~38vh below centre ≈ 88vh
+ * down the viewport) sits just above the peeking fan, so it never flies off the
+ * bottom edge (the old 60vh landed at ~110vh, off-screen → clipped). */
 @keyframes jlCardToHand {
-    0%   { transform: translate(-50%,-50%) scale(.55) rotate(-8deg); opacity: 0; }
-    16%  { transform: translate(-50%,-50%) scale(1)   rotate(0deg);  opacity: 1; }
-    46%  { transform: translate(-50%,-50%) scale(1)   rotate(0deg);  opacity: 1; }
-    100% { transform: translate(-50%, 60vh) scale(.28) rotate(6deg); opacity: 0; }
+    0%   { transform: translate(-50%,-50%) scale(.5)  rotate(-8deg); opacity: 0; }
+    14%  { transform: translate(-50%,-50%) scale(1)   rotate(0deg);  opacity: 1; }
+    40%  { transform: translate(-50%,-50%) scale(1)   rotate(0deg);  opacity: 1; }
+    86%  { transform: translate(-50%, 36vh) scale(.34) rotate(5deg); opacity: 1; }
+    100% { transform: translate(-50%, 40vh) scale(.3)  rotate(6deg); opacity: 0; }
 }
 /* Reduced-motion: a simple fade in/out, no travel. */
 @keyframes jlCardToHandFade {
