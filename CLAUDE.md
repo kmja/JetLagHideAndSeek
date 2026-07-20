@@ -428,7 +428,23 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v1026`. Use `git log` for the per-version detail;
+build stamp. Current: `v1027`. Use `git log` for the per-version detail;
+
+**v1027 — join waits for the server verdict + planning-window Start override.**
+- **A bad join code no longer drops you into a lobby.** `Welcome`'s join handler
+  used to navigate to `/` optimistically, so an `unknown_room` rejection left the
+  user sitting in the lobby (RolePicker) with only a toast. It now `joinAsGuest`s
+  and WAITS: on the server's `welcome` (sessionToken set) it enters the lobby; on
+  a rejection (`multiplayerError`) it STAYS on the join form and shows the error
+  **inline** under the code input (Continue → "Joining…" while pending). Clears
+  the stale `sessionToken` before joining so a prior session can't false-succeed.
+- **The 10-min planning window no longer HARD-blocks Start** — the host can
+  override it (the new hider may be ready sooner) behind an `appConfirm` ("Start
+  before the planning window ends? … Start now / Wait"). The Start button is
+  enabled during the window and still shows the countdown; confirming clears the
+  window and arms the round.
+- **Removed the separate blue `PlanningWindowBanner`** — the countdown now lives
+  on the Start button itself, so the banner was redundant.
 
 **v1026 — manual override for an on-transit endgame denial.** When the server
 denies an endgame claim with `reason:"transit"` (the claiming seeker is at the

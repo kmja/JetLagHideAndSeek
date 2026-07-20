@@ -3,7 +3,6 @@ import {
     ArrowLeftRight,
     Check,
     ChevronDown,
-    Clock,
     Copy,
     Loader2,
     LogOut,
@@ -130,48 +129,6 @@ const GLASS_PILL_BTN =
  * up by GameStartWatcher which opens the GoGoGoOverlay celebration
  * on both host and guest devices.
  */
-/**
- * v970 (rulebook audit B): between-rounds planning countdown. Rulebook p81
- * grants the new hider "up to 10 minutes for any final planning before
- * their hiding period begins" — this makes the allowance visible in the
- * lobby. Informational only; the host still presses Start.
- */
-function PlanningWindowBanner({ endsAt }: { endsAt: number }) {
-    const now = useNow();
-    const leftMs = endsAt - now;
-    const over = leftMs <= 0;
-    const total = Math.max(0, Math.ceil(leftMs / 1000));
-    const mm = Math.floor(total / 60);
-    const ss = String(total % 60).padStart(2, "0");
-    return (
-        <div
-            className={cn(
-                "rounded-md border px-3 py-2 text-xs leading-snug flex items-center gap-2",
-                over
-                    ? "border-warning/50 bg-warning/10 text-foreground"
-                    : "border-info/40 bg-info/10 text-foreground",
-            )}
-            role="status"
-        >
-            <Clock className="w-4 h-4 shrink-0 opacity-70" />
-            {over ? (
-                <span>
-                    The 10-minute planning window is over — time to start the
-                    round.
-                </span>
-            ) : (
-                <span>
-                    Planning window: the new hider has{" "}
-                    <span className="font-bold tabular-nums">
-                        {mm}:{ss}
-                    </span>{" "}
-                    for final planning before the round starts.
-                </span>
-            )}
-        </div>
-    );
-}
-
 export function GameLobbyDialog() {
     const $setupCompleted = useStore(setupCompleted);
     const $hidingEndsAt = useStore(hidingPeriodEndsAt);
@@ -578,8 +535,21 @@ export function GameLobbyDialog() {
         await handleCopy();
     };
 
-    const handleStartGame = () => {
+    const handleStartGame = async () => {
         if (!canStart) return;
+        // v1026: the 10-min planning window no longer HARD-disables Start — the
+        // host can override it (the new hider may be ready sooner) behind a
+        // confirmation so it isn't started accidentally mid-countdown.
+        if (planningActive) {
+            const ok = await appConfirm({
+                title: "Start before the planning window ends?",
+                description: `The new hider still has ${planningLabel} of planning time. Starting now cuts it short. Start the round anyway?`,
+                confirmLabel: "Start now",
+                cancelLabel: "Wait",
+            });
+            if (!ok) return;
+            planningWindowEndsAt.set(null);
+        }
         // v820: harden `minutes` against a corrupt gameSize. If `$size` is
         // ever an off-enum value, `HIDING_PERIOD_MINUTES[$size]` is undefined
         // → `minutes` undefined → `Date.now() + undefined*60_000` = NaN, and a
@@ -1278,15 +1248,10 @@ export function GameLobbyDialog() {
                     still dismiss via swipe-down; the Leave button
                     stays available there too. */}
                 <div className="px-6 pt-3 pb-4 border-t border-border space-y-2">
-                    {/* v970 (rulebook audit B): between-rounds planning
-                        window — the new hider is permitted up to 10 min of
-                        final planning before their hiding period begins
-                        (rulebook p81). Purely informational: the countdown
-                        makes the allowance visible, the host still starts
-                        the round (enforcement is social). */}
-                    {!isMidGame && $planningEndsAt !== null && (
-                        <PlanningWindowBanner endsAt={$planningEndsAt} />
-                    )}
+                    {/* v1026: the between-rounds planning-window countdown
+                        (rulebook p81) now lives ON the Start button itself
+                        (label + countdown, gated behind a confirm), so the
+                        separate banner was removed as redundant. */}
                     {isMidGame ? null : isHost ? (
                         <>
                             {/* v297: subtitle slot is conditionally
@@ -1304,7 +1269,7 @@ export function GameLobbyDialog() {
                                     "font-display uppercase",
                                 )}
                                 onClick={handleStartGame}
-                                disabled={!startReady || planningActive}
+                                disabled={!startReady}
                             >
                                 <span
                                     className="text-base font-extrabold leading-none"

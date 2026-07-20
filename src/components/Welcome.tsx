@@ -16,8 +16,9 @@ import {
     displayName as displayNameAtom,
     multiplayerError,
     pickRandomCastName,
+    sessionToken,
 } from "@/lib/multiplayer/session";
-import { joinAsGuest } from "@/lib/multiplayer/store";
+import { joinAsGuest, leaveGame } from "@/lib/multiplayer/store";
 import { cn } from "@/lib/utils";
 
 import { InstallAppButton } from "./InstallAppButton";
@@ -48,6 +49,7 @@ export function Welcome() {
     const navigate = useNavigate();
 
     const [joinOpen, setJoinOpen] = useState(false);
+    const [joining, setJoining] = useState(false);
     const [code, setCode] = useState("");
     const [castPlaceholder] = useState(() => pickRandomCastName());
 
@@ -92,17 +94,43 @@ export function Welcome() {
     // NAME is chosen in that picker (a random cast name seeds the initial
     // presence until then, exactly as it does for the host).
     const handleJoin = () => {
-        if (!validCode) return;
+        if (!validCode || joining) return;
         multiplayerError.set(null);
+        sessionToken.set(null); // clear any stale success signal
         // Clear any stale local role so the server's null assignment for a
         // fresh joiner isn't overridden — RolePicker only opens on role null.
         playerRole.set(null);
         const name = displayNameAtom.get()?.trim() || castPlaceholder;
+        // v1026: connect + send `join`, but DON'T navigate into the lobby
+        // yet — WAIT for the server's verdict. A valid room replies `welcome`
+        // (sessionToken set) → enter the lobby; a bad code replies
+        // `unknown_room` (multiplayerError set, connection torn down) → stay
+        // on this form and show the error inline. Previously we navigated
+        // optimistically, so a bad code still dropped the user into a lobby.
+        setJoining(true);
         joinAsGuest(trimmedCode, name);
-        welcomeSeen.set(true);
-        setupCompleted.set(true);
-        navigate("/", { replace: true });
     };
+
+    // Resolve a pending join once the server answers.
+    const $sessionToken = useStore(sessionToken);
+    const $joinError = useStore(multiplayerError);
+    useEffect(() => {
+        if (!joining) return;
+        if ($sessionToken) {
+            // Joined a real room → enter the shared lobby (RolePicker on top).
+            setJoining(false);
+            welcomeSeen.set(true);
+            setupCompleted.set(true);
+            navigate("/", { replace: true });
+        } else if ($joinError) {
+            // Rejected (unknown_room / room_full / version_mismatch). Stay on
+            // the form; the error shows inline. leaveGame() already ran, but
+            // make sure any half-open connection is gone.
+            setJoining(false);
+            leaveGame();
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [joining, $sessionToken, $joinError]);
 
     return (
         <div
@@ -230,7 +258,10 @@ export function Welcome() {
                         <Input
                             id="welcome-join-code"
                             value={code}
-                            onChange={(e) => setCode(e.target.value)}
+                            onChange={(e) => {
+                                setCode(e.target.value);
+                                if ($joinError) multiplayerError.set(null);
+                            }}
                             placeholder="4 letters"
                             maxLength={8}
                             autoFocus
@@ -244,9 +275,16 @@ export function Welcome() {
                                 }
                             }}
                         />
-                        <p className="text-[10px] text-muted-foreground">
-                            Letters and digits only. Case-insensitive.
-                        </p>
+                        {$joinError && !joining ? (
+                            <p className="text-xs text-destructive font-medium leading-snug">
+                                {$joinError.message ||
+                                    "No active game with that code."}
+                            </p>
+                        ) : (
+                            <p className="text-[10px] text-muted-foreground">
+                                Letters and digits only. Case-insensitive.
+                            </p>
+                        )}
                     </div>
 
                     <div className="flex gap-2 pt-2">
@@ -260,9 +298,9 @@ export function Welcome() {
                         <Button
                             className="flex-1 font-display font-extrabold uppercase tracking-[0.02em]"
                             onClick={handleJoin}
-                            disabled={!validCode}
+                            disabled={!validCode || joining}
                         >
-                            Continue
+                            {joining ? "Joining…" : "Continue"}
                         </Button>
                     </div>
                 </DialogContent>
