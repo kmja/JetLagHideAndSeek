@@ -22,6 +22,7 @@ import { spoofRandomInPlayArea } from "@/lib/debugSpoofArea";
 import {
     debugPanelOpen,
     lastBodyOfWaterDiag,
+    lastPreloadDiag,
     stationLabelMaxChars,
 } from "@/lib/debugState";
 import { clearAllLocalDataAndReload } from "@/lib/debugTools";
@@ -124,6 +125,7 @@ export function DebugPhaseControls(_props: { floating?: DebugFloating } = {}) {
     const open = useStore(debugPanelOpen);
     const $labelMaxChars = useStore(stationLabelMaxChars);
     const $bowDiag = useStore(lastBodyOfWaterDiag);
+    const $preloadDiag = useStore(lastPreloadDiag);
     const $questions = useStore(questions);
     const $inbox = useStore(hiderInbox);
     const $map = useStore(mapContext);
@@ -778,6 +780,18 @@ export function DebugPhaseControls(_props: { floating?: DebugFloating } = {}) {
                     </span>
                     <span className="tabular-nums break-all">
                         {$bowDiag || "— (configure one to see)"}
+                    </span>
+                </div>
+
+                {/* v1033: last hiding-period PRELOAD outcome — map pack (total /
+                    chunks / retries / fallback reason) + transit (per-mode
+                    count / TIMEOUT / ERR / RATE-LIMITED). Read this on-device
+                    after a preload to see why the map range-walked or transit
+                    failed. */}
+                <div className="text-[11px] rounded border border-border/60 bg-secondary/40 px-2 py-1.5">
+                    <span className="text-muted-foreground">Preload: </span>
+                    <span className="tabular-nums break-all">
+                        {$preloadDiag || "— (start a preload to see)"}
                     </span>
                 </div>
 

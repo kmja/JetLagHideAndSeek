@@ -53,3 +53,13 @@ export const stationLabelMaxChars = persistentAtom<number>(
  * `DebugPhaseControls`. Also `console.warn`ed with the `[bow]` tag.
  */
 export const lastBodyOfWaterDiag = atom<string>("");
+
+/**
+ * v1033: on-device diagnostic for the hiding-period PRELOAD (map pack + transit)
+ * — set from `preload.ts` / `tilePack.ts`, shown in `DebugPhaseControls`. Android
+ * has no easy devtools console, so when the map falls from the tile pack to the
+ * slow per-tile range walk, or the transit bucket fails, this line records WHY
+ * (pack total/chunks/retries/fallback reason; per-mode transit outcome), so a
+ * repro can be read back on the phone. Also `console`d with the `[preload]` tag.
+ */
+export const lastPreloadDiag = atom<string>("");

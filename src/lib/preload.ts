@@ -1,4 +1,5 @@
 import { recordBytes, startMeter, stopMeter } from "@/lib/bandwidthMeter";
+import { lastPreloadDiag } from "@/lib/debugState";
 import {
     displayHidingZonesOptions,
     mapGeoLocation,
@@ -295,6 +296,14 @@ function runMapPreload(): void {
             console.warn(
                 `[preload] no city tile pack (status=${pack.status}, osm=${pack.osmId ?? "?"}) — falling back to per-tile range walk`,
             );
+            // v1033: `error` already recorded a detailed diag in
+            // downloadPackRanged; record the absent/skipped reasons here too so
+            // the on-device panel shows why a starred city range-walked.
+            if (pack.status !== "error") {
+                lastPreloadDiag.set(
+                    `map RANGE-WALK: pack ${pack.status} (osm=${pack.osmId ?? "?"})`,
+                );
+            }
             // No pack for this area — clear any stale one and warm via
             // the range walk exactly as before.
             clearTilePack();
@@ -489,6 +498,10 @@ function runTransitPreload(): void {
     // R2 fast or make a single live request the mirrors tolerate. Silent
     // throughout — a background warm must not splatter error toasts; the
     // failure is reported honestly via the bucket badge instead.
+    // v1033: per-step outcome for the on-device diagnostic. London's transit
+    // bucket kept failing with no console access — record each step's result
+    // (count / timeout / error) so the repro shows WHICH mode fails and why.
+    const stepDiag: string[] = [];
     void (async () => {
         if (hsrQuery) {
             try {
@@ -504,15 +517,17 @@ function runTransitPreload(): void {
                     ),
                     "hsr",
                 );
-                if (
+                const n =
                     d &&
-                    Array.isArray((d as { elements?: unknown[] }).elements) &&
-                    (d as { elements: unknown[] }).elements.length > 0
-                ) {
-                    anyTransitData = true;
-                }
-            } catch {
-                /* swallow — surfaced via the badge gate below */
+                    Array.isArray((d as { elements?: unknown[] }).elements)
+                        ? (d as { elements: unknown[] }).elements.length
+                        : 0;
+                if (n > 0) anyTransitData = true;
+                stepDiag.push(`hsr:${n}`);
+            } catch (e) {
+                stepDiag.push(
+                    `hsr:${(e as Error)?.message?.includes("timed out") ? "TIMEOUT" : "ERR"}`,
+                );
             } finally {
                 markDone("hsr");
             }
@@ -524,11 +539,13 @@ function runTransitPreload(): void {
                     fetchTransitRoutesFeatures(mode, true),
                     mode,
                 );
-                if (fc?.features && fc.features.length > 0) {
-                    anyTransitData = true;
-                }
-            } catch {
-                /* swallow — timeout or fetch error; badge stays honest */
+                const n = fc?.features?.length ?? 0;
+                if (n > 0) anyTransitData = true;
+                stepDiag.push(`${mode}:${n}`);
+            } catch (e) {
+                stepDiag.push(
+                    `${mode}:${(e as Error)?.message?.includes("timed out") ? "TIMEOUT" : "ERR"}`,
+                );
             } finally {
                 markDone(mode);
             }
@@ -550,6 +567,12 @@ function runTransitPreload(): void {
                 transit: Date.now(),
             });
         }
+        // v1033: record the per-mode outcome + why the bucket did/didn't badge,
+        // so the London "transit fails" repro is diagnosable on-device.
+        const badged = anyTransitData && !rateLimited;
+        const diag = `transit ${badged ? "OK" : "FAILED"} [${stepDiag.join(" ")}]${rateLimited ? " RATE-LIMITED" : ""}${anyTransitData ? "" : " no-data"}`;
+        lastPreloadDiag.set(`${lastPreloadDiag.get()} | ${diag}`.slice(-400));
+        console.log(`[preload] ${diag}`);
         preloadBucketInFlight.set({
             ...preloadBucketInFlight.get(),
             transit: false,

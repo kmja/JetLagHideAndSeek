@@ -34,6 +34,7 @@ import { atom } from "nanostores";
 import { PMTiles, type RangeResponse, type Source } from "pmtiles";
 
 import { mapGeoLocation } from "@/lib/context";
+import { lastPreloadDiag } from "@/lib/debugState";
 import { TILE_PACK_BASE } from "@/maps/api/constants";
 
 /** Custom MapLibre protocol scheme. Style source URLs of the form
@@ -339,6 +340,48 @@ async function readBodyWithProgress(
 
 /** Per-request byte span for the chunked pack download (below). */
 const PACK_CHUNK_BYTES = 8 * 1024 * 1024; // 8 MB
+/** v1033: how many times to retry a single failed chunk before giving up.
+ *  A big city pack pages in many chunks (London ≈ 129 MB = ~16), so on mobile
+ *  5G the odds of at least ONE transient chunk failure across the run are high
+ *  — and a single failure used to abort the WHOLE download to the slow z12
+ *  range walk (the reported London flakiness). Retrying each chunk makes the
+ *  download survive a blip. */
+const PACK_CHUNK_RETRIES = 3;
+
+/** Fetch one byte range, retrying on a transient failure (network throw or a
+ *  non-206/200 status). Rejects (never resolves non-ok) only after exhausting
+ *  the retries, so the caller can decide to fall back. Honours abort. */
+async function fetchChunkWithRetry(
+    url: string,
+    start: number,
+    end: number,
+    signal: AbortSignal | undefined,
+    onAttemptFail: (attempt: number, reason: string) => void,
+): Promise<Uint8Array> {
+    let lastReason = "unknown";
+    for (let attempt = 1; attempt <= PACK_CHUNK_RETRIES; attempt++) {
+        if (signal?.aborted) throw new DOMException("aborted", "AbortError");
+        try {
+            const resp = await fetch(url, {
+                signal,
+                headers: { Range: `bytes=${start}-${end}` },
+            });
+            if (resp.status === 206 || resp.status === 200) {
+                return new Uint8Array(await resp.arrayBuffer());
+            }
+            lastReason = `status ${resp.status}`;
+        } catch (e) {
+            if ((e as Error)?.name === "AbortError") throw e;
+            lastReason = (e as Error)?.message ?? "fetch threw";
+        }
+        onAttemptFail(attempt, lastReason);
+        if (attempt < PACK_CHUNK_RETRIES) {
+            // Small backoff before the retry (200ms, 400ms).
+            await new Promise((r) => setTimeout(r, 200 * attempt));
+        }
+    }
+    throw new Error(`chunk ${start}-${end} failed after ${PACK_CHUNK_RETRIES}: ${lastReason}`);
+}
 
 /**
  * Download a full tile pack via BOUNDED RANGED requests instead of one
@@ -346,16 +389,21 @@ const PACK_CHUNK_BYTES = 8 * 1024 * 1024; // 8 MB
  *
  * Why: the worker's `/tiles/<key>` route serves a whole-object
  * `env.TILES.get(key)` (no range) by streaming the R2 body — but for a LARGE
- * multipart-uploaded pack (a big city like NYC, ~100+ MB) that non-ranged get
- * throws inside R2 and the worker returns 503 ("R2 unreachable"), so the plain
- * `fetch(url)` failed and the preloader fell back to the slow per-tile range
- * walk. The LIVE map never hit this because the pmtiles protocol only ever
+ * multipart-uploaded pack (a big city like NYC/London, ~100+ MB) that non-ranged
+ * get throws inside R2 and the worker returns 503 ("R2 unreachable"), so the
+ * plain `fetch(url)` failed and the preloader fell back to the slow per-tile
+ * range walk. The LIVE map never hit this because the pmtiles protocol only ever
  * issues small byte-RANGE reads — which the worker's ranged path
  * (`env.TILES.get(key, {range})`) serves fine. So we download the whole pack
  * the same proven way: a first `bytes=0-N` request learns the total from
  * `Content-Range`, then we page the rest in `PACK_CHUNK_BYTES` chunks and
  * assemble one buffer. A server that ignores the range (small pack → 200)
  * degrades to a straight whole-body read.
+ *
+ * v1033: each chunk RETRIES on a transient failure (`fetchChunkWithRetry`), and
+ * the whole run reports a diagnostic (total, chunk count, retries, failure) to
+ * `lastPreloadDiag` + the `[preload]` console, so a big-city download surviving
+ * (or failing at) a 5G blip is visible on-device.
  */
 async function downloadPackRanged(
     url: string,
@@ -364,6 +412,13 @@ async function downloadPackRanged(
 ): Promise<
     { ok: true; buffer: ArrayBuffer } | { ok: false; status: 404 | "error" }
 > {
+    let retries = 0;
+    const noteRetry = (chunkStart: number, attempt: number, reason: string) => {
+        retries++;
+        console.warn(
+            `[preload] pack chunk @${chunkStart} retry ${attempt}/${PACK_CHUNK_RETRIES}: ${reason}`,
+        );
+    };
     const first = await fetch(url, {
         signal,
         headers: { Range: `bytes=0-${PACK_CHUNK_BYTES - 1}` },
@@ -374,6 +429,9 @@ async function downloadPackRanged(
         if (!first.ok) return { ok: false, status: "error" };
         const total = Number(first.headers.get("Content-Length")) || null;
         const buffer = await readBodyWithProgress(first, total, onProgress);
+        lastPreloadDiag.set(
+            `map pack ok (whole-body, ${(buffer.byteLength / 1e6).toFixed(1)} MB)`,
+        );
         return { ok: true, buffer };
     }
     if (first.status !== 206) return { ok: false, status: "error" };
@@ -387,26 +445,42 @@ async function downloadPackRanged(
         return { ok: true, buffer: firstChunk.buffer };
     }
 
+    const chunkCount = Math.ceil(total / PACK_CHUNK_BYTES);
+    console.debug(
+        `[preload] pack ranged download: ${(total / 1e6).toFixed(1)} MB in ${chunkCount} chunks`,
+    );
     const out = new Uint8Array(total);
     out.set(firstChunk, 0);
     let received = firstChunk.length;
     onProgress?.(received, total);
 
-    while (received < total) {
-        const start = received;
-        const end = Math.min(start + PACK_CHUNK_BYTES, total) - 1;
-        const resp = await fetch(url, {
-            signal,
-            headers: { Range: `bytes=${start}-${end}` },
-        });
-        if (resp.status !== 206 && resp.status !== 200) {
-            return { ok: false, status: "error" };
+    try {
+        while (received < total) {
+            const start = received;
+            const end = Math.min(start + PACK_CHUNK_BYTES, total) - 1;
+            const chunk = await fetchChunkWithRetry(
+                url,
+                start,
+                end,
+                signal,
+                (attempt, reason) => noteRetry(start, attempt, reason),
+            );
+            if (chunk.length === 0) break; // guard against a stuck loop at EOF
+            out.set(chunk, received);
+            received += chunk.length;
+            onProgress?.(received, total);
         }
-        const chunk = new Uint8Array(await resp.arrayBuffer());
-        if (chunk.length === 0) break; // guard against a stuck loop at EOF
-        out.set(chunk, received);
-        received += chunk.length;
-        onProgress?.(received, total);
+    } catch (e) {
+        if ((e as Error)?.name === "AbortError") throw e;
+        // A chunk failed even after retries — fall back to the range walk.
+        lastPreloadDiag.set(
+            `map pack FELL BACK: ${(total / 1e6).toFixed(1)} MB pack, got ${(received / 1e6).toFixed(1)} MB, ${retries} retries, then ${(e as Error)?.message ?? "chunk failed"}`,
+        );
+        console.warn("[preload] pack download failed after retries:", e);
+        return { ok: false, status: "error" };
     }
+    lastPreloadDiag.set(
+        `map pack ok (${(total / 1e6).toFixed(1)} MB, ${chunkCount} chunks, ${retries} retries)`,
+    );
     return { ok: true, buffer: out.buffer };
 }

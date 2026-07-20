@@ -428,7 +428,27 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v1032`. Use `git log` for the per-version detail;
+build stamp. Current: `v1033`. Use `git log` for the per-version detail;
+
+**v1033 — tile-pack download survives a chunk blip + on-device preload
+diagnostics (London flakiness).** A London game (129 MB pack) fell from the tile
+pack to the slow z12 per-tile range walk mid-download, then finished the pack
+fine on a Stop+restart. Root cause: `downloadPackRanged` (`tilePack.ts`) paged
+the pack in 8 MB chunks with **no per-chunk retry**, so ONE transient 5G/worker
+failure across ~16 chunks aborted the WHOLE download to the range walk. Fixes:
+- **Per-chunk retry** (`fetchChunkWithRetry`, `PACK_CHUNK_RETRIES=3`, 200/400 ms
+  backoff, abort-aware) — a blip on any chunk retries instead of discarding the
+  whole (partly-downloaded) pack. Only a genuine after-retries failure falls
+  back to the range walk.
+- **On-device preload diagnostic** — new `lastPreloadDiag` atom (`debugState.ts`)
+  shown in `DebugPhaseControls` ("Preload:" line) + `[preload]` console logs,
+  since Android has no easy devtools. Records the **map** outcome (pack total /
+  chunk count / retries / fallback reason — absent/skipped/error) AND the
+  **transit** outcome per mode (`hsr:5 subway:0 bus:TIMEOUT tram:ERR …` +
+  RATE-LIMITED / no-data), so the still-unexplained London **transit** failure is
+  pinpointable on the next repro (TIMEOUT vs ERR vs empty vs rate-limit).
+NOTE: the lobby size ESTIMATE (~57 MB) is area-derived and undershot the real
+129 MB London pack — a separate cosmetic mismatch, not the fallback cause.
 
 **v1032 — Curse of the Jammed Door: pass/fail dice + doorway cooldown.** The
 Jammed Door dice roll (2d6) is now a real PASS/FAIL check (rulebook p396: 7+ to
