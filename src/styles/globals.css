@@ -382,6 +382,22 @@ div.leaflet-control-attribution.leaflet-control {
     from { opacity: 0; }
     to   { opacity: 1; }
 }
+/* v1043: an auto-kept card pops in centre, holds, then flies down to the hand
+ * fan (bottom of screen), shrinking as it goes. `top/left:50%` origin, so the
+ * base transform already centres it (translate -50%,-50%). */
+@keyframes jlCardToHand {
+    0%   { transform: translate(-50%,-50%) scale(.55) rotate(-8deg); opacity: 0; }
+    16%  { transform: translate(-50%,-50%) scale(1)   rotate(0deg);  opacity: 1; }
+    46%  { transform: translate(-50%,-50%) scale(1)   rotate(0deg);  opacity: 1; }
+    100% { transform: translate(-50%, 60vh) scale(.28) rotate(6deg); opacity: 0; }
+}
+/* Reduced-motion: a simple fade in/out, no travel. */
+@keyframes jlCardToHandFade {
+    0%   { transform: translate(-50%,-50%) scale(.9); opacity: 0; }
+    25%  { transform: translate(-50%,-50%) scale(1);  opacity: 1; }
+    75%  { transform: translate(-50%,-50%) scale(1);  opacity: 1; }
+    100% { transform: translate(-50%,-50%) scale(.95); opacity: 0; }
+}
 /* Slow perpetual rotation of the star/squiggle background layer. */
 @keyframes curseRevealSpin {
     from { transform: rotate(0deg); }

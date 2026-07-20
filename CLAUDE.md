@@ -428,7 +428,17 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v1042`. Use `git log` for the per-version detail;
+build stamp. Current: `v1043`. Use `git log` for the per-version detail;
+
+**v1043 — auto-kept cards fly down to the hand (photo-answer feedback).**
+Answering a photo question is a draw-1-keep-1 reward, so `presentDraw`'s auto-keep
+branch added the card to the hand SILENTLY (no picker, no beat). It now sets a new
+volatile `cardFlyToHand` atom (`hiderRole.ts`); the app-level `CardFlyToHand`
+overlay (mounted on `HiderPage`, portaled to body) pops the `CardTile` in
+centre-screen, holds, then flies it down toward the bottom hand fan (`jlCardToHand`
+keyframe, `prefers-reduced-motion` → a plain fade), clearing the atom when done —
+the same "card goes to your hand" beat the draw picker gives. Fires for ANY
+auto-keep draw, not just photo.
 
 **v1042 — hider questions-log answered cards expand/collapse smoothly.** The
 seeker's log animates card expansion (the grid-rows `0fr`→`1fr` trick in

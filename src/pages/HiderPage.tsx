@@ -2,6 +2,7 @@ import { useStore } from "@nanostores/react";
 import { Suspense } from "react";
 
 import { AppConfirmHost } from "@/components/AppConfirmHost";
+import { CardFlyToHand } from "@/components/CardFlyToHand";
 import { NotificationPrompt } from "@/components/NotificationPrompt";
 import { AppPromptHost } from "@/components/AppPromptHost";
 import { ClosingInWatcher } from "@/components/ClosingInWatcher";
@@ -195,6 +196,10 @@ export function HiderPage() {
                 Tapping the fan opens a full-screen carousel where the
                 hider plays / casts / discards the focused card. */}
             <HiderHandFan />
+            {/* v1043: fly an auto-kept card down to the hand fan (e.g. the
+                reward for answering a photo question), so the silent add has a
+                visible beat. */}
+            <CardFlyToHand />
             {/* Rulebook p44: force the hider to discard down to their hand
                 limit the moment a draw takes them over it. */}
             <HandLimitEnforcer />

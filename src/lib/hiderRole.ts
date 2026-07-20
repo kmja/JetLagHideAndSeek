@@ -538,6 +538,18 @@ export const pendingDrawQueue = __globalPersistent<PendingDraw[]>(
     },
 );
 
+/**
+ * v1043: cards auto-kept into the hand (a draw-1-keep-1 reward, e.g. answering
+ * a photo question) with no picker — set here so a UI flourish can "fly" them
+ * down to the hand fan, since the silent auto-add gave no visual feedback. The
+ * `CardFlyToHand` overlay reads it, plays the animation, then clears it.
+ * Volatile (a one-shot animation trigger).
+ */
+export const cardFlyToHand = __globalAtom<Card[] | null>(
+    "__jlhs_cardFlyToHand",
+    null,
+);
+
 /* ────────────────── Helpers ────────────────── */
 
 /**
@@ -675,8 +687,10 @@ export function presentDraw(
     if (drawn.length === 0) return true;
     const keep = Math.min(k, drawn.length);
     if (keep >= drawn.length) {
-        // Auto-keep — no choice to make
+        // Auto-keep — no choice to make. Fly the card(s) down to the hand so
+        // the silent add has a visible beat (v1043).
         hiderHand.set([...hiderHand.get(), ...drawn]);
+        cardFlyToHand.set(drawn);
         return true;
     }
     const pending: PendingDraw = {
