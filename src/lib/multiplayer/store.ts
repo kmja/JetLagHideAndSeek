@@ -1085,6 +1085,8 @@ function curseToReceived(curse: CursePayload) {
         filmSeconds: curse.filmSeconds,
         rockCount: curse.rockCount,
         travelDestination: curse.travelDestination,
+        travelDestLat: curse.travelDestLat,
+        travelDestLng: curse.travelDestLng,
         castId: curse.castId,
         receivedAt: Date.now(),
         // v1022: the show-style REVEAL animation (CurseRevealOverlay) is now

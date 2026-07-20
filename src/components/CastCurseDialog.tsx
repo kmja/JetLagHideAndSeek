@@ -16,7 +16,7 @@ import {
     Zap,
 } from "lucide-react";
 import type { ComponentType, CSSProperties } from "react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "react-toastify";
 
 import { renderBodyText } from "@/components/CardTile";
@@ -48,7 +48,7 @@ import {
     CURSE_DRAINED_BRAIN,
     cursePreventsAskingOrTransit,
 } from "@/lib/curseEnforcement";
-import { endgameStartedAt, gameSize } from "@/lib/gameSetup";
+import { endgameStartedAt, gameSize, playArea } from "@/lib/gameSetup";
 import { getSubtypes } from "@/lib/subtypes";
 import type { CurseCard } from "@/lib/hiderDeck";
 import {
@@ -58,11 +58,20 @@ import {
     hiderHand,
     hiderInbox,
 } from "@/lib/hiderRole";
-import { currentGameCode, multiplayerEnabled } from "@/lib/multiplayer/session";
+import {
+    currentGameCode,
+    multiplayerEnabled,
+    seekerLocations,
+} from "@/lib/multiplayer/session";
 import { hiderCastCurse } from "@/lib/multiplayer/store";
 import { recordCastCurse } from "@/lib/seekerInbound";
 import { encodeCurseLink, shareOrCopy } from "@/lib/shareLinks";
 import { cn } from "@/lib/utils";
+import { reverseGeocode } from "@/maps/api";
+
+// Lazy — keeps maplibre-gl off the critical path; only the Mediocre Travel
+// Agent curse mounts it.
+const DestinationPicker = lazy(() => import("./DestinationPicker"));
 
 /**
  * Confirm-and-cast dialog for curses. Surfaces:
@@ -194,6 +203,21 @@ export function CastCurseDialog({
     // "cannot be played during the endgame" on the card — enforce it once
     // the seekers' endgame claim is armed.
     const $endgameStartedAt = useStore(endgameStartedAt);
+    // Destination picker centre (Mediocre Travel Agent): the freshest seeker's
+    // last known position (the destination should be NEAR the seekers), falling
+    // back to the play-area centroid. Kept ABOVE the `!card` early return so the
+    // hook order is stable.
+    const $seekerLocs = useStore(seekerLocations);
+    const $playArea = useStore(playArea);
+    const destCenter = useMemo(() => {
+        const locs = Object.values($seekerLocs);
+        if (locs.length > 0) {
+            const freshest = locs.reduce((a, b) => (b.ts > a.ts ? b : a));
+            return { lat: freshest.lat, lng: freshest.lng };
+        }
+        if ($playArea) return { lat: $playArea.lat, lng: $playArea.lng };
+        return { lat: 0, lng: 0 };
+    }, [$seekerLocs, $playArea]);
     const blockedByEndgame =
         $endgameStartedAt !== null &&
         !!card &&
@@ -221,8 +245,15 @@ export function CastCurseDialog({
     // hider's tower reached — the target the seekers must match.
     const [rockCount, setRockCount] = useState<number | null>(null);
     // Destination (Mediocre Travel Agent): the place the hider sends the
-    // seekers to.
-    const [travelDest, setTravelDest] = useState("");
+    // seekers to — picked on a MAP (v1029). `travelDestPoint` is the picked
+    // coordinate; `travelDestName` is the reverse-geocoded label shown to the
+    // seekers alongside the map pin.
+    const [travelDestPoint, setTravelDestPoint] = useState<{
+        lat: number;
+        lng: number;
+    } | null>(null);
+    const [travelDestName, setTravelDestName] = useState("");
+    const destPickTokenRef = useRef(0);
     const [rolled, setRolled] = useState<number | null>(null);
     const [rolling, setRolling] = useState(false);
     const [sharing, setSharing] = useState(false);
@@ -418,7 +449,24 @@ export function CastCurseDialog({
         card.castingCost,
     );
     const destRequired = costRequiresDestination && online;
-    const destSatisfied = !destRequired || travelDest.trim().length > 0;
+    const destSatisfied = !destRequired || travelDestPoint !== null;
+
+    // Pick handler: stamp the coordinate immediately (so the pin + gating
+    // update at once) and reverse-geocode a display name in the background. A
+    // per-pick token discards a stale reverse-geocode if the hider re-picks
+    // before it resolves.
+    const pickDestination = (lat: number, lng: number) => {
+        setTravelDestPoint({ lat, lng });
+        setTravelDestName("");
+        const token = ++destPickTokenRef.current;
+        reverseGeocode(lat, lng)
+            .then((name) => {
+                if (name && destPickTokenRef.current === token) {
+                    setTravelDestName(name);
+                }
+            })
+            .catch(() => {});
+    };
 
     const startFilm = () => {
         filmStartRef.current = Date.now();
@@ -526,6 +574,8 @@ export function CastCurseDialog({
         filmSeconds?: number;
         rockCount?: number;
         travelDestination?: string;
+        travelDestLat?: number;
+        travelDestLng?: number;
     } => ({
         // v1018: gate EVERY optional payload field on whether the CURRENT curse
         // actually requires it. These input states persist across curse
@@ -541,8 +591,13 @@ export function CastCurseDialog({
         ...(costRequiresRockCount && rockCount != null && rockCount >= 1
             ? { rockCount }
             : {}),
-        ...(costRequiresDestination && travelDest.trim()
-            ? { travelDestination: travelDest.trim() }
+        ...(costRequiresDestination && travelDestPoint
+            ? {
+                  travelDestination:
+                      travelDestName.trim() || "the pinned location",
+                  travelDestLat: travelDestPoint.lat,
+                  travelDestLng: travelDestPoint.lng,
+              }
             : {}),
     });
 
@@ -1317,27 +1372,31 @@ export function CastCurseDialog({
                             )}
 
                             {/* Destination (Curse of the Mediocre Travel
-                                Agent): the hider names the place near the
-                                seekers they must travel to. */}
+                                Agent): the hider picks the spot near the
+                                seekers they must travel to, ON A MAP (v1029).
+                                The picked coordinate + reverse-geocoded name are
+                                sent to the seekers, who see the actual pin. */}
                             {costRequiresDestination && (
                                 <div className="mt-2.5 flex flex-col gap-1.5">
-                                    <input
-                                        type="text"
-                                        value={travelDest}
-                                        onChange={(e) =>
-                                            setTravelDest(e.target.value)
+                                    <Suspense
+                                        fallback={
+                                            <div className="w-full h-56 rounded-lg border border-dashed border-border flex items-center justify-center text-xs text-muted-foreground">
+                                                Loading map…
+                                            </div>
                                         }
-                                        placeholder="e.g. the café on the corner of 5th & Main"
-                                        className={cn(
-                                            "w-full rounded-lg border-2 border-border bg-secondary px-3 h-11 text-sm",
-                                            "placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                                        )}
-                                    />
+                                    >
+                                        <DestinationPicker
+                                            center={destCenter}
+                                            value={travelDestPoint}
+                                            onChange={pickDestination}
+                                            className="w-full h-56"
+                                        />
+                                    </Suspense>
                                     <p className="text-[11px] text-muted-foreground leading-snug inline-flex items-center gap-1">
                                         <MapPin className="w-3 h-3 shrink-0" />
-                                        {destRequired
-                                            ? "Pick a place near the seekers — it's sent to them as their destination."
-                                            : "Name the place near the seekers — then tell them to go there."}
+                                        {travelDestPoint
+                                            ? `Destination: ${travelDestName || "the pinned location"} — sent to the seekers with the map pin.`
+                                            : "Tap the map near the seekers to set their destination."}
                                     </p>
                                 </div>
                             )}

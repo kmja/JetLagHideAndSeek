@@ -690,10 +690,15 @@ export interface CursePayload {
     rockCount?: number;
     /**
      * For Curse of the Mediocre Travel Agent, the place the hider chose for
-     * the seekers to travel to (a free-text destination near the seekers).
-     * Absent for every other curse and older clients.
+     * the seekers to travel to (near the seekers). `travelDestination` is the
+     * display name; `travelDestLat`/`travelDestLng` are the map coordinates the
+     * hider picked (v1029 — the destination is picked on a map now, so the
+     * seekers see the actual spot). Absent for every other curse and older
+     * clients.
      */
     travelDestination?: string;
+    travelDestLat?: number;
+    travelDestLng?: number;
     /**
      * Server-assigned monotonic id, stamped in `handleCastCurse` when the
      * curse is cast (v943 durability). Lets a seeker's client dedup a

@@ -147,9 +147,13 @@ export interface SharedCursePayload {
     rockCount?: number;
     /**
      * For Curse of the Mediocre Travel Agent, the destination the hider chose
-     * for the seekers to travel to (free-text). Absent otherwise.
+     * for the seekers to travel to. `travelDestination` is the display name;
+     * `travelDestLat`/`travelDestLng` are the map coordinates (v1029). Absent
+     * otherwise.
      */
     travelDestination?: string;
+    travelDestLat?: number;
+    travelDestLng?: number;
 }
 
 /**

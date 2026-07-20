@@ -428,7 +428,21 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v1028`. Use `git log` for the per-version detail;
+build stamp. Current: `v1029`. Use `git log` for the per-version detail;
+
+**v1029 — Mediocre Travel Agent picks the destination on a MAP.** The hider's
+"vacation destination" casting cost was a free-text input; now `CastCurseDialog`
+renders the lazy `DestinationPicker` (a light interactive MapGL — tap / drag a
+pin, `buildStyle` basemap) centred on the freshest seeker's last known position
+(`seekerLocations`), falling back to the play-area centroid. The picked
+coordinate + a background `reverseGeocode` name ride the curse payload as
+`travelDestination` (name) + `travelDestLat`/`travelDestLng` (new optional fields
+on `CursePayload` (`protocol/messages.ts`) + `SharedCursePayload`
+(`shareLinks.ts`); `curseToReceived` copies them, `recordCastCurse` /
+`decodeCurseFromUrl` spread them). The seeker's `CurseInbox` expanded dialog shows
+the destination name AND a `ZonePreviewMap` pin at the actual spot, so the seekers
+see exactly where to go. `enforceParams` gates the fields on the CURRENT curse
+(the v1018 leak fix), and the cast is blocked in multiplayer until a pin is set.
 
 **v1028 — Randomize is seeker-re-asks + photo viewfinder/gallery split + timer &
 copy fixes.**

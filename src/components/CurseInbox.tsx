@@ -37,6 +37,7 @@ import { toast } from "react-toastify";
 import { renderBodyText } from "./CardTile";
 import { DiceRoller } from "./DiceRoller";
 import { SectionPill } from "./JetLagLogo";
+import { ZonePreviewMap } from "./ZonePreviewMap";
 
 /**
  * App-enforced curses that last "for the rest of your run" — the seeker
@@ -452,6 +453,19 @@ export function CurseInbox({
                                 Destination: {resolvedDialog.travelDestination}
                             </p>
                         )}
+                        {/* v1029: the Mediocre Travel Agent destination is now a
+                            real map pin — show the spot so the seekers know
+                            exactly where to go. */}
+                        {resolvedDialog?.travelDestLat != null &&
+                            resolvedDialog?.travelDestLng != null && (
+                                <ZonePreviewMap
+                                    lat={resolvedDialog.travelDestLat}
+                                    lng={resolvedDialog.travelDestLng}
+                                    radiusMeters={120}
+                                    padding={40}
+                                    className="w-full h-40 mt-1"
+                                />
+                            )}
                         {dlgMeta?.expiresAt != null && (
                             <p className="text-xs text-purple-300 inline-flex items-center gap-1 tabular-nums">
                                 <Hourglass className="w-3 h-3" />
