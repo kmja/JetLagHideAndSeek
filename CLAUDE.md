@@ -428,7 +428,27 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v1023`. Use `git log` for the per-version detail;
+build stamp. Current: `v1025`. Use `git log` for the per-version detail;
+
+**v1025 — every device records the finished round (leaderboard sync).** The
+per-round leaderboard append lived ONLY in `startNewRound` (the initiator /
+solo), so on a guest device the previous round never entered its `roundLog` —
+only whoever pressed "New round" saw the result. Extracted the append into a
+shared, IDEMPOTENT `appendRoundResult()` (`src/lib/roundLeaderboard.ts`, keyed
+on the round's `foundAt` so it can't double-count), called from BOTH
+`startNewRound` AND the guest path `applyRoundStarted` (before the round-state
+reset). Uses the hider-authoritative `roundEndBaseMs`/`roundEndBonusPieces`
+(synced via `roundSummary`) so a seeker records the same time as everyone else.
+The module imports only leaf atom/pure modules, so no `store`↔`roundActions`
+cycle.
+
+**v1024 — join fixes.** (1) The join room-code input hint said "3 letters" —
+codes are 4 letters (v952); now "4 letters" (`Welcome` + `OnlinePlaySection`).
+(2) Any typed code lazily spawned + "joined" a fresh empty room. The server's
+`handleJoin` now REJECTS a code whose room was never hosted — a real room always
+has ≥1 participant in its roster (persisted offline even if the host left), so an
+EMPTY roster means the code names no game → `unknown_room`. The client surfaces
+it (toast) and leaves back to local mode instead of sitting in a phantom room.
 
 **v1023 — curse-reveal tuning + Impressionable Consumer + curse-clear sync +
 planning-window gate + hide-here + z-index fix.**

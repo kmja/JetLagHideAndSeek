@@ -40,6 +40,7 @@ import {
     participants,
 } from "@/lib/multiplayer/session";
 import { hostPushSetup, leaveGame } from "@/lib/multiplayer/store";
+import { appendRoundResult } from "@/lib/roundLeaderboard";
 import { resetSharedRoundState } from "@/lib/roundReset";
 
 /**
@@ -61,66 +62,15 @@ import { resetSharedRoundState } from "@/lib/roundReset";
  *     page (or via "New game" in their toolbar).
  */
 export function startNewRound() {
-    // v318: before wiping the previous round's state, append a
-    // result to the rolling leaderboard if the hider was actually
-    // found. Skip incomplete rounds (no found-at timestamp) —
-    // those weren't finished, just abandoned.
+    // v318: before wiping the previous round's state, append a result to the
+    // rolling leaderboard if the hider was actually found. v1023: the append
+    // is a shared, IDEMPOTENT helper called here AND from the guest path
+    // (`applyRoundStarted`), so every device records the round — not just the
+    // one that pressed "New round".
+    // Capture whether the round completed BEFORE the reset nulls it (drives
+    // the planning-window grant below).
     const prevFoundAt = roundFoundAt.get();
-    const prevEndsAt = hidingPeriodEndsAt.get();
-    if (prevFoundAt !== null && prevEndsAt !== null) {
-        // Add any time banked by a Move powerup, and subtract any time
-        // the clock was paused for overdue answers (rulebook p61), so
-        // re-anchors pause rather than discard time and stalls don't
-        // pay out.
-        const localBaseMs = Math.max(
-            0,
-            Math.max(0, prevFoundAt - prevEndsAt) +
-                hiddenCreditMs.get() -
-                effectiveHiddenDebitMs(prevFoundAt),
-        );
-        // v670: ADD the hider's time-bonus cards (rulebook p79 — bonuses
-        // held at round end are added to the hiding time; longest hide
-        // wins). v851: the base time AND the in-hand bonus are both hider-
-        // local (Move credit, late-answer debit, and the hand all live on
-        // the hider's device). A seeker-initiated new-round on a remote
-        // device therefore can't compute them — so the hider PUBLISHES its
-        // authoritative round result over the wire (`roundSummary`), and
-        // both sides prefer the synced values here. Falls back to the local
-        // computation for the hider's own device + all solo play.
-        const syncedBase = roundEndBaseMs.get();
-        const syncedPieces = roundEndBonusPieces.get();
-        const baseMs = syncedBase !== null ? syncedBase : localBaseMs;
-        const bonusMs =
-            syncedPieces !== null
-                ? syncedPieces.reduce((a, b) => a + b, 0) * 60_000
-                : tallyTimeBonusMinutes(hiderHand.get(), gameSize.get()) *
-                  60_000;
-        const hidingMs = baseMs + bonusMs;
-        // Resolve the hider's name. v879: PREFER the name snapshotted at
-        // round-end (`roundEndHiderName`) — by the time this runs the "New
-        // round" button has already rotated roles to the NEXT hider, so
-        // reading the live roster here attributed the round to the wrong
-        // person (the leaderboard name-shift bug). Fall back to the live
-        // roster / local display-name only when no snapshot exists (older
-        // rounds, solo without a captured name).
-        const ps = participants.get();
-        const hiderEntry = ps.find((p) => p.role === "hider");
-        const hiderName =
-            roundEndHiderName.get()?.trim() ||
-            hiderEntry?.displayName?.trim() ||
-            displayNameAtom.get()?.trim() ||
-            "Hider";
-        const existing = roundLog.get();
-        roundLog.set([
-            ...existing,
-            {
-                roundNumber: existing.length + 1,
-                hiderName,
-                hidingMs,
-                foundAt: prevFoundAt,
-            },
-        ]);
-    }
+    appendRoundResult();
     // Wipe all per-round state (questions, curses, hider hand/deck,
     // endgame stamps, credit/debit, freeze, celebration dedupe, …) via
     // the shared reset so this path and the multiplayer guest path

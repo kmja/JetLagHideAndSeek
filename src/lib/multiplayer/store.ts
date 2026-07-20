@@ -98,6 +98,7 @@ import {
 } from "@/lib/houseRules";
 import { resetSharedRoundState } from "@/lib/roundReset";
 import { triggerCurseReveal } from "@/lib/curseReveal";
+import { appendRoundResult } from "@/lib/roundLeaderboard";
 import { castCurses, receivedCurses } from "@/lib/seekerInbound";
 import {
     type Question,
@@ -853,6 +854,12 @@ function applyRoundStarted(roster: GameState["participants"]) {
     // completed before the reset wipes it — a completed round grants the
     // new hider the 10-minute planning window (rulebook p81).
     const prevRoundCompleted = roundFoundAt.get() !== null;
+    // v1023: record the just-finished round in THIS device's leaderboard
+    // BEFORE the reset wipes the round state. Idempotent (keyed on the round's
+    // foundAt) so the initiator — which also ran the append in startNewRound —
+    // doesn't double-count. This is the fix for "only the device that started
+    // the new round saw the previous round's result".
+    appendRoundResult();
     // v670: reset ALL per-round state via the shared helper — the same
     // one `startNewRound`/`startNewGame` use — so a guest device can't
     // carry stale curses / Move-freeze / scoring credit-debit /
