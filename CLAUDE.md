@@ -428,7 +428,24 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v1036`. Use `git log` for the per-version detail;
+build stamp. Current: `v1037`. Use `git log` for the per-version detail;
+
+**v1037 — curse clear now syncs to the hider (client-generated `castId`).** A
+seeker who cleared a curse still showed it ACTIVE on the hider (a v1023 regression
+surfaced in play). Root cause: the server assigned the `castId` in
+`handleCastCurse` and fanned `curseReceived` to SEEKERS ONLY, so the hider's local
+`castCurses` mirror (recorded optimistically by `recordCastCurse` at cast time) had
+`castId: undefined`. When a seeker later cleared the curse and the server relayed
+`curseCleared{castId}`, the hider's `markCleared(castCurses)` matched on
+`c.castId === msg.castId` and found nothing → the curse stayed active on the hider.
+Fix: the CLIENT stamps the `castId` (`nextClientCastId` in `CastCurseDialog` —
+`Date.now()*1000 + counter`, unique + far above the server's small seq) into the
+curse payload BEFORE `hiderCastCurse` + `recordCastCurse`, so the hider's mirror and
+the seekers' `receivedCurses` share the SAME id from the start; the worker's
+`handleCastCurse` now PRESERVES a supplied id (`curse.castId ?? ++seq`, falling back
+to the server seq only for older clients). Demo broker fans the payload verbatim, so
+it's consistent there too. Worker change auto-deploys with the `jlhs-multiplayer`
+build.
 
 **v1036 — randomized answered-overlay reads as a re-roll, not a pending state.**
 The seeker's `PendingAnswerOverlay` in the `randomizeOwed` state (a question the

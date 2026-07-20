@@ -2095,7 +2095,14 @@ export class GameRoom {
         // so a seeker who reconnects/swaps devices recovers it (delivered as
         // a `curseBacklog` on join). The stamped copy is what we fan out, so
         // every recipient shares the same `castId` and dedups a re-delivery.
-        const stamped: CursePayload = { ...curse, castId: ++this.curseCastSeq };
+        // v1037: PREFER a client-supplied `castId` — the hider stamps it so its
+        // own `castCurses` mirror and the seekers' `receivedCurses` share the id
+        // (so a seeker's `curseCleared` relay matches the hider's entry). Fall
+        // back to the server seq only for an older client that sends none.
+        const stamped: CursePayload = {
+            ...curse,
+            castId: curse.castId ?? ++this.curseCastSeq,
+        };
         this.castCurses.push(stamped);
         // Fan out to all online seekers.
         for (const [pid, c] of this.conns.entries()) {

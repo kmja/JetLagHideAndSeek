@@ -105,6 +105,19 @@ const DestinationPicker = lazy(() => import("./DestinationPicker"));
  * rollable curse" button) can identify which curses trigger the
  * dice-roll flow without duplicating the list.
  */
+/**
+ * A unique client-side `castId` for a curse (v1037). Time-based + a monotonic
+ * counter so two casts in the same millisecond never collide; the huge value
+ * can't clash with the server's small monotonic seq (used for older clients).
+ * Both the hider's `castCurses` mirror and the seekers' `receivedCurses` entry
+ * carry this SAME id, so a seeker's `curseCleared` relay matches on the hider.
+ */
+let castIdCounter = 0;
+function nextClientCastId(): number {
+    castIdCounter = (castIdCounter + 1) % 1000;
+    return Date.now() * 1000 + castIdCounter;
+}
+
 /** mm:ss (or h:mm:ss) from a whole-second count, for the film timer. */
 function formatClock(totalSeconds: number): string {
     const s = Math.max(0, Math.floor(totalSeconds));
@@ -751,10 +764,18 @@ export function CastCurseDialog({
 
         // The exact payload sent to the seekers — recorded locally too so the
         // hider's own active-curse list (v906) mirrors what the seekers see.
+        // v1037: the CLIENT stamps the `castId` so the hider's local
+        // `castCurses` entry AND the seekers' `receivedCurses` entry share the
+        // SAME id from the start. Previously the server assigned the id and fed
+        // it only to the seekers, so the hider's entry had `castId: undefined`
+        // and a seeker's `curseCleared` relay never matched it (the "I cleared
+        // it but the hider still shows it active" bug). The server preserves a
+        // supplied id (only assigning one when absent, for older clients).
         const payload = {
             name: card.name,
             description: card.description,
             castingCost: card.castingCost ?? null,
+            castId: nextClientCastId(),
             ...enforceParams(),
         };
 
