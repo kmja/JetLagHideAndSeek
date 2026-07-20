@@ -1,6 +1,7 @@
 import { useStore } from "@nanostores/react";
-import { Ban, Camera, Check, ImagePlus, Trash2 } from "lucide-react";
+import { Ban, Camera, Check, ImagePlus, Trash2, X } from "lucide-react";
 import { useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { toast } from "react-toastify";
 
 import { PhotoCensorDialog } from "@/components/PhotoCensorDialog";
@@ -53,6 +54,8 @@ export const PhotoQuestionComponent = ({
     const $gameSize = useStore(gameSize);
     const $role = useStore(playerRole);
     const $endgame = useStore(endgameStartedAt);
+    // v1039: full-screen lightbox for a closer look at the answer photo.
+    const [lightbox, setLightbox] = useState<string | null>(null);
     const isHideTeam = $role === "hider";
     const inEndgame = $endgame !== null;
     // v869: in a multiplayer game the HIDER captures + sends the photo over
@@ -207,7 +210,8 @@ export const PhotoQuestionComponent = ({
                             <img
                                 src={imgSrc}
                                 alt={subtypeLabel}
-                                className="w-full rounded-md border border-border max-h-[300px] object-contain bg-black/30"
+                                onClick={() => setLightbox(imgSrc)}
+                                className="w-full rounded-md border border-border max-h-[300px] object-contain bg-black/30 cursor-zoom-in"
                             />
                             {/* v936: only the CAPTURING side (hide team /
                                 offline) may remove/replace a photo. A
@@ -221,7 +225,8 @@ export const PhotoQuestionComponent = ({
                                     variant="destructive"
                                     size="sm"
                                     className="absolute top-1 right-1 h-7 px-2"
-                                    onClick={async () => {
+                                    onClick={async (e) => {
+                                        e.stopPropagation();
                                         const ok = await appConfirm({
                                             title: "Remove this photo?",
                                             confirmLabel: "Remove",
@@ -409,6 +414,33 @@ export const PhotoQuestionComponent = ({
                     )}
                 </div>
             </SidebarMenuItem>
+            {lightbox &&
+                createPortal(
+                    <div
+                        className="fixed inset-0 z-[1200] bg-black/90 flex items-center justify-center p-4"
+                        onClick={() => setLightbox(null)}
+                        role="dialog"
+                        aria-label="Photo"
+                    >
+                        <img
+                            src={lightbox}
+                            alt={subtypeLabel}
+                            className="max-w-full max-h-full object-contain rounded-lg shadow-2xl"
+                        />
+                        <button
+                            type="button"
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                setLightbox(null);
+                            }}
+                            aria-label="Close photo"
+                            className="absolute top-4 right-4 flex items-center justify-center rounded-full bg-white/15 hover:bg-white/25 text-white p-2"
+                        >
+                            <X className="w-6 h-6" strokeWidth={2.5} />
+                        </button>
+                    </div>,
+                    document.body,
+                )}
         </QuestionCard>
     );
 };

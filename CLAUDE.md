@@ -428,7 +428,14 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v1038`. Use `git log` for the per-version detail;
+build stamp. Current: `v1039`. Use `git log` for the per-version detail;
+
+**v1039 — tap a photo-answer in the questions log to open it in a lightbox.**
+The received photo `<img>` in `cards/photo.tsx` (shown in the expanded log card on
+both roles) is now `cursor-zoom-in` + opens a full-screen `createPortal` lightbox
+(black backdrop + close X, tap-to-dismiss) for a closer look — matching the
+`PendingAnswerOverlay` answered-photo lightbox (v1019). The hide-team "Remove
+photo" overlay button `stopPropagation`s so it doesn't also open the lightbox.
 
 **v1038 — Randomize re-roll is a dice-roll DIALOG (deterministic settle), not a
 straight-to-configure jump.** Tapping "Ask new" on the seeker's randomized-question
