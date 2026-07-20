@@ -102,7 +102,8 @@ function call<T>(
         | "holedMask"
         | "bufferPoints"
         | "bufferAndUnion"
-        | "landFromWater",
+        | "landFromWater"
+        | "dissolveWater",
     payload: unknown,
     onPhase?: (phase: string) => void,
 ): Promise<T> {
@@ -247,6 +248,21 @@ export async function landFromWater(
         water,
         bbox,
         seeker: { lat, lng },
+    });
+}
+
+/**
+ * v1012: union captured water pieces into their real bodies (dissolving the
+ * redundant tile-boundary vertices) OFF the main thread. Position-independent,
+ * so the client caches it per water-version and every downstream buffer reuses
+ * the small dissolved shape. REJECTS if the worker is unavailable. `null` on an
+ * empty/degenerate input.
+ */
+export async function dissolveWater(
+    features: Feature[],
+): Promise<Feature<Polygon | MultiPolygon> | null> {
+    return call<Feature<Polygon | MultiPolygon> | null>("dissolveWater", {
+        features,
     });
 }
 

@@ -21,6 +21,7 @@ import { baseTileLayer, polyGeoJSON, thunderforestApiKey } from "@/lib/context";
 import { satelliteView } from "@/lib/gameSetup";
 import { buildStyle } from "@/lib/mapStyle";
 import { PLAY_AREA_COLOR } from "@/lib/playAreaStyle";
+import { installMissingImageHandler } from "@/lib/protomapsStyle";
 import { resolvedTheme } from "@/lib/theme";
 import { cn } from "@/lib/utils";
 
@@ -244,7 +245,10 @@ export function ThermometerPreviewMap({
                 attributionControl={false}
                 dragRotate={false}
                 touchPitch={false}
-                onLoad={() => fit(false)}
+                onLoad={(e) => {
+                    installMissingImageHandler(e.target);
+                    fit(false);
+                }}
                 style={{ width: "100%", height: "100%" }}
             >
                 {colderHalf && (

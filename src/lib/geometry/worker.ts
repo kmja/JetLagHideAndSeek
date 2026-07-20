@@ -141,6 +141,11 @@ type InMessage =
           id: number;
           type: "landFromWater";
           payload: LandFromWaterPayload;
+      }
+    | {
+          id: number;
+          type: "dissolveWater";
+          payload: { features: Feature[] };
       };
 
 // The world rectangle we punch the play area out of — byte-identical to
@@ -401,9 +406,14 @@ function unionPolygonsGently(
             return 0;
         }
     });
-    let acc = gentleSimplify(ps[0], 0.0002) as Feature<Polygon | MultiPolygon>;
+    // v1012: union the RAW pieces (no per-piece pre-simplify — that could
+    // self-intersect a narrow channel and make its union throw, silently
+    // DROPPING that water so its shore read "further"). Only the accumulator is
+    // gently simplified, and only once it grows large, to keep the incremental
+    // union fast.
+    let acc = ps[0] as Feature<Polygon | MultiPolygon>;
     for (let i = 1; i < ps.length; i++) {
-        const p = gentleSimplify(ps[i], 0.0002);
+        const p = ps[i];
         try {
             const u = union(featureCollection([acc, p]) as never) as Feature<
                 Polygon | MultiPolygon
@@ -651,6 +661,16 @@ self.onmessage = async (e: MessageEvent<InMessage>) => {
             self.postMessage({ id, ok: true, result });
         } else if (type === "landFromWater") {
             const result = landFromWaterImpl(msg.payload);
+            self.postMessage({ id, ok: true, result });
+        } else if (type === "dissolveWater") {
+            // v1012: union the captured water pieces into their real bodies
+            // (dissolving the redundant tile-boundary vertices) ONCE, so the
+            // client can cache it per water-version and every buffer reuses a
+            // small shape instead of re-unioning 100+ pieces (which piled up in
+            // this single worker and timed out).
+            const result = unionPolygonsGently(
+                (msg.payload.features ?? []).filter((f) => f && f.geometry),
+            );
             self.postMessage({ id, ok: true, result });
         } else {
             self.postMessage({

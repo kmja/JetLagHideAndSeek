@@ -453,6 +453,19 @@ export function InlineLocationPicker({
         ) {
             return null;
         }
+        // v1012: DON'T plot candidate dots for the full-geometry water families
+        // (body-of-water / coastline). Their "candidates" are water-body / sea
+        // centroids, but the closer/further overlay buffers the actual water
+        // GEOMETRY — so a dot on a small pond that the buffer doesn't include
+        // reads as a water marker that "doesn't affect the math" (confusing, per
+        // the user). The overlay region IS the answer; the dots only add noise.
+        if (
+            impactType === "body-of-water" ||
+            impactType === "coastline" ||
+            impactType === "sea-level"
+        ) {
+            return null;
+        }
         return {
             type: "FeatureCollection",
             features: candidatePoints.map((c) => ({
@@ -464,7 +477,7 @@ export function InlineLocationPicker({
                 },
             })),
         } as GeoJSON.FeatureCollection;
-    }, [impactMode, candidatePoints]);
+    }, [impactMode, impactType, candidatePoints]);
 
     const [gpsState, setGpsState] = useState<"unknown" | "granted" | "denied">(
         "unknown",

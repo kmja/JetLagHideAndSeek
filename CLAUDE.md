@@ -428,7 +428,47 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v1011`. Use `git log` for the per-version detail;
+build stamp. Current: `v1012`. Use `git log` for the per-version detail;
+
+**v1012 — body-of-water: cache the water DISSOLVE per version (kills the
+intermittent "ok → threw → arcgis" timeout) + no dropped narrow water + markers
+off + styleimagemissing silenced.** The v1009 diagnostic caught the real failure:
+opening the configure dialog ONCE logged the SAME 126-feature/42825-vertex input
+computing three times — `bufferAndUnion ok`, then `threw`, then `arcgis ok`.
+Root cause: `captureBasemapWater` accumulates water pieces on every map idle and
+each new piece bumped `basemapWaterVersion`, so the (expensive) 126-piece union
+re-ran on every buffer call and the CONCURRENT re-unions piled up in the single
+geometry worker and timed out (30 s call cap → "threw" → slow arcgis fallback →
+the overlay that "comes in after"). Fixes:
+- **Cache the dissolve per (play area, water version).** New worker op
+  `dissolveWater` (`geometry/worker.ts`/`client.ts`) unions the pieces into their
+  real bodies ONCE; `getDissolvedBasemapWater`/`getDissolvedBasemapSea`
+  (`basemapWater.ts`) memoise the Promise per version, so body-of-water /
+  coastline / same-landmass all reuse ONE small dissolved shape and the buffer
+  works on that (fast, never piles up). Falls back to the raw pieces if the
+  dissolve fails, then to cold OSM.
+- **Debounce the version bumps** (`bumpWaterVersionDebounced`, 1.2 s) so a burst
+  of idles (panning / an app-switch reloading tiles) bumps at most once.
+- **No dropped narrow water:** `unionPolygonsGently` no longer pre-simplifies
+  each piece (a 20 m simplify could self-intersect a narrow channel → its union
+  throws → that water silently dropped → its shore read "further"). It unions the
+  RAW pieces and only simplifies the ACCUMULATOR once it grows.
+- **Body-of-water candidate MARKERS removed** (`InlineLocationPicker`
+  `measuringDotsFC` skips body-of-water/coastline/sea-level) — their dots are
+  water-body centroids, but the overlay buffers the water GEOMETRY, so a dot on a
+  small pond the buffer doesn't include read as a marker that "doesn't affect the
+  math" (user report). The overlay region IS the answer.
+- **`styleimagemissing` console spam silenced** on the four maps that lacked the
+  handler (`ThermometerPreviewMap`, `ZonePreviewMap`, `TransitRoutePicker`, and
+  the shared helper) — the Protomaps road layers reference per-number highway
+  shields absent from the sprite; `installMissingImageHandler` supplies a 1×1
+  transparent placeholder.
+Known-still-open (need the next on-device console read): the lower-Manhattan
+"closer marked further" if it's a CAPTURE-completeness gap (the Hudson / southern
+harbour never captured by any map) rather than the now-fixed union drop — the
+`[bow]` diag's dissolved-piece count will show which; if it's completeness, the
+deterministic headless pmtiles read (dormant `ensureBasemapWaterForArea`) is the
+next lever, now safe under the cached dissolve.
 
 **v1011 — unify same-landmass + coastline on the basemap-water base, and fix
 body-of-water "closer marked further" (union-first, not aggressive simplify).**

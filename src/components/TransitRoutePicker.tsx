@@ -16,6 +16,7 @@ import {
     type TransitMode,
 } from "@/lib/gameSetup";
 import { buildStyle } from "@/lib/mapStyle";
+import { installMissingImageHandler } from "@/lib/protomapsStyle";
 import { resolvedTheme } from "@/lib/theme";
 import { cn } from "@/lib/utils";
 import {
@@ -364,7 +365,10 @@ function RoutePreviewMap({
                 mapStyle={mapStyle}
                 interactive={false}
                 attributionControl={false}
-                onLoad={fit}
+                onLoad={(e) => {
+                    installMissingImageHandler(e.target);
+                    fit();
+                }}
                 style={{ width: "100%", height: "100%" }}
             >
                 {lineFC && (

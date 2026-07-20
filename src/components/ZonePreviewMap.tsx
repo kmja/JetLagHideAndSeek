@@ -8,6 +8,7 @@ import MapGL, { Layer, type MapRef, Source } from "react-map-gl/maplibre";
 import { baseTileLayer, thunderforestApiKey } from "@/lib/context";
 import { satelliteView } from "@/lib/gameSetup";
 import { buildStyle } from "@/lib/mapStyle";
+import { installMissingImageHandler } from "@/lib/protomapsStyle";
 import { PLAY_AREA_COLOR } from "@/lib/playAreaStyle";
 import { resolvedTheme } from "@/lib/theme";
 import { cn } from "@/lib/utils";
@@ -156,7 +157,10 @@ export function ZonePreviewMap({
                 attributionControl={false}
                 // Needed for the canvas snapshot (toDataURL) to return pixels.
                 preserveDrawingBuffer={snapshot}
-                onLoad={fit}
+                onLoad={(e) => {
+                    installMissingImageHandler(e.target);
+                    fit();
+                }}
                 onIdle={
                     snapshot
                         ? () => {

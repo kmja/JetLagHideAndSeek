@@ -36,8 +36,8 @@ import { bufferAndUnion, bufferPointsUnion } from "@/lib/geometry/client";
 import { filterCoastlineByStraitRule } from "@/maps/questions/coastlineStrait";
 import {
     basemapWaterVersion,
-    getBasemapSeaPolys,
-    getBasemapWaterPolys,
+    getDissolvedBasemapSea,
+    getDissolvedBasemapWater,
     hasBasemapWater,
 } from "@/maps/api/basemapWater";
 import { lastBodyOfWaterDiag } from "@/lib/debugState";
@@ -233,10 +233,10 @@ export const determineMeasuringBoundary = async (
             // through `bufferAndUnion` in `bufferedDeterminer` like
             // body-of-water. Cold fallback (no basemap sea captured): the OSM
             // coastline lines + strait rule below.
-            const sea = getBasemapSeaPolys(bbox4(bBox));
+            const sea = await getDissolvedBasemapSea(bbox4(bBox));
             if (sea && sea.length > 0) {
                 // eslint-disable-next-line no-console
-                console.log(`[coast] using basemap sea polys: ${sea.length}`);
+                console.log(`[coast] using dissolved basemap sea: ${sea.length}`);
                 return sea;
             }
             // eslint-disable-next-line no-console
@@ -557,18 +557,16 @@ export const determineMeasuringBoundary = async (
             // and the label agree by construction — no separate coastline fetch,
             // no OSM `natural=water`, no `__waterArea` hack, no coastline
             // assembly / polygonize / flood-fill. The map data IS the answer.
-            // v1008: back to the v1000 behaviour the user confirmed worked
-            // ("better than ever") — return the RAW basemap water captured off
-            // the loaded map (`querySourceFeatures`), buffered as-is. The two
-            // speculative "reliability" additions on top of v1000 both regressed
-            // this to NO overlay: v1001's `turf.simplify` (real MVT ocean
-            // geometry can self-intersect after a radial-distance simplify, and
-            // the buffer of that drops the sea) and v1002's headless pmtiles read
-            // (untestable offline; it REPLACED the working capture with geometry
-            // that over-loaded / broke the buffer). Neither is called anymore.
-            const basemapWater = getBasemapWaterPolys(bbox4(bBox));
-            if (basemapWater && basemapWater.length > 0) {
-                return basemapWater;
+            // v1012: return the DISSOLVED basemap water — the captured
+            // tile-pieces unioned into their real bodies ONCE per water-version
+            // (cached, off-thread), so the downstream buffer works on ONE small
+            // shape instead of re-unioning 100+ pieces on every call (which
+            // piled up in the worker and intermittently timed out — the "ok →
+            // threw → arcgis" trail). Falls back to the RAW pieces if the
+            // dissolve failed, then to the cold OSM path if nothing was captured.
+            const dissolvedWater = await getDissolvedBasemapWater(bbox4(bBox));
+            if (dissolvedWater && dissolvedWater.length > 0) {
+                return dissolvedWater;
             }
             // COLD FALLBACK (no map has captured the basemap water yet — rare,
             // since the configure map frames the play area and captures it before

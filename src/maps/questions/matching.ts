@@ -31,7 +31,7 @@ import {
 import { hidingZone } from "@/lib/hiderRole";
 import { landFromWater } from "@/lib/geometry/client";
 import {
-    getBasemapWaterPolys,
+    getDissolvedBasemapWater,
     hasBasemapWater,
 } from "@/maps/api/basemapWater";
 import { fetchAreaLandPolygons } from "@/maps/api/coast";
@@ -597,7 +597,7 @@ export const determineMatchingBoundary = memoize(
                             b[3],
                         ];
                         const water =
-                            getBasemapWaterPolys(bboxT) ?? [];
+                            (await getDissolvedBasemapWater(bboxT)) ?? [];
                         landmassPart = await landFromWater(
                             water as Feature[],
                             bboxT,
@@ -606,7 +606,7 @@ export const determineMatchingBoundary = memoize(
                         );
                         // eslint-disable-next-line no-console
                         console.log(
-                            `[landmass] basemap-water waterPolys=${water.length} → part=${landmassPart ? "found" : "null"}`,
+                            `[landmass] basemap-water dissolvedPolys=${water.length} → part=${landmassPart ? "found" : "null"}`,
                         );
                     } catch (e) {
                         // eslint-disable-next-line no-console

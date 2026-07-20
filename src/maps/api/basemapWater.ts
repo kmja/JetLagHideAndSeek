@@ -5,6 +5,7 @@ import { atom } from "nanostores";
 import type { MapRef } from "react-map-gl/maplibre";
 
 import { mapGeoLocation, polyGeoJSON } from "@/lib/context";
+import { dissolveWater } from "@/lib/geometry/client";
 import { pmtilesUrl } from "@/lib/protomapsStyle";
 import { fetchBasemapLayerPolys } from "@/maps/api/basemapTiles";
 import { playAreaSignature } from "@/maps/geo-utils/playAreaIndex";
@@ -138,10 +139,25 @@ export function captureBasemapWater(map: MaplibreMap): void {
             });
             added = true;
         }
-        if (added) basemapWaterVersion.set(basemapWaterVersion.get() + 1);
+        if (added) bumpWaterVersionDebounced();
     } catch {
         /* never throw from a map idle handler */
     }
+}
+
+// v1012: coalesce version bumps. The capture fires on every map idle and each
+// new tile-piece would otherwise bump the version, forcing the (expensive)
+// water dissolve + buffer to recompute repeatedly and pile up in the single
+// geometry worker — which is what intermittently TIMED OUT ("bufferAndUnion
+// threw" on the same input). Debounce so a burst of idles (panning / an
+// app-switch reloading many tiles) bumps the version at most once per window.
+let bumpTimer: ReturnType<typeof setTimeout> | null = null;
+function bumpWaterVersionDebounced(): void {
+    if (bumpTimer !== null) return;
+    bumpTimer = setTimeout(() => {
+        bumpTimer = null;
+        basemapWaterVersion.set(basemapWaterVersion.get() + 1);
+    }, 1200);
 }
 
 // In-flight/done headless-ensure per play area (fetch the tiles at most once).
@@ -339,6 +355,55 @@ export function getBasemapSeaPolys(
         return /^(ocean|sea|bay|strait|channel)$/.test(kind);
     });
     return sea.length > 0 ? sea : null;
+}
+
+/**
+ * v1012: the captured water DISSOLVED into its real bodies (redundant
+ * tile-boundary vertices removed), computed ONCE per (play area, water version)
+ * off the main thread and cached. body-of-water / coastline / same-landmass all
+ * reuse this small shape, so the expensive 100+-piece union runs a single time
+ * per version instead of on every buffer call (the concurrent re-unions that
+ * piled up in the worker and timed out). Returns `[dissolved]` (one feature) or
+ * `null` (nothing captured / dissolve failed → caller falls back). `sea` = only
+ * the ocean/sea/bay polygons (coastline); else all water.
+ */
+const dissolveCache = new Map<
+    string,
+    Promise<Feature<Polygon | MultiPolygon> | null>
+>();
+async function getDissolvedWater(
+    bbox: [number, number, number, number] | undefined,
+    sea: boolean,
+): Promise<Feature<Polygon | MultiPolygon>[] | null> {
+    const polys = sea ? getBasemapSeaPolys(bbox) : getBasemapWaterPolys(bbox);
+    if (!polys || polys.length === 0) return null;
+    const key = `${playAreaKey()}:${basemapWaterVersion.get()}:${sea ? "sea" : "all"}:${polys.length}`;
+    let run = dissolveCache.get(key);
+    if (!run) {
+        if (dissolveCache.size > 8) dissolveCache.clear();
+        run = dissolveWater(polys as Feature[]).catch(() => null);
+        dissolveCache.set(key, run);
+    }
+    const dissolved = await run;
+    if (!dissolved) {
+        // Dissolve failed/rejected — let the caller buffer the raw pieces.
+        return polys;
+    }
+    return [dissolved];
+}
+
+/** Cached dissolved ALL-water bodies (body-of-water). */
+export function getDissolvedBasemapWater(
+    bbox?: [number, number, number, number],
+): Promise<Feature<Polygon | MultiPolygon>[] | null> {
+    return getDissolvedWater(bbox, false);
+}
+
+/** Cached dissolved SEA bodies (coastline). */
+export function getDissolvedBasemapSea(
+    bbox?: [number, number, number, number],
+): Promise<Feature<Polygon | MultiPolygon>[] | null> {
+    return getDissolvedWater(bbox, true);
 }
 
 /**
