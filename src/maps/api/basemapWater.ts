@@ -179,7 +179,7 @@ const ensured = new Map<string, Promise<void>>();
  * `querySourceFeatures` capture (or the cold OSM fallback) covers the first
  * paint. Memoised per play area; every failure is a silent no-op.
  */
-const ENSURE_AWAIT_CAP_MS = 2500;
+const ENSURE_AWAIT_CAP_MS = 4500;
 export function ensureBasemapWaterForArea(
     bbox: [number, number, number, number],
 ): Promise<void> {
@@ -196,8 +196,12 @@ export function ensureBasemapWaterForArea(
         // kilometres anyway.
         const feats = await fetchBasemapLayerPolys(url, bbox, "water", {
             targetZoom: 11,
-            maxTiles: 16,
+            maxTiles: 24,
         });
+        // eslint-disable-next-line no-console
+        console.log(
+            `[water] headless read: ${feats ? feats.length : "null"} water polys @z11`,
+        );
         if (!feats || feats.length === 0) return;
         let entry = cache.get(key);
         if (!entry) {
@@ -375,6 +379,21 @@ async function getDissolvedWater(
     bbox: [number, number, number, number] | undefined,
     sea: boolean,
 ): Promise<Feature<Polygon | MultiPolygon>[] | null> {
+    // v1013: DETERMINISTICALLY complete the water FIRST — read the whole
+    // play-area `water` layer straight off the pmtiles archive at a fixed zoom
+    // (viewport-independent), so the buffer isn't computed on a half-loaded
+    // viewport capture (which left an adjacent water body missing → near-shore
+    // land wrongly "further", and made the overlay change after the map showed
+    // as more tiles idled in). Bounded (4.5 s) so it can't deadlock the veil;
+    // degrades to the capture on any failure. Memoised per play area, so it runs
+    // once then every open is instant + complete.
+    if (bbox) {
+        try {
+            await ensureBasemapWaterForArea(bbox);
+        } catch {
+            /* degrade to the viewport capture */
+        }
+    }
     const polys = sea ? getBasemapSeaPolys(bbox) : getBasemapWaterPolys(bbox);
     if (!polys || polys.length === 0) return null;
     const key = `${playAreaKey()}:${basemapWaterVersion.get()}:${sea ? "sea" : "all"}:${polys.length}`;

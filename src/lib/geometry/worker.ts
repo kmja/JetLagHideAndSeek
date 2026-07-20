@@ -314,13 +314,34 @@ function distanceToFeatureKm(
                     : [line as Feature];
             let best = Infinity;
             for (const l of lines) {
-                try {
-                    const d = pointToLineDistance(seeker, l as never, {
-                        units: "kilometers",
-                    });
-                    if (d < best) best = d;
-                } catch {
-                    /* skip */
+                // v1013: polygonToLine yields a MultiLineString for a ring set
+                // with holes (a sea with island holes), and pointToLineDistance
+                // THROWS on a MultiLineString — which left `best` at Infinity, so
+                // the caller's minKm was non-finite and it never buffered the sea
+                // (coastline fell to the slow arcgis path). Flatten each part to a
+                // LineString so every ring contributes a distance.
+                const lg = l.geometry as
+                    | import("geojson").LineString
+                    | import("geojson").MultiLineString
+                    | undefined;
+                const parts: number[][][] =
+                    lg?.type === "MultiLineString"
+                        ? (lg.coordinates as number[][][])
+                        : lg?.type === "LineString"
+                          ? [lg.coordinates as number[][]]
+                          : [];
+                for (const coords of parts) {
+                    if (coords.length < 2) continue;
+                    try {
+                        const d = pointToLineDistance(
+                            seeker,
+                            { type: "LineString", coordinates: coords } as never,
+                            { units: "kilometers" },
+                        );
+                        if (d < best) best = d;
+                    } catch {
+                        /* skip a degenerate ring */
+                    }
                 }
             }
             return best;

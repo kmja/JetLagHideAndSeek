@@ -798,7 +798,17 @@ export function InlineLocationPicker({
         !referencePoint ||
         (Number.isFinite(referencePoint.lat) &&
             Number.isFinite(referencePoint.lng));
-    const impactReady = !impactMode || impact !== null;
+    // v1013: hold the veil until the overlay is actually DRAWABLE, not just
+    // until `impact` first exists. For the full-geometry families
+    // (body-of-water / coastline / measuring-geom / matching-region /
+    // sea-level) `impact.loading` stays true while the buffer/region computes,
+    // so revealing on `impact !== null` alone showed a bare map for a beat and
+    // the overlay "came in after" (the reported bug). Waiting on `!loading`
+    // reveals the map WITH its overlay. The 6 s dialog backstop
+    // (`AddQuestionDialog`) + the picker's own 12 s tile timeout still prevent a
+    // deadlock if a compute stalls.
+    const impactReady =
+        !impactMode || (impact !== null && !impact.loading);
     const { showVeil, timedOut, onLoad, onIdle } = useMapTilesReady({
         dataReady: referenceReady && impactReady,
         resetKey: `${referencePoint?.lat ?? ""},${referencePoint?.lng ?? ""},${impactMode ?? ""}`,

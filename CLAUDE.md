@@ -428,7 +428,39 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v1012`. Use `git log` for the per-version detail;
+build stamp. Current: `v1013`. Use `git log` for the per-version detail;
+
+**v1013 — reveal the configure map WITH its overlay (veil waits for the
+buffer) + deterministic complete water (headless read) + coastline off the fast
+path.** Three connected fixes, from the user's "the veil lifts before the
+overlay is ready" + the `[bow]` diag showing `verts` climbing 6627→10052 on ONE
+open (the viewport capture filling in AFTER the first compute):
+- **Veil holds until the overlay is drawable.** `InlineLocationPicker`'s
+  `impactReady` was `impact !== null` — but `impact.loading` stays true while a
+  full-geometry buffer computes, so the map revealed bare and the overlay "came
+  in after". Now `impact !== null && !impact.loading`, so the dialog's
+  `pickerReady` gate (and the 6 s backstop) reveal the map WITH its overlay.
+- **Deterministic complete water.** The `querySourceFeatures` capture only sees
+  a display map's loaded viewport tiles, so the first body-of-water compute ran
+  on half-loaded water (an adjacent body missing → near-shore land wrongly
+  "further"; the overlay then changed as more tiles idled in). `getDissolvedWater`
+  (`basemapWater.ts`) now `await`s `ensureBasemapWaterForArea` FIRST — the
+  dormant-since-v1008 headless pmtiles read (whole play-area `water` layer at a
+  fixed z11, viewport-independent), now safe under v1012's cached dissolve. It's
+  bounded (4.5 s, under the veil backstop), memoised per play area (runs once →
+  every open instant + complete), marks the entry `headless` so the capture stops
+  accumulating (kills the version-bump churn), and degrades to the capture on any
+  failure. `[water] headless read: N water polys` logs the result.
+- **Coastline off the slow arcgis path.** `distanceToFeatureKm` (`geometry/
+  worker.ts`) returned `Infinity` for a sea polygon with island HOLES —
+  `polygonToLine` yields a `MultiLineString` for a holed ring set and
+  `pointToLineDistance` THROWS on that, so `minKm` was non-finite and
+  `bufferAndUnion` never buffered the sea (`→ null` → arcgis fallback). Now it
+  flattens each `MultiLineString` ring to a `LineString`, so coastline buffers on
+  the fast worker path like body-of-water.
+Still watching (needs the next on-device read): whether the headless read
+returns complete NYC water (`[water] headless read: N`) — if N is 0/low, the
+pmtiles decode isn't reaching the archive on device and we fall back to capture.
 
 **v1012 — body-of-water: cache the water DISSOLVE per version (kills the
 intermittent "ok → threw → arcgis" timeout) + no dropped narrow water + markers
