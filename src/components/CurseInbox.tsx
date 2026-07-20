@@ -313,7 +313,7 @@ export function CurseInbox({
                                     <img
                                         src={curse.photoUrl}
                                         alt={`${curse.name} proof photo`}
-                                        className="mt-2 w-full max-h-40 rounded-md object-cover border border-purple-500/30"
+                                        className="mt-2 w-full max-h-40 rounded-md object-contain bg-black/20 border border-purple-500/30"
                                     />
                                 )}
                                 {curse.filmSeconds != null && (
@@ -420,7 +420,7 @@ export function CurseInbox({
                             <img
                                 src={resolvedDialog.photoUrl}
                                 alt={`${resolvedDialog.name} proof photo`}
-                                className="w-full max-h-60 rounded-md object-cover border border-purple-500/30"
+                                className="w-full max-h-60 rounded-md object-contain bg-black/20 border border-purple-500/30"
                             />
                         )}
                         {resolvedDialog?.filmSeconds != null && (

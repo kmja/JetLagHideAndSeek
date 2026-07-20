@@ -355,6 +355,7 @@ export function PendingAnswerOverlay({
             <QuestionOverlayCard
                 categoryId={dShown.id}
                 summary={cardSummary}
+                categoryEyebrow
                 eyebrow={
                     answered ? (
                         <span className="text-success">Answered</span>

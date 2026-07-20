@@ -94,6 +94,10 @@ export interface QuestionSummary {
     /** The one big uppercase headline, e.g. "5 km Radar",
      *  "Matching · Museum". */
     bigLabel: string;
+    /** The category label alone ("Matching", "Measuring", …). The card's
+     *  `categoryEyebrow` mode lifts this into the eyebrow and shows only the
+     *  subtype as the big label. */
+    category?: string;
     /** One short description line under the label. */
     detail?: string;
 }
@@ -159,6 +163,7 @@ export function summarizeQuestion(q: {
             const unit = d.unit as string | undefined;
             const u = unit === "miles" ? "mi" : unit === "meters" ? "m" : "km";
             return {
+                category: categoryLabel,
                 bigLabel:
                     radius !== undefined
                         ? `${radius} ${u} ${categoryLabel}`
@@ -169,6 +174,7 @@ export function summarizeQuestion(q: {
         case "thermometer": {
             const dist = d.distance as string | undefined;
             return {
+                category: categoryLabel,
                 bigLabel: dist
                     ? `${categoryLabel} · ${dist}`
                     : categoryLabel,
@@ -179,6 +185,7 @@ export function summarizeQuestion(q: {
             const subType = d.type ? String(d.type) : undefined;
             const subLabel = subtypeLabel(subType) ?? undefined;
             return {
+                category: categoryLabel,
                 icon: getSubtypeIcon(subType) ?? undefined,
                 bigLabel: subLabel
                     ? `${categoryLabel} · ${subLabel}`
@@ -190,6 +197,7 @@ export function summarizeQuestion(q: {
             const subType = d.type ? String(d.type) : undefined;
             const subLabel = subtypeLabel(subType) ?? undefined;
             return {
+                category: categoryLabel,
                 icon: getSubtypeIcon(subType) ?? undefined,
                 bigLabel: subLabel
                     ? `${categoryLabel} · ${subLabel}`
@@ -201,6 +209,7 @@ export function summarizeQuestion(q: {
             const subType = d.locationType ? String(d.locationType) : undefined;
             const subLabel = subtypeLabel(subType) ?? undefined;
             return {
+                category: categoryLabel,
                 icon: getSubtypeIcon(subType) ?? undefined,
                 bigLabel: subLabel
                     ? `${categoryLabel} · ${subLabel}`
@@ -212,6 +221,7 @@ export function summarizeQuestion(q: {
             const subType = d.type ? String(d.type) : undefined;
             const subLabel = subtypeLabel(subType) ?? undefined;
             return {
+                category: categoryLabel,
                 icon: getSubtypeIcon(subType) ?? undefined,
                 bigLabel: subLabel
                     ? `${categoryLabel} · ${subLabel}`
@@ -230,6 +240,7 @@ export function QuestionOverlayCard({
     categoryId,
     summary,
     eyebrow,
+    categoryEyebrow = false,
     right,
     answered = false,
     error = false,
@@ -243,6 +254,10 @@ export function QuestionOverlayCard({
     /** Small eyebrow line above the big label (e.g. "10m ago"). Caller
      *  supplies its own colour; the slot provides the size/tracking. */
     eyebrow?: ReactNode;
+    /** Lift the question's CATEGORY ("Matching") into the eyebrow and show
+     *  only the subtype ("Museum") as the big label — the on-map overlay
+     *  look. Any caller `eyebrow` is appended after the category. */
+    categoryEyebrow?: boolean;
     /** Right-hand slot — timer, retry button, countdown, chevron, … */
     right?: ReactNode;
     answered?: boolean;
@@ -271,6 +286,30 @@ export function QuestionOverlayCard({
     const bright = error || answered ? stateColor : base;
     const Icon = summary.icon ?? meta?.icon ?? Hourglass;
     const interactive = Boolean(onClick);
+
+    // v1020: category-eyebrow mode — lift the category into the eyebrow and
+    // strip its "Category · " prefix off the big label so only the subtype
+    // shows big. A caller-supplied eyebrow (status) follows the category.
+    const cat = summary.category;
+    const prefix = cat ? `${cat} · ` : null;
+    const useCatEyebrow = categoryEyebrow && Boolean(cat);
+    const displayBigLabel =
+        useCatEyebrow && prefix && summary.bigLabel.startsWith(prefix)
+            ? summary.bigLabel.slice(prefix.length)
+            : summary.bigLabel;
+    const effectiveEyebrow: ReactNode = useCatEyebrow ? (
+        <span className="text-[color:var(--overlay-card-desc)]">
+            {cat}
+            {eyebrow ? (
+                <>
+                    {" · "}
+                    {eyebrow}
+                </>
+            ) : null}
+        </span>
+    ) : (
+        eyebrow
+    );
 
     // Fire the one-shot celebratory flash only on the moment a question
     // flips from awaiting → answered (not on every mount/re-render, so an
@@ -354,16 +393,16 @@ export function QuestionOverlayCard({
                 (middle). Roomier horizontal padding (`px-5`) than the
                 icon-block flush so the text has space to breathe. */}
             <div className="min-w-0 flex-1 px-5 py-2 flex flex-col justify-center">
-                {eyebrow && (
+                {effectiveEyebrow && (
                     <div className="text-[10px] uppercase tracking-wider font-poppins font-bold leading-none mb-1 truncate">
-                        {eyebrow}
+                        {effectiveEyebrow}
                     </div>
                 )}
                 <div
                     className="font-display font-extrabold uppercase leading-[1.0] text-lg sm:text-xl truncate text-[color:var(--cat-label)]"
                     style={{ letterSpacing: "-0.01em" }}
                 >
-                    {summary.bigLabel}
+                    {displayBigLabel}
                 </div>
                 {summary.detail && (
                     <div className="text-[11px] sm:text-xs text-[color:var(--overlay-card-desc)] leading-snug truncate mt-0.5">

@@ -172,6 +172,7 @@ export function HiderUnansweredOverlay({
             <QuestionOverlayCard
                 categoryId={latest.id}
                 summary={summary}
+                categoryEyebrow
                 onClick={handleClick}
                 ariaLabel={`Answer ${summary.bigLabel} question`}
                 right={rightSlot}

@@ -53,10 +53,16 @@ import {
     mapLibreViewport,
 } from "@/lib/featureFlags";
 import {
+    endgameStartedAt,
     endgameZone,
     hidingPeriodEndsAt,
     playArea,
     revealedStation,
+    showBusRoutes,
+    showFerryRoutes,
+    showSubwayRoutes,
+    showTrainRoutes,
+    showTramRoutes,
 } from "@/lib/gameSetup";
 import { satelliteView } from "@/lib/gameSetup";
 import { stationLabelMaxChars } from "@/lib/debugState";
@@ -482,7 +488,11 @@ export function Map({ className }: MapProps) {
             return null;
         }
     }, [$endgameZone]);
-    // Frame the camera on the endgame zone the moment it's set.
+    // v1020: the moment the endgame zone is set, run the elimination flash
+    // that CUTS the map down to just that zone — flash everything OUTSIDE the
+    // zone (the ruled-out remainder) then settle framed on the zone, exactly
+    // like answering a question that narrows to one small area. Replaces the
+    // old plain gold-ring fitBounds.
     useEffect(() => {
         if (!$endgameZone) return;
         const map = mapRef.current?.getMap();
@@ -491,21 +501,65 @@ export function Map({ className }: MapProps) {
             const circle = turf.circle(
                 [$endgameZone.lng, $endgameZone.lat],
                 $endgameZone.radiusMeters / 1000,
-                { steps: 32, units: "kilometers" },
-            );
-            const [minX, minY, maxX, maxY] = turf.bbox(circle);
-            map.fitBounds(
-                [
-                    [minX, minY],
-                    [maxX, maxY],
-                ],
-                { padding: 64, duration: 1200, maxZoom: 16 },
-            );
+                { steps: 96, units: "kilometers" },
+            ) as GeoJSON.Feature<GeoJSON.Polygon>;
+            // Delta = the current remaining play area MINUS the zone (what the
+            // endgame rules out). Fall back to a big frame-minus-zone if the
+            // current remaining isn't available.
+            let delta: GeoJSON.Feature | null = null;
+            try {
+                const cur = asPolygonFeature(prevWorkingRef.current);
+                if (cur) {
+                    delta = turf.difference(
+                        turf.featureCollection([
+                            cur as never,
+                            circle as never,
+                        ]),
+                    ) as GeoJSON.Feature | null;
+                }
+            } catch {
+                delta = null;
+            }
+            if (delta && turf.area(delta) > 1) {
+                triggerEliminationFlash(delta, circle);
+            } else {
+                // Nothing meaningful to flash — just frame the zone.
+                const [minX, minY, maxX, maxY] = turf.bbox(circle);
+                map.fitBounds(
+                    [
+                        [minX, minY],
+                        [maxX, maxY],
+                    ],
+                    { padding: 64, duration: 1200, maxZoom: 16 },
+                );
+            }
         } catch (e) {
-            console.warn("endgame fitBounds failed:", e);
+            console.warn("endgame flash/fit failed:", e);
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [$endgameZone?.lat, $endgameZone?.lng, $endgameZone?.radiusMeters]);
+    // v1020: reaching the endgame turns OFF the hiding-zones overlay + every
+    // transit overlay — the seekers are at the zone and no longer need the
+    // candidate field or the transit lines; the map is now just the final
+    // zone. Fires once per endgame arming (a ref guards against re-firing so a
+    // seeker who deliberately re-enables an overlay during the endgame isn't
+    // fought). Cleared when the endgame resets (null) so a new round re-arms.
+    const $endgameStartedAt = useStore(endgameStartedAt);
+    const endgameOverlaysClearedRef = useRef(false);
+    useEffect(() => {
+        if ($endgameStartedAt === null) {
+            endgameOverlaysClearedRef.current = false;
+            return;
+        }
+        if (endgameOverlaysClearedRef.current) return;
+        endgameOverlaysClearedRef.current = true;
+        displayHidingZones.set(false);
+        showBusRoutes.set(false);
+        showFerryRoutes.set(false);
+        showSubwayRoutes.set(false);
+        showTrainRoutes.set(false);
+        showTramRoutes.set(false);
+    }, [$endgameStartedAt]);
     // Transit-route overlays per mode — shared with HiderBackgroundMap via
     // the useTransitRouteOverlays hook (fetch) + TransitRouteLayers
     // (render), so the seeker and hider maps never drift on transit.
@@ -997,7 +1051,28 @@ export function Map({ className }: MapProps) {
         // v911: a downward "cut" whoosh as the ruled-out slice flashes —
         // an answer landing reads as deliberate progress.
         play("elimination");
-        fitMapToFlash(delta);
+        // v1020: when the answer NARROWS the search to a small area (a radar
+        // "inside", a tight thermometer, etc.) the ruled-out `delta` is nearly
+        // the whole play area — framing it zooms all the way out, which is
+        // jarring and pointless. In that case skip the flash-fit and frame the
+        // (small) remaining area straight away; the red wash still plays over
+        // it. Only fit-to-delta when the delta is the meaningful slice (the
+        // remaining area is comparable in size or bigger).
+        let narrowedToSmall = false;
+        try {
+            if (remaining) {
+                const rArea = turf.area(remaining);
+                const dArea = turf.area(delta);
+                narrowedToSmall = rArea > 0 && rArea < dArea * 0.5;
+            }
+        } catch {
+            /* fall back to the flash-fit below */
+        }
+        if (narrowedToSmall && remaining) {
+            fitMapToRemaining(remaining);
+        } else {
+            fitMapToFlash(delta);
+        }
         flashTimersRef.current.forEach((t) => window.clearTimeout(t));
         flashTimersRef.current = [];
         // Blink the red wash on-off-on-off (two quick pulses), then leave
@@ -1230,13 +1305,21 @@ export function Map({ className }: MapProps) {
                     // the exact `working` geometry stored below
                     // (questionFinishedMapData + pending-clip) is untouched.
                     let maskInput: unknown = working;
-                    try {
-                        maskInput = turf.simplify(working as never, {
-                            tolerance: 0.0006,
-                            highQuality: false,
-                        });
-                    } catch {
-                        maskInput = working;
+                    // v1020: only simplify a DENSE boundary. The ~66 m
+                    // tolerance is invisible on a metro polygon but visibly
+                    // collapses a SMALL remaining area (a 500 m radar circle
+                    // → a low-poly octagon — the reported bug). A small
+                    // remaining area already has few vertices, so the
+                    // world-scale difference is cheap without simplifying.
+                    if (coordCountAtLeast(working, 1500) >= 1500) {
+                        try {
+                            maskInput = turf.simplify(working as never, {
+                                tolerance: 0.0006,
+                                highQuality: false,
+                            });
+                        } catch {
+                            maskInput = working;
+                        }
                     }
                     // v899: off the main thread — the world-scale
                     // turf.difference blocked the tab for a beat on a dense
@@ -2291,9 +2374,14 @@ export function Map({ className }: MapProps) {
                     )}
                 </FadeOverlay>
 
-                {/* v959: endgame focus — spotlight the final zone (dark mask
-                    everywhere else) + a bright gold ring. Drawn above the
-                    hiding-zones overlay, below pins. */}
+                {/* v1020: endgame focus — the endgame reduces the map to JUST
+                    the hider's zone, exactly like a question elimination: dim
+                    everything OUTSIDE the zone with the SAME elimination-mask
+                    fill (no gold spotlight ring — the user wanted the plain
+                    elimination look), leaving the zone as the only bright
+                    area. The elimination flash (fired when the zone is set)
+                    plays the "cut" beat over it. Drawn above the hiding-zones
+                    overlay, below pins. */}
                 {endgameFocusFC && (
                     <Source
                         id="endgame-focus"
@@ -2305,29 +2393,18 @@ export function Map({ className }: MapProps) {
                             type="fill"
                             filter={["==", ["get", "kind"], "mask"]}
                             paint={{
-                                "fill-color": "#0a0f16",
-                                "fill-opacity": 0.62,
+                                "fill-color": eliminationFillColor,
+                                "fill-opacity": eliminationFillOpacity,
                             }}
                         />
                         <Layer
-                            id="endgame-focus-ring"
+                            id="endgame-focus-outline"
                             type="line"
                             filter={["==", ["get", "kind"], "ring"]}
                             paint={{
-                                "line-color": "hsl(45, 93%, 58%)",
-                                "line-width": 4,
-                                "line-blur": 1,
-                            }}
-                        />
-                        <Layer
-                            id="endgame-focus-glow"
-                            type="line"
-                            filter={["==", ["get", "kind"], "ring"]}
-                            paint={{
-                                "line-color": "hsl(45, 93%, 58%)",
-                                "line-width": 12,
-                                "line-blur": 8,
-                                "line-opacity": 0.4,
+                                "line-color": eliminationFillColor,
+                                "line-width": 1.5,
+                                "line-opacity": eliminationOutlineOpacity,
                             }}
                         />
                     </Source>

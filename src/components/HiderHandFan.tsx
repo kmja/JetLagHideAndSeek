@@ -17,7 +17,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { appConfirm } from "@/lib/confirm";
-import { gameSize } from "@/lib/gameSetup";
+import { endgameStartedAt, gameSize } from "@/lib/gameSetup";
 import {
     type Card,
     type CurseCard,
@@ -1017,6 +1017,14 @@ function CardActions({
     // "Play" — unified language even though the underlying code
     // path differs (powerup → onPlayPowerup, curse → cast dialog).
     const playable = card.kind === "powerup" || card.kind === "curse";
+    // v1020: the Move powerup can't be played during the endgame (the hider is
+    // locked to their final spot — rulebook p7). Disable its Play button with
+    // an explanation instead of letting the tap fire and error.
+    const $endgame = useStore(endgameStartedAt);
+    const moveBlocked =
+        card.kind === "powerup" &&
+        card.powerup === "move" &&
+        $endgame !== null;
     return (
         <>
             <div className="flex items-stretch gap-2">
@@ -1024,6 +1032,7 @@ function CardActions({
                 {playable && (
                     <Button
                         type="button"
+                        disabled={moveBlocked}
                         onClick={() => {
                             if (card.kind === "powerup") {
                                 onPlayPowerup(card);
@@ -1038,6 +1047,12 @@ function CardActions({
                     </Button>
                 )}
             </div>
+            {moveBlocked && (
+                <p className="mt-2 text-xs text-muted-foreground leading-snug text-center">
+                    Move can't be played during the endgame — you're locked to
+                    your final hiding spot.
+                </p>
+            )}
         </>
     );
 }

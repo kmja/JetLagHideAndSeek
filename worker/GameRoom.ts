@@ -1996,6 +1996,19 @@ export class GameRoom {
         // replay last round's questions.
         this.game.roundFoundAt = null;
         this.game.questions = [];
+        // v1020: null the hiding-period clock on the canonical server state
+        // too. Previously we left `hidingPeriodEndsAt` alone (a comment said
+        // the seeker's GO-GO-GO gate re-arms it) — but the STALE value leaked
+        // back to every device on the next snapshot/setupChanged, so a new
+        // round opened with the PREVIOUS round's timer still ticking and no
+        // planning window. Nulling it here (+ broadcasting setupChanged below)
+        // returns every device to the lobby, where the new hider gets their
+        // 10-min planning window (client `applyRoundStarted`/`startNewRound`)
+        // and the host arms a FRESH hiding period via Start.
+        this.game.setup.hidingPeriodEndsAt = null;
+        this.game.setup.revealedStation = null;
+        this.game.setup.seekersFrozenUntil = null;
+        this.seekingStartPushedFor = null;
         // Clear endgame-started too so the new round doesn't open
         // with last round's "endgame in progress" banner already
         // armed on the hider's screen.
@@ -2036,6 +2049,10 @@ export class GameRoom {
             t: "roundStarted",
             participants: this.game.participants,
         });
+        // v1020: also push the nulled setup so every device drops the stale
+        // hiding clock (and revealed-station / freeze) and returns to the
+        // lobby for the new round's planning window.
+        this.broadcastSetupChanged();
     }
 
     private handleCastCurse(socket: WebSocket, curse: CursePayload) {

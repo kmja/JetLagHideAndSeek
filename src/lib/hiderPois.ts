@@ -115,10 +115,12 @@ export function hiderPoiColor(kind: string): string {
 
 /**
  * Master toggle for the in-zone POI FIELD — the basemap's NATIVE Protomaps
- * `pois` layer (icons + names), shown/hidden on the hider map (v894). Default
- * ON. Persisted.
+ * `pois` layer (icons + names), shown/hidden on the hider map. Default OFF
+ * (v1020 — it read as an always-on overlay of orange restaurant dots the
+ * hider never enabled; POIs now appear only when turned on in Map options).
+ * Persisted.
  */
-export const hiderPoiShow = persistentAtom<boolean>("hiderPoiShow", true, {
+export const hiderPoiShow = persistentAtom<boolean>("hiderPoiShow", false, {
     encode: (v) => JSON.stringify(v),
     decode: (v) => v === "true",
 });

@@ -428,7 +428,48 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v1019`. Use `git log` for the per-version detail;
+build stamp. Current: `v1020`. Use `git log` for the per-version detail;
+
+**v1020 — gameplay/UX batch (endgame, radar map, overlays, Move, round reset).**
+- **Pending/hider question overlay: CATEGORY is an eyebrow, subtype is the big
+  label.** `QuestionOverlayCard` gained a `categoryEyebrow` mode + `summarizeQuestion`
+  now carries `category`; the on-map overlays (`PendingAnswerOverlay`,
+  `HiderUnansweredOverlay`) pass it, so "MATCHING · MUSEUM" reads as a small
+  "MATCHING" eyebrow over a big "MUSEUM". (base.tsx list/configure cards keep the
+  combined label — they own their own status eyebrow.)
+- **Radar answer no longer zooms out to the whole play area.**
+  `triggerEliminationFlash` (`Map.tsx`): when the answer NARROWS to a small area
+  (remaining area < ½ the ruled-out delta — a radar "inside", a tight
+  thermometer), it frames the small remaining area directly instead of
+  fit-to-delta (which zoomed all the way out first).
+- **Radar elimination circle is smooth again.** The holedMask input `turf.simplify`
+  (~66 m tolerance, for cheap world-scale difference on a dense metro) collapsed a
+  SMALL remaining area (a 500 m radar circle) into an octagon. Now gated on vertex
+  count — only a dense (≥1500-vert) boundary is simplified.
+- **Endgame cuts the map with the elimination look, not a gold circle.** The
+  `endgame-focus` layers dropped the gold ring/glow and now dim everything OUTSIDE
+  the zone with the SAME `eliminationFillColor`/opacity as a question elimination;
+  reaching the zone fires the elimination flash (delta = remaining minus zone) and
+  settles framed on the zone — "the zone is the only area left."
+- **Reaching the endgame turns OFF the hiding-zones overlay + every transit
+  overlay** (`Map.tsx`, once per arming) — the seekers are at the zone and no
+  longer need them.
+- **Hider POI field defaults OFF** (`hiderPois.ts hiderPoiShow`) — it was showing
+  orange POI dots the hider never enabled; now they appear only when turned on.
+- **Move powerup's Play button is disabled during the endgame** with an
+  explanation (`HiderHandFan` + `HiderHandPanel`) — you're locked to your final
+  spot; previously the tap fired and errored with a toast.
+- **Curse proof photos show uncropped** — `CurseInbox` used `object-cover` (the
+  reported Labyrinth-maze crop); now `object-contain` so the whole photo shows.
+- **New round resets the clock + gives the new hider a planning window.** The
+  server's `handleRotateHider` deliberately kept `hidingPeriodEndsAt`, so a stale
+  clock leaked back to every device and a new round opened mid-timer. It now nulls
+  `hidingPeriodEndsAt`/`revealedStation`/`seekersFrozenUntil` + resets the
+  seeking-push dedup and broadcasts `setupChanged`, so every device returns to the
+  lobby where the new hider gets the 10-min planning window and the host arms a
+  fresh hiding period via Start.
+
+
 
 **v1019 — photo question UX batch (seeker signal + hider gallery upload +
 configure-card declutter + "photo sent").** From the demo-feedback batch:

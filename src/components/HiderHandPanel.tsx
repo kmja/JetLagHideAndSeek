@@ -24,7 +24,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { appConfirm } from "@/lib/confirm";
-import { gameSize } from "@/lib/gameSetup";
+import { endgameStartedAt, gameSize } from "@/lib/gameSetup";
 import { type Card, type CurseCard, type PowerupCard,tallyTimeBonusMinutes } from "@/lib/hiderDeck";
 import {
     discardCard,
@@ -75,6 +75,9 @@ export function HiderHandPanel() {
     const $discard = useStore(hiderDiscard);
     const $handLimit = useStore(hiderHandLimit);
     const $gameSize = useStore(gameSize);
+    // v1020: Move can't be played during the endgame (locked to the final
+    // spot) — disable its Play button.
+    const $endgame = useStore(endgameStartedAt);
 
     const bonusMinutes = tallyTimeBonusMinutes($hand, $gameSize);
     const overCap = $hand.length > $handLimit;
@@ -267,6 +270,16 @@ export function HiderHandPanel() {
                                         type="button"
                                         variant="default"
                                         size="sm"
+                                        disabled={
+                                            card.powerup === "move" &&
+                                            $endgame !== null
+                                        }
+                                        title={
+                                            card.powerup === "move" &&
+                                            $endgame !== null
+                                                ? "Can't play Move during the endgame"
+                                                : undefined
+                                        }
                                         onClick={() => onPlayPowerup(card)}
                                         className="flex-1 gap-1 h-7 px-2 text-[10px]"
                                     >
