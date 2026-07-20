@@ -322,6 +322,26 @@ export function nearestBasemapWater(
 }
 
 /**
+ * v1011: only the SEA/ocean/bay basemap water polygons (by Protomaps `kind`),
+ * for the `coastline` measuring question — "distance to the coast" is distance
+ * to the SEA shore, not to inland lakes/rivers. Returns the polygons intersecting
+ * `bbox`, or null when no ocean-kind water is captured (inland area). The caller
+ * buffers them exactly like body-of-water (via `bufferAndUnion`), so the coast
+ * band comes off the SAME basemap water source and agrees with it.
+ */
+export function getBasemapSeaPolys(
+    bbox?: [number, number, number, number],
+): Feature<Polygon | MultiPolygon>[] | null {
+    const all = getBasemapWaterPolys(bbox);
+    if (!all) return null;
+    const sea = all.filter((p) => {
+        const kind = (p.properties as { kind?: string } | null)?.kind ?? "";
+        return /^(ocean|sea|bay|strait|channel)$/.test(kind);
+    });
+    return sea.length > 0 ? sea : null;
+}
+
+/**
  * LAND parts from the basemap water — the play-area frame MINUS the basemap
  * water, split into its connected polygons (= the distinct LANDMASSES within
  * the frame). Used by `same-landmass` (matching): the polygon containing the

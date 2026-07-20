@@ -101,7 +101,8 @@ function call<T>(
         | "seaFromCoast"
         | "holedMask"
         | "bufferPoints"
-        | "bufferAndUnion",
+        | "bufferAndUnion"
+        | "landFromWater",
     payload: unknown,
     onPhase?: (phase: string) => void,
 ): Promise<T> {
@@ -223,6 +224,28 @@ export async function bufferAndUnion(
 ): Promise<Feature<Polygon | MultiPolygon> | null> {
     return call<Feature<Polygon | MultiPolygon> | null>("bufferAndUnion", {
         features,
+        seeker: { lat, lng },
+    });
+}
+
+/**
+ * v1011: the seeker's LANDMASS from basemap water polygons (frame − unioned
+ * water, the component containing the seeker), OFF the main thread — the
+ * `same-landmass` counterpart to `bufferAndUnion`, sharing the SAME basemap
+ * water source as body-of-water so the two agree. Returns the seeker's land
+ * polygon (nearest part if the seeker falls on an imprecise shore), the whole
+ * frame when there's no water, or `null` when the frame is all water. REJECTS
+ * if the worker is unavailable so the caller keeps its OSM-coast fallback.
+ */
+export async function landFromWater(
+    water: Feature[],
+    bbox: [number, number, number, number],
+    lat: number,
+    lng: number,
+): Promise<Feature<Polygon> | null> {
+    return call<Feature<Polygon> | null>("landFromWater", {
+        water,
+        bbox,
         seeker: { lat, lng },
     });
 }

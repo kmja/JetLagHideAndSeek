@@ -120,6 +120,11 @@ type BufferAndUnionPayload = {
     features: Feature[];
     seeker: { lat: number; lng: number };
 };
+type LandFromWaterPayload = {
+    water: Feature[];
+    bbox: [number, number, number, number];
+    seeker: { lat: number; lng: number };
+};
 type InMessage =
     | { id: number; type: "clip"; payload: ClipPayload }
     | { id: number; type: "combine"; payload: CombinePayload }
@@ -131,6 +136,11 @@ type InMessage =
           id: number;
           type: "bufferAndUnion";
           payload: BufferAndUnionPayload;
+      }
+    | {
+          id: number;
+          type: "landFromWater";
+          payload: LandFromWaterPayload;
       };
 
 // The world rectangle we punch the play area out of — byte-identical to
@@ -341,51 +351,72 @@ function geomVertexCount(g: Feature["geometry"] | undefined): number {
     return n;
 }
 
-/**
- * v1010: cap the total vertex count of a polygon set so the geodesic
- * buffer+union downstream can't throw / time out on it.
- *
- * The body-of-water basemap-water capture accumulates polygons across every
- * map idle (panning / zoom / app-switch loads more tiles), so the set grows
- * UNBOUNDED — a real device saw it go 8 features → 93 features / 48 495 verts,
- * at which point `bufferAndUnion` THREW. Buffering + unioning that many dense
- * polygons is what fails. Water needs no fine detail (we buffer by hundreds of
- * metres to kilometres), so we `turf.simplify` each polygon at a PROGRESSIVELY
- * coarser tolerance until the whole set is under a vertex budget. Points / lines
- * pass through untouched. Simplify is pure vertex decimation (it never throws),
- * and each result is paired with its ORIGINAL so a downstream buffer failure on
- * a simplified polygon can retry the original — the sea is never silently lost
- * to over-simplification (the v1001 regression). Returns {simp, orig} pairs.
- */
-const BUFFER_VERTEX_BUDGET = 8000;
-function reduceToVertexBudget(
-    feats: Feature[],
-    budget: number,
-): { simp: Feature; orig: Feature }[] {
-    const total = feats.reduce((s, f) => s + geomVertexCount(f.geometry), 0);
-    if (total <= budget) return feats.map((f) => ({ simp: f, orig: f }));
-    const tolerances = [0.0002, 0.0004, 0.0008, 0.0016, 0.0032, 0.0064];
-    let best: Feature[] = feats;
-    for (const tol of tolerances) {
-        const out = feats.map((f) => {
-            const t = f.geometry?.type;
-            if (t !== "Polygon" && t !== "MultiPolygon") return f;
-            try {
-                const s = turfSimplify(f as never, {
-                    tolerance: tol,
-                    highQuality: false,
-                    mutate: false,
-                }) as Feature | undefined;
-                return s && s.geometry ? s : f;
-            } catch {
-                return f;
-            }
-        });
-        best = out;
-        const t2 = out.reduce((s, f) => s + geomVertexCount(f.geometry), 0);
-        if (t2 <= budget) break;
+const isPolyFeat = (f: Feature): boolean =>
+    f.geometry?.type === "Polygon" || f.geometry?.type === "MultiPolygon";
+const isLineFeat = (f: Feature): boolean =>
+    f.geometry?.type === "LineString" || f.geometry?.type === "MultiLineString";
+
+/** Douglas-Peucker simplify that never throws — returns the input on failure or
+ *  if the simplified result is degenerate. `tol` in degrees. */
+function gentleSimplify<T extends Feature>(f: T, tol: number): T {
+    try {
+        const s = turfSimplify(f as never, {
+            tolerance: tol,
+            highQuality: false,
+            mutate: false,
+        }) as T | undefined;
+        return s && s.geometry ? s : f;
+    } catch {
+        return f;
     }
-    return best.map((f, i) => ({ simp: f, orig: feats[i] }));
+}
+
+/**
+ * v1011: DISSOLVE a set of water polygons into their real bodies.
+ *
+ * The basemap-water capture returns TILE-CLIPPED pieces of the same bodies (the
+ * East River split across many z-tiles), so the raw set is huge AND redundant —
+ * 72 pieces / 32k verts for NYC. v1010 hit that by simplifying each piece to a
+ * vertex budget, but the budget forced tolerances up to ~700 m, which COLLAPSED
+ * narrow water (the lower East River / harbour channels) so their buffer
+ * vanished and near-shore land wrongly read "further" (the reported bug). The
+ * right move is to UNION the pieces FIRST: dissolving the shared tile-boundary
+ * edges cuts the vertex count far more than simplify AND preserves every water
+ * body's true shape. A gentle ~20 m river-safe pre-simplify only speeds the
+ * union; the accumulator is re-simplified gently if it grows large so the
+ * incremental union stays cheap. Per-part try/catch keeps the accumulator (the
+ * sea, unioned first as the largest) if a later piece can't union.
+ */
+const UNION_ACC_SIMPLIFY_AT = 12000;
+function unionPolygonsGently(
+    polys: Feature[],
+): Feature<Polygon | MultiPolygon> | null {
+    const ps = polys.filter(isPolyFeat);
+    if (ps.length === 0) return null;
+    // Union the largest first so the accumulator starts with the sea/major body.
+    ps.sort((a, b) => {
+        try {
+            return area(b) - area(a);
+        } catch {
+            return 0;
+        }
+    });
+    let acc = gentleSimplify(ps[0], 0.0002) as Feature<Polygon | MultiPolygon>;
+    for (let i = 1; i < ps.length; i++) {
+        const p = gentleSimplify(ps[i], 0.0002);
+        try {
+            const u = union(featureCollection([acc, p]) as never) as Feature<
+                Polygon | MultiPolygon
+            > | null;
+            if (u && u.geometry && area(u) > 0) acc = u;
+        } catch {
+            /* keep the accumulator, skip this piece */
+        }
+        if (geomVertexCount(acc.geometry) > UNION_ACC_SIMPLIFY_AT) {
+            acc = gentleSimplify(acc, 0.0003) as Feature<Polygon | MultiPolygon>;
+        }
+    }
+    return acc;
 }
 
 function bufferAndUnionImpl(
@@ -436,36 +467,52 @@ function bufferAndUnionImpl(
     }
     if (Number.isFinite(minKm)) {
         const r = Math.max(minKm, 0.01);
-        // v1010: simplify the target polygons to a vertex budget BEFORE
-        // buffering so a huge accumulated water set (the 48k-vertex case that
-        // THREW) can't blow up the buffer/union. Each simplified poly keeps its
-        // original for a fallback retry, so the sea is never dropped.
-        const pairs = reduceToVertexBudget(targets, BUFFER_VERTEX_BUDGET);
-        for (const { simp, orig } of pairs) {
-            let buffered: Feature<Polygon | MultiPolygon> | undefined;
+        // v1011: UNION the polygon targets FIRST (dissolving the redundant
+        // tile-boundary vertices from the tile-clipped basemap-water capture),
+        // then buffer the dissolved shape ONCE. This is both cheaper (one buffer
+        // + a small dissolved input instead of N buffers unioned as big blobs)
+        // AND shoreline-preserving — v1010's per-piece simplify-to-budget went as
+        // coarse as ~700 m and collapsed narrow water so its buffer vanished.
+        const polyTargets = targets.filter(isPolyFeat);
+        const lineTargets = targets.filter(isLineFeat);
+        const waterUnion = unionPolygonsGently(polyTargets);
+        if (waterUnion) {
+            let ok = false;
             try {
-                const b = turfBuffer(simp as never, r, {
+                const b = turfBuffer(waterUnion as never, r, {
                     units: "kilometers",
                 }) as Feature<Polygon | MultiPolygon> | undefined;
-                if (b && b.geometry && area(b) > 0) buffered = b;
+                if (b && b.geometry && area(b) > 0) {
+                    parts.push(b);
+                    ok = true;
+                }
             } catch {
-                /* the simplified buffer failed — retry the original below */
+                /* fall back to buffering each piece below */
             }
-            if (!buffered && simp !== orig) {
-                // v1010: a simplify-induced self-intersection can make the
-                // simplified buffer fail (v1001's "sea dropped" bug). Retry the
-                // ORIGINAL geometry so a large body (the sea) is preserved at
-                // full detail rather than silently lost.
-                try {
-                    const b = turfBuffer(orig as never, r, {
-                        units: "kilometers",
-                    }) as Feature<Polygon | MultiPolygon> | undefined;
-                    if (b && b.geometry && area(b) > 0) buffered = b;
-                } catch {
-                    /* skip a feature turf genuinely can't buffer */
+            if (!ok) {
+                for (const f of polyTargets) {
+                    try {
+                        const b = turfBuffer(gentleSimplify(f, 0.0004), r, {
+                            units: "kilometers",
+                        }) as Feature<Polygon | MultiPolygon> | undefined;
+                        if (b && b.geometry && area(b) > 0) parts.push(b);
+                    } catch {
+                        /* skip a piece turf can't buffer */
+                    }
                 }
             }
-            if (buffered) parts.push(buffered);
+        }
+        // Line targets (rivers-as-centrelines / coastline lines in the cold OSM
+        // fallback) can't be unioned as polygons — buffer each individually.
+        for (const f of lineTargets) {
+            try {
+                const b = turfBuffer(gentleSimplify(f, 0.0003), r, {
+                    units: "kilometers",
+                }) as Feature<Polygon | MultiPolygon> | undefined;
+                if (b && b.geometry && area(b) > 0) parts.push(b);
+            } catch {
+                /* skip a line turf can't buffer */
+            }
         }
     }
     if (parts.length === 0) return null;
@@ -485,6 +532,79 @@ function bufferAndUnionImpl(
         }
     }
     return acc;
+}
+
+/**
+ * v1011: the seeker's LANDMASS from the basemap `water` layer — the SAME source
+ * body-of-water buffers, so `same-landmass` and `body-of-water` agree on where
+ * the water is (the user's ask: "why don't we use the same base calculation as
+ * body of water?"). Land = the play-area frame MINUS the unioned basemap water;
+ * the connected component CONTAINING the seeker is their landmass. Smooth
+ * Protomaps water polygons replace the BLOCKY raster `seaFromCoastline` land.
+ *
+ * Returns the seeker's land polygon, or the NEAREST land part when the seeker's
+ * point falls just on the water side (basemap-water imprecision — the v1001
+ * "are you in a body of water?" error is fixed by never erroring here), or the
+ * whole frame when there's no water (all land) / geometry fails. `null` only
+ * when the frame is entirely water.
+ */
+function landFromWaterImpl(
+    p: LandFromWaterPayload,
+): Feature<Polygon> | null {
+    const frame = bboxPolygon(p.bbox) as Feature<Polygon>;
+    const water = (p.water ?? []).filter(isPolyFeat);
+    if (water.length === 0) return frame; // no water → all land
+    const waterUnion = unionPolygonsGently(water);
+    if (!waterUnion) return frame;
+    let land: Feature<Polygon | MultiPolygon> | null;
+    try {
+        land = difference(
+            featureCollection([frame, waterUnion]) as never,
+        ) as Feature<Polygon | MultiPolygon> | null;
+    } catch {
+        return frame;
+    }
+    if (!land || !land.geometry) return null; // frame entirely water
+    const parts: Feature<Polygon>[] = [];
+    if (land.geometry.type === "Polygon") {
+        parts.push(land as Feature<Polygon>);
+    } else {
+        for (const ring of (land.geometry as MultiPolygon).coordinates) {
+            try {
+                parts.push(polygon(ring));
+            } catch {
+                /* skip a degenerate ring */
+            }
+        }
+    }
+    if (parts.length === 0) return frame;
+    const pt = turfPoint([p.seeker.lng, p.seeker.lat]);
+    for (const part of parts) {
+        try {
+            if (booleanPointInPolygon(pt, part)) return part;
+        } catch {
+            /* skip */
+        }
+    }
+    // Seeker not strictly inside any land part (on the water side of an
+    // imprecise shore) — return the NEAREST land part rather than erroring.
+    let best: Feature<Polygon> | null = null;
+    let bestD = Infinity;
+    for (const part of parts) {
+        try {
+            const line = polygonToLine(part as never) as Feature;
+            const d = pointToLineDistance(pt, line as never, {
+                units: "kilometers",
+            });
+            if (d < bestD) {
+                bestD = d;
+                best = part;
+            }
+        } catch {
+            /* skip */
+        }
+    }
+    return best ?? parts[0] ?? frame;
 }
 
 self.onmessage = async (e: MessageEvent<InMessage>) => {
@@ -528,6 +648,9 @@ self.onmessage = async (e: MessageEvent<InMessage>) => {
             self.postMessage({ id, ok: true, result });
         } else if (type === "bufferAndUnion") {
             const result = bufferAndUnionImpl(msg.payload);
+            self.postMessage({ id, ok: true, result });
+        } else if (type === "landFromWater") {
+            const result = landFromWaterImpl(msg.payload);
             self.postMessage({ id, ok: true, result });
         } else {
             self.postMessage({

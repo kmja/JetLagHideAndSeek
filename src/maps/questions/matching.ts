@@ -29,6 +29,11 @@ import {
     trainLineNodeFinder,
 } from "@/maps/api";
 import { hidingZone } from "@/lib/hiderRole";
+import { landFromWater } from "@/lib/geometry/client";
+import {
+    getBasemapWaterPolys,
+    hasBasemapWater,
+} from "@/maps/api/basemapWater";
 import { fetchAreaLandPolygons } from "@/maps/api/coast";
 import {
     fetchPrewarmedAreaStreets,
@@ -568,21 +573,64 @@ export const determineMatchingBoundary = memoize(
                     }
                 };
 
-                // v1008: reverted to the established per-city OSM land path
-                // (`fetchAreaLandPolygons`). The v1001 `basemapLandParts`
-                // migration regressed this to a hard error ("are you in a body of
-                // water?") — the basemap water (captured off a partly-loaded map,
-                // or the disabled headless read) could put the seeker's point on
-                // the water side of `frame − water`, so no land part contained
-                // them. The OSM land path is the reliable one; the frame-bounded
-                // coarse land (v990) remains the fallback when it's unavailable.
-                const areaLand = await fetchAreaLandPolygons({
-                    lat: question.lat,
-                    lng: question.lng,
-                });
+                // v1011: prefer the BASEMAP WATER — the SAME source
+                // body-of-water uses (the user's ask: "why don't we use the same
+                // base calculation as body of water?"). Land = the play-area
+                // frame MINUS the unioned basemap water, the connected component
+                // CONTAINING the seeker. This gives SMOOTH Protomaps water
+                // polygons instead of the BLOCKY raster `seaFromCoastline` land
+                // (`fetchAreaLandPolygons`). Runs in the geometry worker
+                // (`landFromWater`, union-first) so it doesn't freeze. The v1001
+                // "are you in a body of water?" error is fixed inside the op: if
+                // the seeker's point lands on the water side of an imprecise
+                // shore, it returns the NEAREST land part instead of erroring.
+                // Falls back to the OSM-coast land path when no basemap water is
+                // captured yet.
+                let landmassPart: Feature<Polygon> | null = null;
+                if (hasBasemapWater()) {
+                    try {
+                        const b = turf.bbox(mapGeoJSON.get()!);
+                        const bboxT: [number, number, number, number] = [
+                            b[0],
+                            b[1],
+                            b[2],
+                            b[3],
+                        ];
+                        const water =
+                            getBasemapWaterPolys(bboxT) ?? [];
+                        landmassPart = await landFromWater(
+                            water as Feature[],
+                            bboxT,
+                            question.lat,
+                            question.lng,
+                        );
+                        // eslint-disable-next-line no-console
+                        console.log(
+                            `[landmass] basemap-water waterPolys=${water.length} → part=${landmassPart ? "found" : "null"}`,
+                        );
+                    } catch (e) {
+                        // eslint-disable-next-line no-console
+                        console.warn("[landmass] basemap-water failed:", e);
+                        landmassPart = null;
+                    }
+                }
+                if (landmassPart) {
+                    // The worker already returns the seeker's landmass (or the
+                    // nearest part), so push it directly — the containment loop
+                    // below still confirms/handles it.
+                    pushParts(landmassPart);
+                }
+                const areaLand = landmassPart
+                    ? null
+                    : await fetchAreaLandPolygons({
+                          lat: question.lat,
+                          lng: question.lng,
+                      });
                 if (areaLand) {
+                    // eslint-disable-next-line no-console
+                    console.log("[landmass] OSM-coast land fallback");
                     pushParts(areaLand);
-                } else {
+                } else if (!landmassPart) {
                     // Fallback: fetchAreaLandPolygons failed (per-city coast
                     // unavailable / degenerate). The OLD fallback closed the
                     // bundled 1:50m coastline GLOBALLY, which yields whole
@@ -656,6 +704,15 @@ export const determineMatchingBoundary = memoize(
                         boundary = f;
                         break;
                     }
+                }
+                // v1011: the basemap-water worker already returned the seeker's
+                // landmass (or the nearest part when the seeker sits on an
+                // imprecise shore) — so if the strict containment loop didn't
+                // match (basemap-water shore imprecision put the seeker just
+                // outside), TRUST that part rather than erroring. This is what
+                // fixes the v1001 "are you in a body of water?" regression.
+                if (!boundary && landmassPart) {
+                    boundary = landmassPart;
                 }
                 if (!boundary) {
                     if (silent) return undefined;

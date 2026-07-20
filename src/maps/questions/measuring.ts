@@ -36,6 +36,7 @@ import { bufferAndUnion, bufferPointsUnion } from "@/lib/geometry/client";
 import { filterCoastlineByStraitRule } from "@/maps/questions/coastlineStrait";
 import {
     basemapWaterVersion,
+    getBasemapSeaPolys,
     getBasemapWaterPolys,
     hasBasemapWater,
 } from "@/maps/api/basemapWater";
@@ -219,21 +220,27 @@ export const determineMeasuringBoundary = async (
             return [highSpeedBase(features)];
         }
         case "coastline": {
-            // v778: per-city OSM coastline LINES, treated exactly like the
-            // international-/admin1-border cases — the downstream
-            // arcBufferToPoint buffers the coast by the seeker's distance to
-            // it, giving the "closer to the coast than the seeker" region.
-            // This replaces the old close-into-land-polygon + difference
-            // construction, which relied on the bundled 1:50m coastline
-            // (far too coarse for a metro like NYC) and only worked because
-            // arcBufferToPoint's buffer collapsed to ~0. Rulebook p18: only
-            // coast WITHIN the play area exists, which is exactly what the
-            // per-city fetch returns. Falls back to the bundled 1:50m
-            // coastline clipped to the frame when per-city coast is
-            // unavailable, so nothing breaks.
-            // v1008: reverted to the established per-city OSM coastline path.
-            // The v1001 `basemapCoastLines` migration is backed out along with
-            // the rest of the basemap-water elimination changes that regressed.
+            // v1011: prefer the basemap SEA polygons (Protomaps `kind` =
+            // ocean/sea/bay) — the SAME source body-of-water uses — buffered via
+            // the union-first `bufferAndUnion` path. "Closer to the coast" =
+            // closer to the sea, so buffering the sea AREA by the seeker's
+            // distance to it gives the coast band. This REPLACES the per-city
+            // OSM coastline + `seaFromCoastline` strait-rule path, which FROZE
+            // the app for a second or two and often produced no overlay (the
+            // reported bug). Protomaps already tags the open sea as
+            // ocean/sea/bay and narrow tidal channels separately, so the
+            // sea-kind filter IS the 2 km strait rule by construction. Routed
+            // through `bufferAndUnion` in `bufferedDeterminer` like
+            // body-of-water. Cold fallback (no basemap sea captured): the OSM
+            // coastline lines + strait rule below.
+            const sea = getBasemapSeaPolys(bbox4(bBox));
+            if (sea && sea.length > 0) {
+                // eslint-disable-next-line no-console
+                console.log(`[coast] using basemap sea polys: ${sea.length}`);
+                return sea;
+            }
+            // eslint-disable-next-line no-console
+            console.log("[coast] no basemap sea → OSM coastline fallback");
             const perCity = await fetchAreaCoastlineLines();
             let coastLines: Feature[];
             if (perCity && perCity.length > 0) {
@@ -695,13 +702,13 @@ function allPointCoords(feats: Feature[]): [number, number][] | null {
     return coords.length > 0 ? coords : null;
 }
 
-// v1009: body-of-water on-device diagnostic. When the overlay is empty we
-// need to know WHICH stage produced nothing — the basemap-water capture, the
-// cold OSM fallback, or the buffer. Summarise the geometry going into the
-// buffer + the buffer outcome into `lastBodyOfWaterDiag` (shown in the debug
-// panel, readable on a phone) and `console.warn` it. Cheap — runs once per
-// body-of-water configure, and only for that one type.
-let bowDiagPrefix = "";
+// v1009/v1011: on-device diagnostics for the basemap-water measuring questions
+// (body-of-water + coastline). When an overlay is empty / slow we need to know
+// WHICH stage produced nothing — the basemap-water capture, the cold OSM
+// fallback, or the buffer. Summarise the geometry going into the buffer + the
+// outcome into `lastBodyOfWaterDiag` (shown in the debug panel) and
+// `console.log`/`warn` with a per-type tag (`[bow]` / `[coast]`), so the PC
+// console shows the full trail. Cheap — runs once per configure.
 function countVertices(g: GeoJSON.Geometry | undefined): number {
     if (!g) return 0;
     let n = 0;
@@ -716,7 +723,13 @@ function countVertices(g: GeoJSON.Geometry | undefined): number {
     if ("coordinates" in g) walk((g as { coordinates: unknown }).coordinates);
     return n;
 }
-function reportBodyOfWaterDiag(feats: Feature[]): void {
+let waterDiagPrefix = "";
+let waterDiagTag = "bow";
+function reportWaterQuestionDiag(
+    kind: "body-of-water" | "coastline",
+    feats: Feature[],
+    source: string,
+): void {
     let polys = 0;
     let lines = 0;
     let verts = 0;
@@ -726,27 +739,36 @@ function reportBodyOfWaterDiag(feats: Feature[]): void {
         else if (t === "LineString" || t === "MultiLineString") lines++;
         verts += countVertices(f.geometry);
     }
-    const source = hasBasemapWater() ? "basemap-water" : "cold-osm";
-    bowDiagPrefix = `bow: src=${source} feats=${feats.length} (poly=${polys} line=${lines}) verts=${verts}`;
+    waterDiagTag = kind === "coastline" ? "coast" : "bow";
+    waterDiagPrefix = `${waterDiagTag}: src=${source} feats=${feats.length} (poly=${polys} line=${lines}) verts=${verts}`;
+    // eslint-disable-next-line no-console
+    console.log(`[${waterDiagTag}] input ${waterDiagPrefix}`);
 }
-function reportBodyOfWaterResult(outcome: string): void {
-    const msg = `${bowDiagPrefix} → ${outcome}`;
+function reportWaterQuestionResult(outcome: string): void {
+    const msg = `${waterDiagPrefix} → ${outcome}`;
     lastBodyOfWaterDiag.set(msg);
     // eslint-disable-next-line no-console
-    console.warn(`[bow] ${msg}`);
+    console.warn(`[${waterDiagTag}] ${msg}`);
 }
 
 const bufferedDeterminer = memoize(
     async (question: MeasuringQuestion) => {
         const placeData = await determineMeasuringBoundary(question);
+        const isWaterQ =
+            question.type === "body-of-water" ||
+            question.type === "coastline";
         if (
-            question.type === "body-of-water" &&
+            isWaterQ &&
             (placeData === false ||
                 placeData === undefined ||
                 (Array.isArray(placeData) && placeData.length === 0))
         ) {
-            reportBodyOfWaterDiag([]);
-            reportBodyOfWaterResult("determineMeasuringBoundary EMPTY");
+            reportWaterQuestionDiag(
+                question.type as "body-of-water" | "coastline",
+                [],
+                "cold-osm",
+            );
+            reportWaterQuestionResult("determineMeasuringBoundary EMPTY");
         }
 
         if (placeData === false || placeData === undefined) return false;
@@ -779,10 +801,18 @@ const bufferedDeterminer = memoize(
         // returned null → no overlay). Buffer+union it OFF the main thread with
         // turf (`bufferAndUnion`), the same region arcgis would produce. Falls
         // back to arcgis below if the worker is unavailable or returns null.
-        if (question.type === "body-of-water") {
+        if (isWaterQ) {
             const feats = placeData as Feature[];
-            // v1009: diagnose which stage fails when the overlay is empty.
-            reportBodyOfWaterDiag(feats);
+            // v1009/v1011: body-of-water AND coastline both buffer basemap water
+            // (whole water vs sea-only) through the union-first worker path.
+            // Diagnose which stage fails when the overlay is empty.
+            if (feats.length > 0) {
+                reportWaterQuestionDiag(
+                    question.type as "body-of-water" | "coastline",
+                    feats,
+                    hasBasemapWater() ? "basemap-water" : "cold-osm",
+                );
+            }
             try {
                 const merged = await bufferAndUnion(
                     feats,
@@ -790,12 +820,12 @@ const bufferedDeterminer = memoize(
                     question.lng,
                 );
                 if (merged) {
-                    reportBodyOfWaterResult("bufferAndUnion ok");
+                    reportWaterQuestionResult("bufferAndUnion ok");
                     return merged;
                 }
-                reportBodyOfWaterResult("bufferAndUnion → null");
+                reportWaterQuestionResult("bufferAndUnion → null");
             } catch {
-                reportBodyOfWaterResult("bufferAndUnion threw");
+                reportWaterQuestionResult("bufferAndUnion threw");
                 /* worker unavailable / union timed out — retry below */
             }
             // v993: if the union failed (most likely a timeout on the detailed
@@ -829,8 +859,8 @@ const bufferedDeterminer = memoize(
             question.lat,
             question.lng,
         );
-        if (question.type === "body-of-water") {
-            reportBodyOfWaterResult(
+        if (isWaterQ) {
+            reportWaterQuestionResult(
                 buffered ? "arcgis ok" : "arcgis → null (NO OVERLAY)",
             );
         }

@@ -428,7 +428,52 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v1010`. Use `git log` for the per-version detail;
+build stamp. Current: `v1011`. Use `git log` for the per-version detail;
+
+**v1011 — unify same-landmass + coastline on the basemap-water base, and fix
+body-of-water "closer marked further" (union-first, not aggressive simplify).**
+Three connected fixes, all off the SAME basemap `water` layer body-of-water uses
+(the user's ask: "why don't we use the same base calculation as body of water?"):
+- **body-of-water correctness (the confirmed "closer marked further" bug).**
+  v1010 stopped the throw by simplifying each captured water polygon to an 8000-
+  vertex budget — but hitting that budget on 72 tile-pieces / 32k verts forced
+  tolerances up to ~700 m, which COLLAPSED narrow water (the lower East River /
+  harbour channels) so their buffer vanished and near-shore land wrongly read
+  "further". Replaced with **union-first** in the geometry worker
+  (`bufferAndUnionImpl`, `geometry/worker.ts`): `unionPolygonsGently` unions the
+  tile-clipped polygons FIRST (largest/sea first, gentle ~20 m river-safe
+  pre-simplify only to speed the union, accumulator re-simplified if it grows),
+  which DISSOLVES the redundant tile-boundary vertices far more than simplify AND
+  preserves every body's true shape; then the dissolved water is buffered ONCE.
+  Line targets (cold-OSM rivers/coastline) are buffered individually. Cheaper
+  (one buffer + a small dissolved input, not N buffers unioned as big blobs) and
+  shoreline-preserving.
+- **same-landmass → basemap water** (`matching.ts`, new worker op `landFromWater`
+  in `geometry/client.ts`/`worker.ts`): land = the play-area frame MINUS the
+  unioned basemap water, the connected component CONTAINING the seeker. Smooth
+  Protomaps water polygons replace the BLOCKY raster `seaFromCoastline` land
+  (`fetchAreaLandPolygons`) the user flagged. Runs in the worker (no freeze). The
+  v1001 "are you in a body of water?" error is fixed inside the op AND at the
+  call site: if the seeker's point falls on the water side of an imprecise shore,
+  the op returns the NEAREST land part and the caller TRUSTS it rather than
+  erroring. Falls back to the OSM-coast land path when no basemap water captured.
+- **coastline → basemap SEA** (`measuring.ts`, `getBasemapSeaPolys` filtering
+  Protomaps `kind` = ocean/sea/bay): "closer to the coast" = closer to the sea,
+  so the sea polygons are buffered via the SAME union-first `bufferAndUnion` path
+  (coastline now routed through it like body-of-water). This replaces the OSM
+  coastline + `seaFromCoastline` 2 km-strait-rule path that FROZE the app for a
+  second or two and often drew no overlay — Protomaps already tags open sea as
+  ocean/sea/bay and narrow channels separately, so the sea-kind filter IS the
+  strait rule by construction. Cold fallback (no basemap sea captured): the OSM
+  coastline lines + strait rule.
+- **PC-console diagnostics** for all three (`[bow]` / `[coast]` / `[landmass]`
+  tags) plus the debug-panel `lastBodyOfWaterDiag` line, so the failing stage /
+  source / vertex counts are visible while iterating. Known follow-ups (not
+  blocking): the first-open capture race (overlay sometimes absent the very first
+  time, fine on re-open — self-heals via `basemapWaterVersion`); the coastline
+  nearest-reference LABEL still reads OSM coast (elimination now basemap sea, so
+  they can disagree slightly); and the split-second draft overlay flashing on the
+  main map before the configure dialog opens.
 
 **v1010 — body-of-water ROOT CAUSE FIXED (buffer chokes on the unbounded
 basemap-water capture).** The v1009 diagnostic paid off immediately: the overlay
