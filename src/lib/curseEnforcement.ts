@@ -27,6 +27,7 @@ import type { ReceivedCurse } from "@/lib/seekerInbound";
 
 export const CURSE_DRAINED_BRAIN = "Curse of the Drained Brain";
 export const CURSE_SPOTTY_MEMORY = "Curse of Spotty Memory";
+export const CURSE_JAMMED_DOOR = "Curse of the Jammed Door";
 export const CURSE_URBAN_EXPLORER = "Curse of the Urban Explorer";
 
 /**

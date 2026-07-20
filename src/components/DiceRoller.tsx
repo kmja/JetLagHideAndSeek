@@ -18,6 +18,8 @@ import { cn } from "@/lib/utils";
 export function DiceRoller({
     count = 1,
     onSettle,
+    successFrom,
+    disabled = false,
 }: {
     /** How many d6 to roll together (default 1). */
     count?: number;
@@ -25,13 +27,20 @@ export function DiceRoller({
      *  die's value for count=1, the SUM for count>1. Used by curses that
      *  map the roll to an effect (e.g. Spotty Memory → category). */
     onSettle?: (value: number) => void;
+    /** v1032: when set, the roll is a PASS/FAIL check — a settled total ≥
+     *  `successFrom` succeeds (green + pop), below fails (red + shake),
+     *  reusing the cast-dice fizzle look. Used by Curse of the Jammed Door
+     *  (roll 2d6, 7+ to enter). */
+    successFrom?: number;
+    /** Disable rolling (e.g. Jammed Door doorway on cooldown after a fail). */
+    disabled?: boolean;
 } = {}) {
     const dice = Math.max(1, Math.floor(count));
     const [values, setValues] = useState<number[] | null>(null);
     const [rolling, setRolling] = useState(false);
 
     const roll = () => {
-        if (rolling) return;
+        if (rolling || disabled) return;
         // v911: a short rattle-and-settle as the dice tumble.
         play("dice");
         setRolling(true);
@@ -56,6 +65,11 @@ export function DiceRoller({
     };
 
     const total = values?.reduce((a, b) => a + b, 0) ?? null;
+    // Pass/fail outcome once settled (only when `successFrom` is set).
+    const success =
+        successFrom != null && total != null && !rolling
+            ? total >= successFrom
+            : null;
     const settledText =
         values === null
             ? dice > 1
@@ -63,9 +77,13 @@ export function DiceRoller({
                 : "Tap to roll a d6 when a curse card asks for it."
             : rolling
               ? "Rolling…"
-              : dice > 1
-                ? `Rolled ${values.join(" + ")} = ${total}. Tap to roll again.`
-                : `Rolled ${total}. Tap to roll again.`;
+              : success === true
+                ? `Rolled ${total} — you may enter!`
+                : success === false
+                  ? `Rolled ${total} — blocked.`
+                  : dice > 1
+                    ? `Rolled ${values.join(" + ")} = ${total}. Tap to roll again.`
+                    : `Rolled ${total}. Tap to roll again.`;
 
     return (
         <div
@@ -78,12 +96,18 @@ export function DiceRoller({
             <button
                 type="button"
                 onClick={roll}
-                disabled={rolling}
+                disabled={rolling || disabled}
                 aria-label={dice > 1 ? `Roll ${dice} d6` : "Roll d6"}
                 className={cn(
                     "shrink-0 flex items-center gap-1.5",
                     "disabled:cursor-not-allowed",
                     "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-md",
+                    // v1032: on a settled pass/fail, pop (success) or shake
+                    // (fail) — the same cast-dice outcome animations.
+                    success === true &&
+                        "animate-[jlGoExplode_480ms_cubic-bezier(0.22,1.2,0.36,1)_both]",
+                    success === false &&
+                        "animate-[jlFizzleShake_520ms_ease-in-out_both]",
                 )}
             >
                 {(values ?? Array.from({ length: dice }, () => null)).map(
@@ -92,13 +116,20 @@ export function DiceRoller({
                             key={i}
                             className={cn(
                                 "w-12 h-12 rounded-md",
-                                "bg-background border-2 border-primary",
-                                "flex items-center justify-center",
-                                "font-inter-tight italic font-black text-2xl tabular-nums text-primary",
+                                "bg-background border-2 flex items-center justify-center",
+                                "font-inter-tight italic font-black text-2xl tabular-nums",
                                 "transition-transform",
+                                // Border + text follow the pass/fail outcome
+                                // (green / red), else the neutral primary.
+                                success === true
+                                    ? "border-[hsl(150_55%_45%)] text-[hsl(150_55%_45%)]"
+                                    : success === false
+                                      ? "border-destructive text-destructive"
+                                      : "border-primary text-primary",
                                 rolling &&
                                     "animate-[jlDiceTumble_400ms_ease-out]",
                                 !rolling &&
+                                    !disabled &&
                                     "hover:scale-[1.05] active:scale-95",
                             )}
                         >

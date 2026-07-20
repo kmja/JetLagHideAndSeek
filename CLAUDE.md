@@ -428,7 +428,18 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v1031`. Use `git log` for the per-version detail;
+build stamp. Current: `v1032`. Use `git log` for the per-version detail;
+
+**v1032 — Curse of the Jammed Door: pass/fail dice + doorway cooldown.** The
+Jammed Door dice roll (2d6) is now a real PASS/FAIL check (rulebook p396: 7+ to
+enter). `DiceRoller` gained `successFrom` (a settled total ≥ it → green + pop
+`jlGoExplode`; below → red + shake `jlFizzleShake`, reusing the cast-dice
+outcome animations) and `disabled`. `CurseInbox`'s Jammed Door branch passes
+`successFrom={7}`; on a FAIL it starts a per-doorway cooldown
+(`jammedDoorCooldownMs` — 5 min S / 10 min M / 15 min L) shown as a "Doorway
+blocked — try again in m:ss" countdown with the roll button disabled until it
+elapses (`jammedCooldownUntil` local state; the shared `useNow` ticks it). New
+`CURSE_JAMMED_DOOR` constant.
 
 **v1031 — curse reveal tuning + curse payload on arrival + one-blocker-at-a-time
 disables Play in the hand.**

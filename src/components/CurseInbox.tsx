@@ -7,6 +7,7 @@ import { CATEGORIES, type CategoryId } from "@/lib/categories";
 import { pendingOverlayActive, questions, topOverlayTall } from "@/lib/context";
 import {
     CURSE_DRAINED_BRAIN,
+    CURSE_JAMMED_DOOR,
     CURSE_SPOTTY_MEMORY,
     CURSE_URBAN_EXPLORER,
     seekerOnTransit,
@@ -18,6 +19,7 @@ import {
     curseDurationMs,
     curseRequiresDice,
     formatCurseCountdown,
+    jammedDoorCooldownMs,
 } from "@/lib/curseMeta";
 import { gameSize } from "@/lib/gameSetup";
 import { Button } from "@/components/ui/button";
@@ -95,6 +97,12 @@ export function CurseInbox({
     const $pendingOverlay = useStore(pendingOverlayActive);
     const $tallOverlay = useStore(topOverlayTall);
     const [dialogCurse, setDialogCurse] = useState<ReceivedCurse | null>(null);
+    // v1032: Jammed Door doorway cooldown — Unix ms until the seekers may
+    // re-roll a failed doorway (5 min S / 10 min M / 15 min L, rulebook p396).
+    // Local to this device: it's a real-world doorway attempt, not synced.
+    const [jammedCooldownUntil, setJammedCooldownUntil] = useState<
+        number | null
+    >(null);
 
     const unack = $curses.filter((c) => !c.acknowledged);
     const active = $curses.filter((c) => c.acknowledged && !c.dismissed);
@@ -138,7 +146,10 @@ export function CurseInbox({
     const anyTimed = $curses.some(
         (c) => !c.dismissed && meta(c).expiresAt != null,
     );
-    const now = useNow(anyTimed);
+    // Also tick while a Jammed Door doorway cooldown is counting down.
+    const jammedCoolingDown =
+        jammedCooldownUntil != null && jammedCooldownUntil > Date.now();
+    const now = useNow(anyTimed || jammedCoolingDown);
 
     // Auto-clear time-limited curses the moment their timer runs out — a
     // duration curse ("for the next N minutes") shouldn't linger needing a
@@ -640,8 +651,52 @@ export function CurseInbox({
                         </div>
                     ) : dlgMeta?.requiresDice && resolvedDialog ? (
                         // v970: Jammed Door rolls TWO d6 per doorway
-                        // (rulebook p396); other dice curses roll one.
-                        <DiceRoller count={curseDiceCount(resolvedDialog)} />
+                        // (rulebook p396); other dice curses roll one. v1032:
+                        // Jammed Door is a PASS/FAIL check (7+ to enter) with a
+                        // per-doorway cooldown after a fail.
+                        (() => {
+                            const isJammed =
+                                resolvedDialog.name === CURSE_JAMMED_DOOR;
+                            const coolingMs =
+                                isJammed && jammedCooldownUntil != null
+                                    ? jammedCooldownUntil - now
+                                    : 0;
+                            const onCooldown = coolingMs > 0;
+                            return (
+                                <div className="space-y-2">
+                                    <DiceRoller
+                                        count={curseDiceCount(resolvedDialog)}
+                                        successFrom={isJammed ? 7 : undefined}
+                                        disabled={onCooldown}
+                                        onSettle={
+                                            isJammed
+                                                ? (total) => {
+                                                      if (total < 7) {
+                                                          setJammedCooldownUntil(
+                                                              Date.now() +
+                                                                  jammedDoorCooldownMs(
+                                                                      $gameSize,
+                                                                  ),
+                                                          );
+                                                      } else {
+                                                          setJammedCooldownUntil(
+                                                              null,
+                                                          );
+                                                      }
+                                                  }
+                                                : undefined
+                                        }
+                                    />
+                                    {isJammed && onCooldown && (
+                                        <p className="text-xs text-destructive font-semibold inline-flex items-center gap-1 tabular-nums">
+                                            <Hourglass className="w-3 h-3" />
+                                            Doorway blocked — try again in{" "}
+                                            {formatCurseCountdown(coolingMs)}
+                                        </p>
+                                    )}
+                                </div>
+                            );
+                        })()
                     ) : null}
 
                     <div className="flex gap-2">

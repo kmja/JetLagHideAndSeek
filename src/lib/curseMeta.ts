@@ -46,6 +46,20 @@ export function curseDiceCount(curse: {
 }
 
 /**
+ * Curse of the Jammed Door: after a FAILED doorway roll (< 7 on 2d6), that
+ * doorway can be re-attempted after 5 min (S) / 10 min (M) / 15 min (L)
+ * (rulebook p396). Returns the cooldown in ms for the current game size.
+ */
+const JAMMED_DOOR_COOLDOWN_MIN: Record<GameSize, number> = {
+    small: 5,
+    medium: 10,
+    large: 15,
+};
+export function jammedDoorCooldownMs(size: GameSize): number {
+    return JAMMED_DOOR_COOLDOWN_MIN[size] * 60_000;
+}
+
+/**
  * Time-limited curses → duration in minutes per game size. Everything
  * not listed here clears when the seekers finish the curse's task (manual
  * clear) — including the "for the rest of your run" curses, which the
