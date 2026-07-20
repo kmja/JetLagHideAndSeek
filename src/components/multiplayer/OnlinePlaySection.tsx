@@ -185,7 +185,7 @@ export function OnlinePlaySection() {
                     <Input
                         value={code}
                         onChange={(e) => setCode(e.target.value)}
-                        placeholder="3 letters"
+                        placeholder="4 letters"
                         maxLength={8}
                         autoCapitalize="characters"
                         spellCheck={false}

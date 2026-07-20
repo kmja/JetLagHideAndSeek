@@ -231,7 +231,7 @@ export function Welcome() {
                             id="welcome-join-code"
                             value={code}
                             onChange={(e) => setCode(e.target.value)}
-                            placeholder="3 letters"
+                            placeholder="4 letters"
                             maxLength={8}
                             autoFocus
                             autoCapitalize="characters"

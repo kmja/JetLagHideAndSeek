@@ -807,6 +807,22 @@ export class GameRoom {
             });
         }
 
+        // v1023: reject joining a room that was never hosted (a phantom code).
+        // The DO is created lazily by the code, so any string would otherwise
+        // spawn a fresh empty room and "join" it. A REAL room always has at
+        // least the host in its roster — persisted (offline) even if the host
+        // closed the app — so an EMPTY roster means this code has no game.
+        // (A returning device with an existing participant is handled below.)
+        const knownDevice = this.participantForDevice(deviceId);
+        if (!knownDevice && this.game.participants.length === 0) {
+            return this.sendTo(socket, {
+                t: "error",
+                code: "unknown_room",
+                message:
+                    "No active game with that code. Check the code, or host a new game.",
+            });
+        }
+
         // Reconnect-shaped flow: same deviceId already a member? Reclaim
         // their existing participant (keep the id), just refresh the
         // session token. Keyed off the authoritative device map so a

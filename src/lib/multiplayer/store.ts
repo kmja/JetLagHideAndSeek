@@ -22,6 +22,7 @@
 
 import { PROTOCOL_VERSION } from "@protocol/index";
 import type { CursePayload } from "@protocol/index";
+import { toast } from "react-toastify";
 
 import { getStoredPushSubscription, notify } from "@/lib/notifications";
 
@@ -1446,8 +1447,17 @@ function handleServerMessage(msg: ServerMessage) {
         case "error":
             console.warn("[multiplayer] server error", msg);
             multiplayerError.set({ code: msg.code, message: msg.message });
-            if (msg.code === "session_invalid") {
-                // Drop back to local mode rather than spam reconnects.
+            if (msg.code === "session_invalid" || msg.code === "unknown_room") {
+                // Drop back to local mode rather than spam reconnects. v1023:
+                // unknown_room = the code names no active game (phantom join);
+                // surface it and leave so the user can re-enter a valid code.
+                if (msg.code === "unknown_room") {
+                    toast.error(
+                        msg.message ||
+                            "No active game with that code.",
+                        { autoClose: 5000 },
+                    );
+                }
                 leaveGame();
             }
             if (msg.code === "role_taken") {
