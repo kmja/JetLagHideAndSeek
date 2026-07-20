@@ -31,13 +31,11 @@ import { CATEGORIES, type CategoryId } from "@/lib/categories";
 import {
     addQuestion as localAddQuestion,
     additionalMapGeoLocations,
-    addQuestionSignal,
     mapGeoLocation,
+    pendingRandomize,
     questionModified,
     questions,
-    randomizeReplacement,
 } from "@/lib/context";
-import { getSubtypes } from "@/lib/subtypes";
 import type { OpenStreetMap } from "@/maps/api";
 import {
     allowedTransit,
@@ -683,41 +681,6 @@ export function sendCurseCleared(castId: number | undefined) {
 /* ────────────────── Inbound dispatch ────────────────── */
 
 /**
- * v1028: roll a fresh random question for the Randomize card. When the hider
- * plays Randomize they redirect the question back to the seekers, who ask a
- * NEW random one (giving the hider a second answer window). We pick a random
- * category — respecting the game size (no tentacles in Small games) — and, for
- * the subtyped categories, a random subtype. The seeker still confirms + sends
- * it in the configure dialog (anchored at their current GPS), so an unusable
- * roll can just be cancelled.
- */
-function rollRandomQuestion(): { category: CategoryId; subtype?: string } {
-    const size = gameSize.get();
-    const cats: CategoryId[] = [
-        "matching",
-        "measuring",
-        "radius",
-        "thermometer",
-        "photo",
-    ];
-    if (size !== "small") cats.push("tentacles");
-    const category = cats[Math.floor(Math.random() * cats.length)];
-    let subtype: string | undefined;
-    if (
-        category === "matching" ||
-        category === "measuring" ||
-        category === "tentacles" ||
-        category === "photo"
-    ) {
-        const subs = getSubtypes(category, size) ?? [];
-        if (subs.length > 0) {
-            subtype = subs[Math.floor(Math.random() * subs.length)].value;
-        }
-    }
-    return { category, subtype };
-}
-
-/**
  * Merge a server-broadcast question (added or answered) into both
  * the seeker's `questions` store and the hider's `hiderInbox`.
  * Idempotent by key — re-broadcasts (e.g. from our own send) don't
@@ -735,12 +698,14 @@ function mergeIncomingQuestion(raw: unknown) {
     const idx = current.findIndex((q) => q.key === parsed.key);
     const dat = parsed.data as Record<string, unknown>;
     if (dat.randomizedAway === true) {
-        // Randomize (v1028): the hider DECLINED to answer and redirected this
-        // question — mark the original randomized-away (it eliminates nothing
-        // and is re-askable at its original cost), then, on the SEEKER, roll a
-        // fresh random question so the hider gets a NEW answer window (the
-        // two-timers perk). We prefer keeping the ORIGINAL entry's subtype (only
-        // present locally) so the list still reads "PHOTO · TREE — Randomized".
+        // Randomize (v1028/v1029): the hider DECLINED to answer and redirected
+        // this question — mark the original randomized-away (it eliminates
+        // nothing and is re-askable at its original cost). On the SEEKER, record
+        // the OWED replacement (`pendingRandomize`): same category as the
+        // original, which the seeker must ask (an un-asked subtype) before
+        // anything else. We do NOT auto-open the configure dialog — the seeker
+        // triggers it from the "Ask random new question" button on the answered
+        // overlay, so cancelling never wastes the randomize.
         const wasAway =
             idx >= 0 &&
             (current[idx].data as { randomizedAway?: boolean })
@@ -760,13 +725,15 @@ function mergeIncomingQuestion(raw: unknown) {
         } else {
             questions.set([...current, parsed]);
         }
-        // Only the SEEKER re-asks, and only on the genuine live transition —
-        // NOT a reconnect snapshot replay of an already-away question (which
-        // would spuriously pop the add dialog). Gate on: we held the original
-        // live locally (idx >= 0) and it wasn't already away.
+        // Only the SEEKER owes a replacement, and only on the genuine live
+        // transition — NOT a reconnect snapshot replay of an already-away
+        // question. Gate on: we held the original live locally (idx >= 0) and
+        // it wasn't already away.
         if (!wasAway && idx >= 0 && playerRole.get() === "seeker") {
-            randomizeReplacement.set(rollRandomQuestion());
-            addQuestionSignal.set(addQuestionSignal.get() + 1);
+            pendingRandomize.set({
+                category: parsed.id as CategoryId,
+                originalKey: parsed.key,
+            });
         }
     } else if (dat.randomized === true && dat.randomizedAway !== true && idx >= 0) {
         // Randomize SPLIT (v597): the hider overwrote the original question

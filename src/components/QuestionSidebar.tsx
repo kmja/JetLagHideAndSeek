@@ -19,6 +19,7 @@ import {
     addQuestionSignal,
     autoSave,
     isLoading,
+    pendingRandomize,
     questions,
     questionsDrawerOpen,
     save,
@@ -50,6 +51,9 @@ export const QuestionSidebar = () => {
     // Rulebook p13: one question at a time. Block the in-drawer NEW
     // QUESTION button as well while any draft (drag:true) is outstanding.
     const hasPendingAnswer = $questions.some((q) => q.data.drag === true);
+    // v1029: block a normal new question while the seeker owes a Randomize
+    // replacement (asked via the answer card's "Ask new" button instead).
+    const randomizeOwed = useStore(pendingRandomize) !== null;
 
     // Also disable while the hider's hiding period is running —
     // mirrors the bottom-nav New Question button so the sidebar can't
@@ -130,13 +134,15 @@ export const QuestionSidebar = () => {
         <Button
             type="button"
             data-tutorial-id="add-questions-buttons"
-            disabled={hidingRunning || hasPendingAnswer}
+            disabled={hidingRunning || hasPendingAnswer || randomizeOwed}
             title={
                 hidingRunning
                     ? "Hiding period — wait for the timer or end it manually to start asking"
                     : hasPendingAnswer
                       ? "Waiting for the hider to answer your previous question"
-                      : undefined
+                      : randomizeOwed
+                        ? "The hider randomized your question — ask the replacement from the answer card first"
+                        : undefined
             }
             // Mobile: this button lives INSIDE the Questions vaul drawer, so it
             // can't host its own vaul drawer (nesting orphaned the first
@@ -147,7 +153,8 @@ export const QuestionSidebar = () => {
             onClick={
                 mobile
                     ? () => {
-                          if (hidingRunning || hasPendingAnswer) return;
+                          if (hidingRunning || hasPendingAnswer || randomizeOwed)
+                              return;
                           questionsDrawerOpen.set(false);
                           addQuestionSignal.set(addQuestionSignal.get() + 1);
                       }

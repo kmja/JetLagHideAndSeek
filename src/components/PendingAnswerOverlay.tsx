@@ -1,18 +1,23 @@
 import { useStore } from "@nanostores/react";
-import { RefreshCw, X } from "lucide-react";
+import { Dices, RefreshCw, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { toast } from "react-toastify";
 
 import { useNow } from "@/hooks/useNow";
+import type { CategoryId } from "@/lib/categories";
 import {
+    addQuestionSignal,
     configuringQuestionKey,
     pendingOverlayActive,
+    pendingRandomize,
     questionModified,
     questions,
+    randomizeReplacement,
     triggerLocalRefresh,
 } from "@/lib/context";
-import { answerWindowMs, gameSize } from "@/lib/gameSetup";
+import { answerWindowMs, type GameSize, gameSize } from "@/lib/gameSetup";
+import { getSubtypes } from "@/lib/subtypes";
 import { multiplayerEnabled, participants } from "@/lib/multiplayer/session";
 import {
     isHiderConnected,
@@ -57,6 +62,8 @@ export function PendingAnswerOverlay({
     // Reactive subscription — re-render when a hider joins/leaves so the
     // "sent vs share" handler stays accurate.
     useStore(participants);
+    // v1029: the owed Randomize replacement (if any).
+    const $pendingRandomize = useStore(pendingRandomize);
 
     // Exclude the question currently open in the configure dialog — it's a
     // still-unsent draft (drag:true, no createdAt) and would otherwise show as
@@ -194,14 +201,42 @@ export function PendingAnswerOverlay({
               null)
             : null;
 
+    // v1029: this question was randomized away and the seeker OWES a
+    // same-category replacement — the answered overlay shows an "Ask random new
+    // question" button instead of a result, and asking anything else is blocked
+    // until it's sent.
+    const randomizeOwed =
+        answered &&
+        !preview &&
+        $pendingRandomize !== null &&
+        $pendingRandomize.originalKey === liveShown.key &&
+        (liveShown.data as { randomizedAway?: boolean }).randomizedAway === true;
+
+    // Trigger the replacement: roll an un-asked subtype in the SAME category
+    // and jump the (always-mounted) AddQuestionDialog straight to its configure
+    // step. `pendingRandomize` stays set until the seeker actually SENDS it, so
+    // cancelling never wastes the randomize.
+    const askRandomReplacement = () => {
+        if (preview || !$pendingRandomize) return;
+        const cat = $pendingRandomize.category;
+        const subtype = rollReplacementSubtype(cat, $gameSize, questions.get());
+        randomizeReplacement.set({ category: cat, subtype });
+        addQuestionSignal.set(addQuestionSignal.get() + 1);
+    };
+
     const summary = summarizeQuestion(dShown);
     // Failed send → full-card error state with an explanatory detail line.
     // Answered → swap the generic prompt for the hider's resolved answer.
     const cardSummary = notYetSent
         ? { ...summary, detail: "Couldn't send to the hider — tap retry" }
-        : answered && resolvedAnswer
-          ? { ...summary, detail: resolvedAnswer }
-          : summary;
+        : randomizeOwed
+          ? {
+                ...summary,
+                detail: "Randomized — ask a new question of this category",
+            }
+          : answered && resolvedAnswer
+            ? { ...summary, detail: resolvedAnswer }
+            : summary;
 
     // Open the questions panel for full detail (the answered card's
     // "Details" action and the active-card tap target both use this).
@@ -313,6 +348,30 @@ export function PendingAnswerOverlay({
                 Retry
             </span>
         </button>
+    ) : randomizeOwed ? (
+        // v1029: the hider randomized this away — the seeker MUST ask a
+        // same-category replacement before anything else. This button (not a
+        // dismiss X) is the only way forward; cancelling the configure dialog
+        // leaves the owe intact so it can be retried.
+        <button
+            type="button"
+            onClick={(e) => {
+                e.stopPropagation();
+                askRandomReplacement();
+            }}
+            aria-label="Ask a random new question of this category"
+            title="Ask a random new question of this category"
+            className={cn(
+                "flex flex-col items-center justify-center gap-0.5 px-3 py-1.5 rounded-md",
+                "bg-primary text-primary-foreground hover:bg-primary/90 transition-colors",
+                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+            )}
+        >
+            <Dices className="w-4 h-4" strokeWidth={2.5} />
+            <span className="text-[9px] uppercase tracking-[0.1em] font-poppins font-bold">
+                Ask new
+            </span>
+        </button>
     ) : answered ? (
         // Persistent answered state — the card no longer vanishes on its
         // own. Tapping the card opens the full detail; this is just a big
@@ -357,25 +416,33 @@ export function PendingAnswerOverlay({
                 summary={cardSummary}
                 categoryEyebrow
                 eyebrow={
-                    answered ? (
+                    randomizeOwed ? (
+                        <span className="text-[color:var(--cat-label)]">
+                            Randomized
+                        </span>
+                    ) : answered ? (
                         <span className="text-success">Answered</span>
                     ) : undefined
                 }
-                answered={answered}
+                answered={answered && !randomizeOwed}
                 error={notYetSent}
                 onClick={
-                    photoAnswerSrc
-                        ? () => setPhotoLightbox(photoAnswerSrc)
-                        : answered
-                          ? openDetailsAndDismiss
-                          : openDetails
+                    randomizeOwed
+                        ? askRandomReplacement
+                        : photoAnswerSrc
+                          ? () => setPhotoLightbox(photoAnswerSrc)
+                          : answered
+                            ? openDetailsAndDismiss
+                            : openDetails
                 }
                 ariaLabel={
-                    photoAnswerSrc
-                        ? "View the hider's photo"
-                        : answered
-                          ? "Open answered question details"
-                          : "Open question details"
+                    randomizeOwed
+                        ? "Ask a random new question of this category"
+                        : photoAnswerSrc
+                          ? "View the hider's photo"
+                          : answered
+                            ? "Open answered question details"
+                            : "Open question details"
                 }
                 right={rightSlot}
             />
@@ -408,6 +475,47 @@ export function PendingAnswerOverlay({
                 )}
         </div>
     );
+}
+
+/**
+ * v1029: roll the subtype for a Randomize replacement — the SAME category as
+ * the randomized question, an UN-ASKED subtype (rulebook p376: "a random
+ * different question of the same category"). Radar / thermometer have no
+ * subtype (their configure carousel already skips used sizes), so they return
+ * undefined. If every subtype has been used, fall back to any (so the seeker is
+ * never stuck with nothing to ask).
+ */
+function rollReplacementSubtype(
+    category: CategoryId,
+    size: GameSize,
+    qs: Question[],
+): string | undefined {
+    if (
+        category !== "matching" &&
+        category !== "measuring" &&
+        category !== "tentacles" &&
+        category !== "photo"
+    ) {
+        return undefined;
+    }
+    const subs = getSubtypes(category, size) ?? [];
+    if (subs.length === 0) return undefined;
+    const used = new Set<string>();
+    for (const q of qs) {
+        if (q.id !== category) continue;
+        const d = q.data as {
+            type?: string;
+            locationType?: string;
+            randomizedAway?: boolean;
+        };
+        // A randomized-away question wasn't really asked (rulebook p376).
+        if (d.randomizedAway === true) continue;
+        const s = category === "tentacles" ? d.locationType : d.type;
+        if (s) used.add(s);
+    }
+    const unused = subs.filter((s) => !used.has(s.value));
+    const pool = unused.length > 0 ? unused : subs;
+    return pool[Math.floor(Math.random() * pool.length)].value;
 }
 
 /**

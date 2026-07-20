@@ -35,6 +35,7 @@ import {
     lastKnownPosition,
     mapContext,
     mapGeoLocation,
+    pendingRandomize,
     questionModified,
     questions,
     randomizeReplacement,
@@ -578,6 +579,10 @@ export const AddQuestionDialog = ({
         const q = pendingQuestion;
         const meta = CATEGORIES[q.id as CategoryId];
         setPendingKey(null);
+        // v1029: sending clears any owed Randomize replacement — asking is
+        // blocked while owed, so the only question that can be sent in that
+        // state IS the replacement.
+        if (pendingRandomize.get() !== null) pendingRandomize.set(null);
 
         // v348: questions are LOCAL-ONLY until the seeker confirms in
         // the configure dialog. The local add happened in runAdd* via

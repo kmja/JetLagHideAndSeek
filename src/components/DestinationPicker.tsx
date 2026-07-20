@@ -32,11 +32,15 @@ export function DestinationPicker({
     center,
     value,
     onChange,
+    seekers = [],
     className,
 }: {
     center: { lat: number; lng: number };
     value: { lat: number; lng: number } | null;
     onChange: (lat: number, lng: number) => void;
+    /** The seekers' last known positions, marked so the hider can pick a
+     *  destination NEAR them (v1029). */
+    seekers?: { lat: number; lng: number }[];
     className?: string;
 }) {
     const $theme = useStore(resolvedTheme);
@@ -81,6 +85,26 @@ export function DestinationPicker({
                 onClick={handleClick}
                 style={{ width: "100%", height: "100%" }}
             >
+                {seekers.map((s, i) => (
+                    <Marker
+                        key={`seeker-${i}`}
+                        longitude={s.lng}
+                        latitude={s.lat}
+                        anchor="center"
+                    >
+                        <span
+                            className="flex items-center justify-center rounded-full border-2 border-white shadow text-[9px] font-bold text-white"
+                            style={{
+                                width: 22,
+                                height: 22,
+                                background: "hsl(210 80% 55%)",
+                            }}
+                            title="Seeker"
+                        >
+                            S
+                        </span>
+                    </Marker>
+                ))}
                 {value && (
                     <Marker
                         longitude={value.lng}

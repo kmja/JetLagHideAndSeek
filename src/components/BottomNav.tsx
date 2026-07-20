@@ -2,7 +2,11 @@ import { useStore } from "@nanostores/react";
 import { List, Map as MapIcon, Plus, Users } from "lucide-react";
 
 import { useNow } from "@/hooks/useNow";
-import { questions, questionsDrawerOpen } from "@/lib/context";
+import {
+    pendingRandomize,
+    questions,
+    questionsDrawerOpen,
+} from "@/lib/context";
 import {
     computeAskingRestrictions,
     seekerOnTransit,
@@ -41,6 +45,10 @@ export const BottomNav = () => {
         onTransit: $onTransit,
         spottyCategory: $spottyCategory,
     });
+    // v1029: while the seeker owes a Randomize replacement they must ask that
+    // (via the answer card's "Ask new" button) before any other question.
+    const $pendingRandomize = useStore(pendingRandomize);
+    const randomizeOwed = $pendingRandomize !== null;
     const mapActiveCount = useMapOptionsActiveCount();
 
     // Tick state at 1 Hz while a hiding period is active so the
@@ -131,11 +139,15 @@ export const BottomNav = () => {
                             "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                             (hiding ||
                                 hasPendingAnswer ||
-                                curseBlock.blockedAll) &&
+                                curseBlock.blockedAll ||
+                                randomizeOwed) &&
                                 "opacity-50",
                         )}
                         disabled={
-                            hiding || hasPendingAnswer || curseBlock.blockedAll
+                            hiding ||
+                            hasPendingAnswer ||
+                            curseBlock.blockedAll ||
+                            randomizeOwed
                         }
                         aria-label="Add question"
                         title={
@@ -143,10 +155,12 @@ export const BottomNav = () => {
                                 ? "Hiding period — wait for the timer or end it manually to start asking"
                                 : hasPendingAnswer
                                   ? "Waiting for the hider to answer your previous question"
-                                  : curseBlock.blockedAll
-                                    ? (curseBlock.reason ??
-                                      "Asking is blocked by an active curse")
-                                    : "Add a question"
+                                  : randomizeOwed
+                                    ? "The hider randomized your question — ask the replacement from the answer card first"
+                                    : curseBlock.blockedAll
+                                      ? (curseBlock.reason ??
+                                        "Asking is blocked by an active curse")
+                                      : "Add a question"
                         }
                     >
                         <Plus className="w-5 h-5" strokeWidth={2.5} />

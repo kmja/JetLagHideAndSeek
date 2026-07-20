@@ -428,7 +428,31 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v1029`. Use `git log` for the per-version detail;
+build stamp. Current: `v1030`. Use `git log` for the per-version detail;
+
+**v1030 — Randomize reworked to the intended UX + travel-agent map markers.**
+- **Randomize is now seeker-driven with an explicit button, same category, and
+  a hard block.** The hider playing Randomize no longer auto-opens a configure
+  dialog on the seeker (which wasted the randomize if cancelled). Now: the
+  `randomizedAway` answer arrives → the SEEKER's `mergeIncomingQuestion`
+  (`multiplayer/store.ts`) records `pendingRandomize` (`context.ts` — the
+  original's category + key), which drives (a) the answered-question overlay
+  (`PendingAnswerOverlay`) to show an **"Ask new"** button (Dices, in the right
+  slot; card detail "Randomized — ask a new question of this category") INSTEAD
+  of a result, and (b) a HARD block on any other question (`BottomNav` +
+  `QuestionSidebar` New-question buttons disabled while owed). Tapping "Ask new"
+  rolls an **UN-ASKED subtype in the SAME category** (`rollReplacementSubtype`,
+  rulebook p376), sets `randomizeReplacement` + bumps `addQuestionSignal` →
+  `AddQuestionDialog` jumps to that category's configure step (anchored at the
+  seeker's GPS). `pendingRandomize` clears only when the replacement is actually
+  SENT (`handleConfirm`), so **cancelling never wastes the randomize** — the
+  button stays. Reset per round (`roundReset`). Removed the v1028 random-category
+  auto-open path.
+- **Mediocre Travel Agent map markers:** the destination `DestinationPicker` now
+  marks the **seekers' positions** (blue "S" avatars from `seekerLocations`), and
+  the seeker's MAIN map (`Map.tsx`) shows a **purple destination pin** ("Go here
+  · <name>") for as long as the travel-agent curse is active (any non-dismissed
+  `receivedCurses` entry carrying `travelDestLat`/`travelDestLng`).
 
 **v1029 — Mediocre Travel Agent picks the destination on a MAP.** The hider's
 "vacation destination" casting cost was a free-text input; now `CastCurseDialog`

@@ -4,6 +4,7 @@ import "@mapbox/mapbox-gl-draw/dist/mapbox-gl-draw.css";
 import MapboxDraw from "@mapbox/mapbox-gl-draw";
 import { useStore } from "@nanostores/react";
 import * as turf from "@turf/turf";
+import { MapPin } from "lucide-react";
 import maplibregl from "maplibre-gl";
 import { useEffect, useMemo, useRef, useState } from "react";
 import MapGL, {
@@ -91,6 +92,7 @@ import {
     pmtilesUrl,
     recordPmtilesError,
 } from "@/lib/protomapsStyle";
+import { receivedCurses } from "@/lib/seekerInbound";
 import { play } from "@/lib/sound";
 import { resolvedTheme } from "@/lib/theme";
 import { activeTilePackId } from "@/lib/tilePack";
@@ -398,6 +400,27 @@ export function Map({ className }: MapProps) {
     );
     const showGpsShare =
         $mpEnabled && $role === "seeker" && $foundAt === null;
+    // v1029: destination pins for active Mediocre Travel Agent curses — a
+    // curse the seeker is still under (not dismissed) that carries a picked
+    // map location. Marked on the map for as long as the curse is active.
+    const $receivedCurses = useStore(receivedCurses);
+    const travelDestPins = useMemo(
+        () =>
+            $receivedCurses
+                .filter(
+                    (c) =>
+                        !c.dismissed &&
+                        typeof c.travelDestLat === "number" &&
+                        typeof c.travelDestLng === "number",
+                )
+                .map((c, i) => ({
+                    key: `${c.castId ?? "c"}-${i}`,
+                    lat: c.travelDestLat as number,
+                    lng: c.travelDestLng as number,
+                    name: c.travelDestination ?? "Destination",
+                })),
+        [$receivedCurses],
+    );
     // v835: display copy of the hiding-zones FC with a `shortName` on each
     // point (abbreviated + truncated to the debug `stationLabelMaxChars`).
     // The full `name` is kept for taps/selection — this only feeds labels.
@@ -2770,6 +2793,31 @@ export function Map({ className }: MapProps) {
                             >
                                 {s.name}
                             </span>
+                        </div>
+                    </Marker>
+                ))}
+
+                {/* v1029: Mediocre Travel Agent destination(s) — a purple pin
+                    at the place the hider sent the seekers to, shown for as long
+                    as the curse is active. */}
+                {travelDestPins.map((d) => (
+                    <Marker
+                        key={d.key}
+                        longitude={d.lng}
+                        latitude={d.lat}
+                        anchor="bottom"
+                    >
+                        <div className="flex flex-col items-center pointer-events-none -translate-y-1">
+                            <div className="mb-1 px-2 py-0.5 rounded-full bg-[hsl(265,60%,55%)] text-white text-[11px] font-semibold shadow-lg whitespace-nowrap max-w-[12rem] truncate">
+                                Go here · {d.name}
+                            </div>
+                            <MapPin
+                                className="w-7 h-7 drop-shadow"
+                                style={{ color: "hsl(265 60% 55%)" }}
+                                fill="hsl(265 60% 55%)"
+                                strokeWidth={1.5}
+                                stroke="white"
+                            />
                         </div>
                     </Marker>
                 ))}

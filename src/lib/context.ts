@@ -349,6 +349,21 @@ export const randomizeReplacement = atom<{
     subtype?: string;
 } | null>(null);
 
+/**
+ * v1029: when the hider plays Randomize, the seeker OWES a replacement question
+ * — same category as the original, an un-asked subtype — which they must ask
+ * before anything else (rulebook p376). This atom holds that owed randomize
+ * (the original's category + key) from the moment the `randomizedAway` answer
+ * arrives until the seeker actually SENDS the replacement. It drives (a) the
+ * "Ask random new question" button on the answered-question overlay and (b) the
+ * block on asking any OTHER question. Volatile (a reload clears the owe rather
+ * than risk a permanent lock); also reset per round.
+ */
+export const pendingRandomize = atom<{
+    category: CategoryId;
+    originalKey: number;
+} | null>(null);
+
 export const defaultUnit = persistentAtom<Units>("defaultUnit", "kilometers");
 export const hiderMode = persistentAtom<
     | false

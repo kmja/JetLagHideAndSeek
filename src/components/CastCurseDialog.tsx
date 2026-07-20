@@ -1389,6 +1389,12 @@ export function CastCurseDialog({
                                             center={destCenter}
                                             value={travelDestPoint}
                                             onChange={pickDestination}
+                                            seekers={Object.values(
+                                                $seekerLocs,
+                                            ).map((s) => ({
+                                                lat: s.lat,
+                                                lng: s.lng,
+                                            }))}
                                             className="w-full h-56"
                                         />
                                     </Suspense>
