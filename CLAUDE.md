@@ -428,7 +428,21 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v1039`. Use `git log` for the per-version detail;
+build stamp. Current: `v1040`. Use `git log` for the per-version detail;
+
+**v1040 — custom brand icons: a real skull-and-crossbones + a golf-course glyph.**
+Lucide has no skull-and-crossbones (only a plain `Skull`), so `src/components/icons/gameIcons.tsx`
+hand-authors two icons via `createLucideIcon` (drop-in `LucideIcon`s — same
+`size`/`className`/`strokeWidth` API, inherit Lucide's chrome): **`SkullCrossbones`**
+— a filled chunky skull (round eye holes + nose via `fillRule evenodd`) over a
+thick crossbones X, matching the Jet Lag curse mark — now the curse glyph
+everywhere (`CurseInbox` pill/banner/dialog, `CastCurseDialog` header,
+`HiderHandPanel` Cast, `HandLimitEnforcer`), replacing the plain `Skull`; and
+**`GolfFlag`** — a hollow pennant on a pole in an elliptical green with a ball,
+so the `golf_course-full` matching/measuring subtype reads as a golf COURSE
+instead of a generic `Flag`. Both authored as string-valued Lucide `IconNode`s
+(Lucide requires string attribute values) and visually verified via headless
+Chromium at 18/24/56 px.
 
 **v1039 — tap a photo-answer in the questions log to open it in a lightbox.**
 The received photo `<img>` in `cards/photo.tsx` (shown in the expanded log card on

@@ -10,11 +10,12 @@ import {
     Plus,
     RotateCw,
     Send,
-    Skull,
     Square,
     Trash2,
     Video,
 } from "lucide-react";
+
+import { SkullCrossbones } from "@/components/icons/gameIcons";
 import type { ComponentType, CSSProperties } from "react";
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "react-toastify";
@@ -928,7 +929,7 @@ export function CastCurseDialog({
                 )}
                 <div className="px-6 pt-5 pb-3 shrink-0 border-b border-border flex items-start gap-3">
                     <span className="inline-flex items-center justify-center w-9 h-9 rounded shrink-0 bg-purple-500/20 mt-0.5">
-                        <Skull className="w-4 h-4 text-purple-400" />
+                        <SkullCrossbones className="w-4 h-4 text-purple-400" />
                     </span>
                     <div className="min-w-0 flex-1">
                         <div className="text-[10px] uppercase tracking-[0.16em] font-poppins font-bold text-muted-foreground">

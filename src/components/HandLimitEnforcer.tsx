@@ -1,5 +1,7 @@
 import { useStore } from "@nanostores/react";
-import { AlertOctagon, Skull, Timer, Zap } from "lucide-react";
+import { AlertOctagon, Timer, Zap } from "lucide-react";
+
+import { SkullCrossbones } from "@/components/icons/gameIcons";
 
 import {
     AlertDialog,
@@ -87,7 +89,7 @@ const KIND_META: Record<
         className: "text-warning",
     },
     powerup: { icon: Zap, label: "Powerup", className: "text-info" },
-    curse: { icon: Skull, label: "Curse", className: "text-primary" },
+    curse: { icon: SkullCrossbones, label: "Curse", className: "text-primary" },
 };
 
 function HandCardRow({

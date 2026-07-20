@@ -38,6 +38,8 @@ import {
     Waves,
 } from "lucide-react";
 
+import { GolfFlag } from "@/components/icons/gameIcons";
+
 import type { GameSize } from "./gameSetup";
 
 /**
@@ -106,7 +108,7 @@ export const SUBTYPES: Record<
         { value: "theme_park-full", label: "Amusement park", icon: FerrisWheel, description: "Same amusement park.", validSizes: ALL },
         { value: "zoo-full", label: "Zoo", icon: PawPrint, description: "Same zoo.", validSizes: ALL },
         { value: "aquarium-full", label: "Aquarium", icon: Fish, description: "Same aquarium.", validSizes: ALL },
-        { value: "golf_course-full", label: "Golf course", icon: Flag, description: "Same outdoor golf course (mini-golf and driving ranges don't count).", validSizes: ALL },
+        { value: "golf_course-full", label: "Golf course", icon: GolfFlag, description: "Same outdoor golf course (mini-golf and driving ranges don't count).", validSizes: ALL },
         { value: "museum-full", label: "Museum", icon: Landmark, description: "Same museum.", validSizes: ALL },
         { value: "cinema-full", label: "Movie theater", icon: Film, description: "Same movie theater.", validSizes: ALL },
         // Public Utilities
@@ -135,7 +137,7 @@ export const SUBTYPES: Record<
         { value: "theme_park-full", label: "Amusement park", icon: FerrisWheel, description: "Closer or further to an amusement park?", validSizes: ALL },
         { value: "zoo-full", label: "Zoo", icon: PawPrint, description: "Closer or further to a zoo?", validSizes: ALL },
         { value: "aquarium-full", label: "Aquarium", icon: Fish, description: "Closer or further to an aquarium?", validSizes: ALL },
-        { value: "golf_course-full", label: "Golf course", icon: Flag, description: "Closer or further to an outdoor golf course?", validSizes: ALL },
+        { value: "golf_course-full", label: "Golf course", icon: GolfFlag, description: "Closer or further to an outdoor golf course?", validSizes: ALL },
         { value: "museum-full", label: "Museum", icon: Landmark, description: "Closer or further to a museum?", validSizes: ALL },
         { value: "cinema-full", label: "Movie theater", icon: Film, description: "Closer or further to a movie theater?", validSizes: ALL },
         // Public Utilities

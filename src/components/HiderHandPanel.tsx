@@ -3,11 +3,12 @@ import {
     AlertOctagon,
     ChevronDown,
     Shuffle,
-    Skull,
     Sparkles,
     Timer,
     Trash2,
 } from "lucide-react";
+
+import { SkullCrossbones } from "@/components/icons/gameIcons";
 import { useState } from "react";
 import { toast } from "react-toastify";
 
@@ -321,7 +322,7 @@ export function HiderHandPanel() {
                                                 }
                                                 className="flex-1 gap-1 h-7 px-2 text-[10px]"
                                             >
-                                                <Skull className="w-3 h-3" />
+                                                <SkullCrossbones className="w-3 h-3" />
                                                 Cast
                                             </Button>
                                         );
