@@ -428,7 +428,22 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v1059`. Use `git log` for the per-version detail;
+build stamp. Current: `v1060`. Use `git log` for the per-version detail;
+
+**v1060 — curse-reveal star REAL root cause (unsized spin wrapper) + discard
+recedes into the screen.**
+- **Star still small:** the spin wrapper had NO explicit size, so as a flex item
+  it collapsed to ~0 on some devices and the `100vmin` star SVG overflowed out of
+  the zero-size box from its top-left corner — pushing the star off-centre so only
+  a couple of points showed at one screen edge (the reported "still small"). Fixed
+  by sizing the wrapper EXPLICITLY (`style={{width/height: "100vmin"}}`, inline so
+  no Tailwind/cache dependency) and giving the star + squiggle SVGs the same inline
+  `100vmin` + `position:absolute; inset:0`, so the star is a true 100vmin square
+  centred on screen.
+- **Discard-to-ocean → INTO the screen:** the last-keep discard now RECEDES away
+  from the viewer — each un-picked card shrinks to a point (`scale(0.06)`) with a
+  slight drift + rotate and fades, like sinking into deep water — instead of
+  dropping off the bottom edge.
 
 **v1059 — draw picker multi-keep: commit each pick immediately + discard-to-ocean
 fall.** Two fixes to the keep-K picker (tentacle draw-4-keep-2, etc.):

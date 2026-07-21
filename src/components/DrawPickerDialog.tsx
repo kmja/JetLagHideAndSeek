@@ -430,15 +430,17 @@ function CardCell({
     // Card transform per phase.
     const cardStyle: CSSProperties = (() => {
         if (isFading) {
-            // v1059: the last keep was made — this un-picked card is discarded.
-            // It falls OUTWARD to its side (fadeDir −1..1) and sinks off the
-            // bottom while rotating, like a card dropped into the ocean.
+            // v1060: the last keep was made — this un-picked card is discarded
+            // INTO the screen (away from the viewer): it recedes (shrinks to a
+            // point) with a slight sideways drift + rotate and fades, like a card
+            // dropped into deep water sinking away from you — NOT a fall to the
+            // bottom edge.
             return {
-                transform: `translate(${fadeDir * 62}vw, 120vh) rotate(${
-                    fadeDir * 26
+                transform: `translate(${fadeDir * 9}vw, 4vh) scale(0.06) rotate(${
+                    fadeDir * 22
                 }deg)`,
                 opacity: 0,
-                transition: `transform 720ms cubic-bezier(0.45,0,0.7,1) ${fadeDelay}ms, opacity 720ms ease-in ${fadeDelay + 120}ms`,
+                transition: `transform 760ms cubic-bezier(0.55,0,0.7,1) ${fadeDelay}ms, opacity 760ms ease-in ${fadeDelay + 220}ms`,
                 pointerEvents: "none",
             };
         }

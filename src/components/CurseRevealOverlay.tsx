@@ -204,19 +204,32 @@ export function CurseRevealOverlay() {
                 some devices, so the star rendered invisibly small / absent. */}
             <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
                 {/* The spin wrapper keeps spinning throughout — including during
-                    the exit, so the star shrinks WHILE it spins. */}
-                <div className="relative motion-safe:animate-[curseRevealSpin_46s_linear_infinite]">
-                    {/* Star — grows in FAST (beat 1); big enough that its points
-                        graze the frame edges. Drawn FIRST so the snakes sit ON
-                        TOP of it. On EXIT it shrinks to nothing in the centre
-                        (the parent keeps spinning). */}
+                    the exit, so the star shrinks WHILE it spins. Its size is set
+                    EXPLICITLY (inline `vmin`, so no Tailwind/cache dependency and
+                    no flex-item content-collapse) — an unsized wrapper collapsed
+                    on some devices and the star overflowed out of a zero box,
+                    pushing it off-centre (points only showing at one edge). */}
+                <div
+                    className="relative motion-safe:animate-[curseRevealSpin_46s_linear_infinite]"
+                    style={{ width: "100vmin", height: "100vmin" }}
+                >
+                    {/* Star — grows in FAST (beat 1); its points graze the frame
+                        edges. Drawn FIRST so the snakes sit ON TOP of it. On EXIT
+                        it shrinks to nothing in the centre (the parent keeps
+                        spinning). Fills the wrapper via inline size. */}
                     <svg
                         viewBox="0 0 200 200"
-                        className={`block w-[100vmin] h-[100vmin] ${
+                        style={{
+                            position: "absolute",
+                            inset: 0,
+                            width: "100vmin",
+                            height: "100vmin",
+                        }}
+                        className={
                             exiting
                                 ? "scale-0 opacity-90 transition-all duration-[600ms] ease-in"
                                 : "motion-safe:animate-[curseRevealStarIn_360ms_cubic-bezier(0.2,0.9,0.3,1)_both]"
-                        }`}
+                        }
                         aria-hidden="true"
                     >
                         <path
@@ -232,11 +245,17 @@ export function CurseRevealOverlay() {
                         overlaid on the star. On EXIT they fade away. */}
                     <svg
                         viewBox="0 0 200 200"
-                        className={`absolute inset-0 w-[100vmin] h-[100vmin] ${
+                        style={{
+                            position: "absolute",
+                            inset: 0,
+                            width: "100vmin",
+                            height: "100vmin",
+                        }}
+                        className={
                             exiting
                                 ? "opacity-0 transition-opacity duration-[320ms] ease-out"
                                 : "motion-safe:animate-[curseRevealSquiggleIn_620ms_520ms_cubic-bezier(0.22,1,0.36,1)_both]"
-                        }`}
+                        }
                         aria-hidden="true"
                     >
                         {squiggles.map((d, i) => (
