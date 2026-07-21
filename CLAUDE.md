@@ -428,7 +428,20 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v1066`. Use `git log` for the per-version detail;
+build stamp. Current: `v1067`. Use `git log` for the per-version detail;
+
+**v1067 — rulebook deep links land reliably + quick-ref tiles match the in-game
+cards.**
+- **Deep links "not working"** (`RulebookSheet`): opening via `openRulebookAt(anchor)`
+  set the drawer open, then the "reset on open" effect scrolled it back to the TOP
+  (a rAF scroll) — clobbering the jump; and the single mid-animation smooth scroll
+  landed before the drawer finished opening. Now a `pendingJumpRef` suppresses the
+  reset-to-top while a jump is pending, and the jump INSTANT-scrolls then re-asserts
+  at 120/260/420 ms across the open animation so it lands and stays.
+- **Quick-ref question-type tiles** now use the in-game `QuestionOverlayCard` chrome
+  — a solid `deepColor` icon block + a big bold UPPERCASE label in the deepened
+  category colour + the blurb as the detail line — so the rulebook landing reads as
+  the same system as the on-map / add-question cards.
 
 **v1066 — hider can re-toggle the hiding-zones overlay after committing.** The
 `HiderReachOverlay` render effect FORCE-turned the toggle off whenever a zone was

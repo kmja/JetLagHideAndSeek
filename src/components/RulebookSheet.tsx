@@ -10,6 +10,7 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Drawer as VaulDrawer } from "vaul";
 
+import { deepColor } from "@/components/questionOverlayCard";
 import RULEBOOK_MD from "@/content/rulebook.md?raw";
 import { CATEGORIES } from "@/lib/categories";
 import { openRulebookAt, RULEBOOK_ANCHORS, rulebookTarget } from "@/lib/rulebook";
@@ -289,37 +290,70 @@ export function RulebookSheet() {
         return marked.parse(withUnits, { async: false }) as string;
     }, [open, units]);
 
+    // A pending deep-link anchor, held in a ref so the reset-on-open effect
+    // knows NOT to scroll back to the top (which used to clobber the jump).
+    const pendingJumpRef = useRef<string | null>(null);
+
     // Deep-link: opening via `openRulebookAt(anchor)` opens the sheet and jumps.
-    // The content renders lazily once `open` flips, so poll for the target
-    // section (up to ~1.5 s) rather than guessing a fixed delay.
+    // The content renders lazily once `open` flips AND the drawer plays an open
+    // animation, so a single mid-animation smooth scroll got reset. We poll for
+    // the target section, then INSTANT-scroll and RE-ASSERT it a few times
+    // across the open animation so it lands and stays.
     useEffect(() => {
         if ($target === null) return;
-        setOpen(true);
         const anchor = $target;
         rulebookTarget.set(null);
+        pendingJumpRef.current = anchor || null;
+        setOpen(true);
         if (!anchor) return;
         setQuery("");
         let tries = 0;
-        let timer = 0;
+        const timers: number[] = [];
+        const scrollTo = (el: HTMLElement) => {
+            if (scrollRef.current) {
+                scrollRef.current.scrollTo({ top: el.offsetTop - 8 });
+                setActiveId(anchor);
+            }
+        };
         const tryJump = () => {
             const el = scrollRef.current?.querySelector<HTMLElement>(
                 `[data-section-id="${anchor}"]`,
             );
             if (el) {
-                handleJump(anchor);
-            } else if (tries++ < 30) {
-                timer = window.setTimeout(tryJump, 50);
+                scrollTo(el);
+                // Re-assert across the drawer open animation (~300ms) so the
+                // landing isn't undone by layout settling.
+                for (const d of [120, 260, 420]) {
+                    timers.push(
+                        window.setTimeout(() => {
+                            const e2 = scrollRef.current?.querySelector<HTMLElement>(
+                                `[data-section-id="${anchor}"]`,
+                            );
+                            if (e2) scrollTo(e2);
+                        }, d),
+                    );
+                }
+                pendingJumpRef.current = null;
+            } else if (tries++ < 40) {
+                timers.push(window.setTimeout(tryJump, 50));
+            } else {
+                pendingJumpRef.current = null;
             }
         };
-        timer = window.setTimeout(tryJump, 60);
-        return () => window.clearTimeout(timer);
-    }, [$target, handleJump]);
+        timers.push(window.setTimeout(tryJump, 60));
+        return () => timers.forEach((t) => window.clearTimeout(t));
+    }, [$target]);
 
-    // Reset on open.
+    // Reset on open — but DON'T scroll to the top if a deep-link jump is
+    // pending (that race is what made deep links "not work").
     useEffect(() => {
         if (open) {
             setQuery("");
-            requestAnimationFrame(() => scrollRef.current?.scrollTo({ top: 0 }));
+            if (!pendingJumpRef.current) {
+                requestAnimationFrame(() =>
+                    scrollRef.current?.scrollTo({ top: 0 }),
+                );
+            }
         }
     }, [open]);
 
@@ -579,6 +613,12 @@ function QuickReference({ onJump }: { onJump: (id: string) => void }) {
                 {QUESTION_REF.map((qr) => {
                     const cat = CATEGORIES[qr.id];
                     const Icon = cat.icon as LucideIcon;
+                    // v1067: match the in-game QuestionOverlayCard chrome — a
+                    // solid deepened-colour icon block + a big bold UPPERCASE
+                    // label in the deepened category colour + the blurb as the
+                    // detail line, so the rulebook quick-ref reads as the same
+                    // system as the on-map / add-question cards.
+                    const deep = deepColor(cat.color);
                     return (
                         <button
                             key={qr.id}
@@ -586,22 +626,25 @@ function QuickReference({ onJump }: { onJump: (id: string) => void }) {
                             onClick={() => onJump(qr.anchor)}
                             className={cn(
                                 "flex items-stretch text-left rounded-lg overflow-hidden",
-                                "border border-border bg-secondary/40 hover:bg-secondary transition-colors",
+                                "border border-border bg-sidebar-accent hover:brightness-110 transition-all shadow-sm",
                                 "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                             )}
                         >
                             <span
-                                className="w-10 shrink-0 grid place-items-center text-white"
-                                style={{ backgroundColor: cat.color }}
+                                className="w-12 shrink-0 grid place-items-center text-white"
+                                style={{ backgroundColor: deep }}
                                 aria-hidden="true"
                             >
-                                <Icon className="w-5 h-5" />
+                                <Icon className="w-6 h-6" />
                             </span>
-                            <span className="px-2.5 py-1.5 min-w-0">
-                                <span className="block text-sm font-bold leading-tight">
+                            <span className="px-2.5 py-2 min-w-0">
+                                <span
+                                    className="block text-sm font-black uppercase tracking-tight leading-tight"
+                                    style={{ color: deep }}
+                                >
                                     {cat.label}
                                 </span>
-                                <span className="block text-[11px] text-muted-foreground leading-snug">
+                                <span className="block text-[11px] text-muted-foreground leading-snug mt-0.5">
                                     {qr.blurb}
                                 </span>
                             </span>
