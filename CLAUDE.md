@@ -430,6 +430,37 @@ bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
 build stamp. Current: `v1069`. Use `git log` for the per-version detail;
 
+**v1073 — transit-line question overhaul (group lines, selected state, stop
+checklist) + Send-gate fix + speed checks removed.**
+- **Transit-line picker rebuilt** (`TransitRoutePicker`): (1) the raw OSM routes
+  are now GROUPED by transit type + line — both directions of "Tåg 40" collapse
+  to ONE row (`groupLines`, key = `mode::(ref || name-prefix)`); (2) the line
+  rows have a clear selected/active state (primary ring + filled icon while
+  picking); (3) after picking a line, it shows an editable **LIST OF STOPS**
+  instead of a straight-line map. Every stop from the seeker's NEAREST onward is
+  selected by default (nearest computed from live GPS, badged "You"); the seeker
+  can deselect stops their train skips (express), **Flip direction** (select the
+  other side of the nearest stop), or toggle All/None. The SELECTED subset is
+  baked onto `data.transitRoute.stops` — which the elimination +
+  `hiderifyMatching` already read — so an express seeker's skipped stops are
+  correctly excluded from the "same line" answer. The sent/read-only view shows
+  the selected stops as a compact list (map removed; `RoutePreviewMap` deleted).
+- **Send button no longer stuck disabled for the transit-line question**
+  (`isPendingQuestionReady`, `AddQuestionDialog`). It required a valid lat/lng
+  for ALL matching questions, but the transit-line question has no map pin (it
+  uses the route picker), so lat/lng was never set → Send stayed disabled
+  forever (mistaken for a speed check). It's now gated on a picked route with ≥1
+  selected stop instead.
+- **Speed checks removed** (user request — GPS speed is too noisy to gate
+  gameplay on). The server endgame "must be off transit" check
+  (`seekerLooksOnTransit` + `ENDGAME_TRANSIT_SPEED_KMH` + `prevSeekerPos` + the
+  `endgameDenied.reason:"transit"` path, worker `GameRoom.ts`) is GONE — the
+  endgame now arms whenever the claiming seeker is AT the hider's zone, full
+  stop. The `startEndgame` `force` flag is still accepted for back-compat but is
+  a no-op. (The client's dead transit-denial UI never triggers now; the
+  non-blocking closing-in notification velocity gate is left as a notification-
+  quality heuristic.)
+
 **v1072 — seeker shell fills the iOS standalone viewport (no empty strip below
 the nav).** The SEEKER in-game shell sized itself with a viewport unit — v947
 went `h-svh`→`h-dvh` after svh under-filled, but on iOS **standalone (Safari

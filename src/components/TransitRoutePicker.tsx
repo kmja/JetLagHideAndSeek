@@ -1,23 +1,14 @@
-import "maplibre-gl/dist/maplibre-gl.css";
-
 import { useStore } from "@nanostores/react";
-import { bbox as turfBbox } from "@turf/turf";
-import { Loader2, RefreshCw, Train } from "lucide-react";
+import { Check, Loader2, MapPin, RefreshCw, Train } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import MapGL, { Layer, type MapRef, Source } from "react-map-gl/maplibre";
 import { toast } from "react-toastify";
 
 import { lastKnownPosition } from "@/lib/context";
-import { baseTileLayer, thunderforestApiKey } from "@/lib/context";
 import {
     allowedTransit,
-    satelliteView,
     TRANSIT_ICONS,
     type TransitMode,
 } from "@/lib/gameSetup";
-import { buildStyle } from "@/lib/mapStyle";
-import { installMissingImageHandler } from "@/lib/protomapsStyle";
-import { resolvedTheme } from "@/lib/theme";
 import { cn } from "@/lib/utils";
 import {
     fetchTransitRouteDetail,
@@ -27,14 +18,20 @@ import {
 import type { MatchingQuestion } from "@/maps/schema";
 
 /**
- * v966: the seeker's route picker for the `same-train-line` matching question.
+ * v966+: the seeker's route picker for the `same-train-line` matching question.
  * Per the rulebook the answer is "yes if the transit the seekers are currently
  * riding would stop at the hider's station" — the app can't detect what you're
- * riding, so the SEEKER picks it. This lists the transit routes near the
- * seeker's live GPS (filtered to the game's allowed transit modes); picking one
- * fetches its stops + line geometry and bakes them onto the question
- * (`data.transitRoute`), which drives the elimination + the hider's auto-grade.
- * Read-only once the question is sent.
+ * riding, so the SEEKER picks it.
+ *
+ * v1073: the picker now
+ *   1. GROUPS the raw OSM routes by transit type + line (both directions of
+ *      "Tåg 40" collapse to ONE row),
+ *   2. gives the line rows a clear selected/active state, and
+ *   3. after picking, shows an editable LIST OF STOPS (not a map): every stop
+ *      from the seeker's nearest onward is selected by default, and the seeker
+ *      can deselect stops their train skips (express) or flip the direction.
+ * The SELECTED stops are baked onto `data.transitRoute.stops`, which drives the
+ * elimination + the hider's auto-grade. Read-only once the question is sent.
  */
 
 /** Map the game's allowed transit modes → the OSM `route` tag values to query. */
@@ -48,8 +45,6 @@ function osmRouteModes(allowed: TransitMode[]): string[] {
         else if (m === "ferry") set.add("ferry");
     }
     if (set.size === 0) {
-        // No modes configured — offer the rail-based set so the picker isn't
-        // empty (walking-only games can't meaningfully ask this anyway).
         ["subway", "train", "light_rail", "tram", "monorail"].forEach((m) =>
             set.add(m),
         );
@@ -66,6 +61,74 @@ function modeIcon(mode: string) {
     return TRANSIT_ICONS.train;
 }
 
+/** Straight-line metres between two lat/lng points. */
+function haversineM(
+    aLat: number,
+    aLng: number,
+    bLat: number,
+    bLng: number,
+): number {
+    const R = 6371000;
+    const dLat = ((bLat - aLat) * Math.PI) / 180;
+    const dLng = ((bLng - aLng) * Math.PI) / 180;
+    const la1 = (aLat * Math.PI) / 180;
+    const la2 = (bLat * Math.PI) / 180;
+    const h =
+        Math.sin(dLat / 2) ** 2 +
+        Math.cos(la1) * Math.cos(la2) * Math.sin(dLng / 2) ** 2;
+    return 2 * R * Math.asin(Math.min(1, Math.sqrt(h)));
+}
+
+/** The line label = the route name with any ": A - B" direction stripped. */
+function lineLabel(name: string): string {
+    const colon = name.split(":")[0]?.trim();
+    if (colon && colon.length >= 2) return colon;
+    return name;
+}
+
+/** A group of directional route variants that are the SAME transit line. */
+type TransitLine = {
+    key: string;
+    label: string;
+    mode: string;
+    /** All member route ids (directions/variants); picking fetches the first. */
+    memberIds: string[];
+};
+
+/** Group raw route summaries by transit type + line (ref, else name prefix). */
+function groupLines(routes: TransitRouteSummary[]): TransitLine[] {
+    const byKey = new Map<string, TransitLine>();
+    for (const r of routes) {
+        const lineKey = r.ref?.trim() || lineLabel(r.name).toLowerCase();
+        const key = `${r.mode}::${lineKey}`;
+        const existing = byKey.get(key);
+        if (existing) {
+            existing.memberIds.push(r.id);
+        } else {
+            byKey.set(key, {
+                key,
+                label: lineLabel(r.name),
+                mode: r.mode,
+                memberIds: [r.id],
+            });
+        }
+    }
+    return [...byKey.values()];
+}
+
+type PickedLine = {
+    key: string;
+    /** The OSM route id whose stops we loaded (for `transitRoute.id`). */
+    memberKeyId: string;
+    label: string;
+    mode: string;
+    stops: { lat: number; lng: number; name?: string }[];
+    /** Index of the seeker's nearest stop (or -1 if unknown). */
+    nearestIdx: number;
+    /** Selected stop indices (the answer set). */
+    selected: Set<number>;
+};
+
 export function TransitRoutePicker({
     data,
     onChange,
@@ -80,9 +143,16 @@ export function TransitRoutePicker({
 
     const [routes, setRoutes] = useState<TransitRouteSummary[] | null>(null);
     const [loadingList, setLoadingList] = useState(false);
-    const [pickingId, setPickingId] = useState<string | null>(null);
+    const [pickingKey, setPickingKey] = useState<string | null>(null);
+    const [pickedLine, setPickedLine] = useState<PickedLine | null>(null);
 
-    const picked = data.transitRoute ?? null;
+    const lines = useMemo(
+        () => (routes ? groupLines(routes) : null),
+        [routes],
+    );
+
+    // Whether the question already carries a picked route (sent / re-mounted).
+    const savedRoute = data.transitRoute ?? null;
 
     const loadRoutes = async () => {
         const pos = $gps ?? lastKnownPosition.get();
@@ -109,96 +179,278 @@ export function TransitRoutePicker({
         }
     };
 
-    // Load once on first mount (editable path only), when a GPS fix exists.
+    // Load the route list once on first mount (editable path only, has a fix).
     const loadedRef = useRef(false);
     useEffect(() => {
-        if (disabled || picked || loadedRef.current) return;
+        if (disabled || savedRoute || pickedLine || loadedRef.current) return;
         const pos = $gps ?? lastKnownPosition.get();
         if (!pos) return;
         loadedRef.current = true;
         void loadRoutes();
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [$gps, disabled, picked]);
+    }, [$gps, disabled, savedRoute, pickedLine]);
 
-    const pick = async (route: TransitRouteSummary) => {
-        setPickingId(route.id);
+    // Write the current selection to the question (the answer set).
+    const commitSelection = (line: PickedLine) => {
+        const selected = [...line.selected]
+            .sort((a, b) => a - b)
+            .map((i) => line.stops[i])
+            .filter(Boolean);
+        data.transitRoute = {
+            id: line.memberKeyId,
+            name: line.label,
+            mode: line.mode,
+            stops: selected,
+        };
+        onChange();
+    };
+
+    const pickLine = async (line: TransitLine) => {
+        setPickingKey(line.key);
         try {
-            const detail = await fetchTransitRouteDetail(route.id);
+            const detail = await fetchTransitRouteDetail(line.memberIds[0]);
             if (detail.stops.length === 0) {
                 toast.error(
-                    "That route has no mapped stops — pick another, or a different line.",
+                    "That line has no mapped stops — pick another line.",
                 );
                 return;
             }
-            data.transitRoute = {
-                id: route.id,
-                name: route.name,
-                ref: route.ref,
-                mode: route.mode,
-                stops: detail.stops.map((s) => ({
-                    lat: s.lat,
-                    lng: s.lng,
-                    name: s.name,
-                })),
-                geometry: detail.geometry.length ? detail.geometry : undefined,
+            const stops = detail.stops.map((s) => ({
+                lat: s.lat,
+                lng: s.lng,
+                name: s.name,
+            }));
+            const pos = $gps ?? lastKnownPosition.get();
+            let nearestIdx = -1;
+            if (pos) {
+                let best = Infinity;
+                stops.forEach((s, i) => {
+                    const d = haversineM(pos.lat, pos.lng, s.lat, s.lng);
+                    if (d < best) {
+                        best = d;
+                        nearestIdx = i;
+                    }
+                });
+            }
+            // Default: the nearest stop + every stop AFTER it (in list order).
+            // No fix → select every stop (a normal train stops everywhere).
+            const selected = new Set<number>();
+            const from = nearestIdx >= 0 ? nearestIdx : 0;
+            for (let i = from; i < stops.length; i++) selected.add(i);
+            const line2: PickedLine = {
+                key: line.key,
+                memberKeyId: line.memberIds[0],
+                label: line.label,
+                mode: line.mode,
+                stops,
+                nearestIdx,
+                selected,
             };
-            onChange();
+            setPickedLine(line2);
+            commitSelection(line2);
         } catch {
-            toast.error("Couldn't load that route's stops. Try again.");
+            toast.error("Couldn't load that line's stops. Try again.");
         } finally {
-            setPickingId(null);
+            setPickingKey(null);
         }
     };
 
-    const clearPick = () => {
+    const toggleStop = (idx: number) => {
+        setPickedLine((prev) => {
+            if (!prev) return prev;
+            const selected = new Set(prev.selected);
+            if (selected.has(idx)) selected.delete(idx);
+            else selected.add(idx);
+            const next = { ...prev, selected };
+            commitSelection(next);
+            return next;
+        });
+    };
+
+    const setAll = (on: boolean) => {
+        setPickedLine((prev) => {
+            if (!prev) return prev;
+            const selected = new Set<number>();
+            if (on) prev.stops.forEach((_, i) => selected.add(i));
+            const next = { ...prev, selected };
+            commitSelection(next);
+            return next;
+        });
+    };
+
+    /** Flip the default direction: select the nearest + everything BEFORE it. */
+    const flipDirection = () => {
+        setPickedLine((prev) => {
+            if (!prev || prev.nearestIdx < 0) return prev;
+            const selected = new Set<number>();
+            const hasAfter = prev.selected.has(prev.nearestIdx + 1);
+            if (hasAfter) {
+                for (let i = 0; i <= prev.nearestIdx; i++) selected.add(i);
+            } else {
+                for (let i = prev.nearestIdx; i < prev.stops.length; i++)
+                    selected.add(i);
+            }
+            const next = { ...prev, selected };
+            commitSelection(next);
+            return next;
+        });
+    };
+
+    const changeLine = () => {
+        setPickedLine(null);
         data.transitRoute = undefined;
         onChange();
         if (!routes) void loadRoutes();
     };
 
-    // ── Picked: show the route + its stops on a mini map ──
-    if (picked) {
+    // ── Picked (active editing): the stop checklist ──
+    if (pickedLine) {
+        const Icon = modeIcon(pickedLine.mode);
+        const count = pickedLine.selected.size;
         return (
             <div className="space-y-2">
                 <div className="flex items-center gap-2 rounded-md border-2 border-primary bg-primary/10 p-2.5">
                     <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground">
-                        {(() => {
-                            const Icon = modeIcon(picked.mode);
-                            return <Icon className="h-5 w-5" />;
-                        })()}
+                        <Icon className="h-5 w-5" />
                     </span>
                     <div className="min-w-0 flex-1">
                         <div className="truncate text-sm font-semibold">
-                            {picked.name}
+                            {pickedLine.label}
                         </div>
                         <div className="text-xs text-muted-foreground">
-                            {picked.stops.length} stops · you're riding this
+                            {count} of {pickedLine.stops.length} stops selected
                         </div>
                     </div>
                     {!disabled && (
                         <button
                             type="button"
-                            onClick={clearPick}
+                            onClick={changeLine}
                             className="shrink-0 rounded-md px-2 py-1 text-xs font-semibold text-primary hover:bg-primary/15"
                         >
                             Change
                         </button>
                     )}
                 </div>
-                <RoutePreviewMap
-                    geometry={picked.geometry}
-                    stops={picked.stops}
-                    className="h-52 w-full"
-                />
+
+                <div className="flex items-center justify-between gap-2 text-xs">
+                    <span className="text-muted-foreground">
+                        Deselect any stops your train skips.
+                    </span>
+                    <div className="flex items-center gap-1.5">
+                        {pickedLine.nearestIdx >= 0 && (
+                            <button
+                                type="button"
+                                onClick={flipDirection}
+                                className="rounded-md px-2 py-1 font-semibold text-primary hover:bg-primary/10"
+                            >
+                                Flip direction
+                            </button>
+                        )}
+                        <button
+                            type="button"
+                            onClick={() => setAll(count < pickedLine.stops.length)}
+                            className="rounded-md px-2 py-1 font-semibold text-primary hover:bg-primary/10"
+                        >
+                            {count < pickedLine.stops.length
+                                ? "All"
+                                : "None"}
+                        </button>
+                    </div>
+                </div>
+
+                <div className="max-h-72 space-y-1 overflow-y-auto pr-1">
+                    {pickedLine.stops.map((s, i) => {
+                        const on = pickedLine.selected.has(i);
+                        const isNearest = i === pickedLine.nearestIdx;
+                        return (
+                            <button
+                                key={`${i}-${s.name ?? ""}`}
+                                type="button"
+                                onClick={() => toggleStop(i)}
+                                className={cn(
+                                    "flex w-full items-center gap-2.5 rounded-md border px-2.5 py-2 text-left transition-colors",
+                                    on
+                                        ? "border-primary/60 bg-primary/10"
+                                        : "border-border bg-secondary/40 opacity-60",
+                                )}
+                            >
+                                <span
+                                    className={cn(
+                                        "flex h-5 w-5 shrink-0 items-center justify-center rounded border",
+                                        on
+                                            ? "border-primary bg-primary text-primary-foreground"
+                                            : "border-muted-foreground/40",
+                                    )}
+                                >
+                                    {on && <Check className="h-3.5 w-3.5" />}
+                                </span>
+                                <span className="min-w-0 flex-1 truncate text-sm">
+                                    {s.name ?? `Stop ${i + 1}`}
+                                </span>
+                                {isNearest && (
+                                    <span className="flex shrink-0 items-center gap-1 rounded-full bg-primary/15 px-1.5 py-0.5 text-[10px] font-semibold text-primary">
+                                        <MapPin className="h-3 w-3" />
+                                        You
+                                    </span>
+                                )}
+                            </button>
+                        );
+                    })}
+                </div>
                 <p className="text-[11px] leading-snug text-muted-foreground">
                     The hider answers &quot;yes&quot; if their station is one of
-                    these stops.
+                    the selected stops.
                 </p>
             </div>
         );
     }
 
-    // ── Not picked yet: the route list ──
+    // ── Saved route (sent / read-only) — a compact stop list, no map ──
+    if (savedRoute) {
+        const Icon = modeIcon(savedRoute.mode);
+        return (
+            <div className="space-y-2">
+                <div className="flex items-center gap-2 rounded-md border-2 border-primary bg-primary/10 p-2.5">
+                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground">
+                        <Icon className="h-5 w-5" />
+                    </span>
+                    <div className="min-w-0 flex-1">
+                        <div className="truncate text-sm font-semibold">
+                            {savedRoute.name}
+                        </div>
+                        <div className="text-xs text-muted-foreground">
+                            {savedRoute.stops.length} stops · you&apos;re riding
+                            this
+                        </div>
+                    </div>
+                    {!disabled && (
+                        <button
+                            type="button"
+                            onClick={changeLine}
+                            className="shrink-0 rounded-md px-2 py-1 text-xs font-semibold text-primary hover:bg-primary/15"
+                        >
+                            Change
+                        </button>
+                    )}
+                </div>
+                <div className="max-h-56 space-y-1 overflow-y-auto pr-1">
+                    {savedRoute.stops.map((s, i) => (
+                        <div
+                            key={`${i}-${s.name ?? ""}`}
+                            className="flex items-center gap-2.5 rounded-md border border-primary/40 bg-primary/5 px-2.5 py-1.5 text-sm"
+                        >
+                            <Check className="h-3.5 w-3.5 shrink-0 text-primary" />
+                            <span className="min-w-0 flex-1 truncate">
+                                {s.name ?? `Stop ${i + 1}`}
+                            </span>
+                        </div>
+                    ))}
+                </div>
+            </div>
+        );
+    }
+
+    // ── Not picked yet: the grouped line list ──
     return (
         <div className="space-y-2">
             <div className="flex items-center justify-between">
@@ -219,32 +471,42 @@ export function TransitRoutePicker({
                     Refresh
                 </button>
             </div>
-            {loadingList && routes === null ? (
+            {loadingList && lines === null ? (
                 <div className="flex items-center justify-center gap-2 rounded-md border border-dashed border-border/60 py-8 text-sm text-muted-foreground">
                     <Loader2 className="h-4 w-4 animate-spin" />
-                    Finding routes near you…
+                    Finding lines near you…
                 </div>
-            ) : routes && routes.length > 0 ? (
-                <div className="max-h-64 space-y-1.5 overflow-y-auto pr-1">
-                    {routes.map((r) => {
-                        const Icon = modeIcon(r.mode);
-                        const busy = pickingId === r.id;
+            ) : lines && lines.length > 0 ? (
+                <div className="max-h-72 space-y-1.5 overflow-y-auto pr-1">
+                    {lines.map((line) => {
+                        const Icon = modeIcon(line.mode);
+                        const busy = pickingKey === line.key;
                         return (
                             <button
-                                key={r.id}
+                                key={line.key}
                                 type="button"
-                                onClick={() => void pick(r)}
-                                disabled={pickingId !== null}
+                                onClick={() => void pickLine(line)}
+                                disabled={pickingKey !== null}
                                 className={cn(
-                                    "flex w-full items-center gap-2.5 rounded-md border-2 border-border bg-secondary p-2.5 text-left transition-all",
-                                    "hover:bg-accent active:scale-[0.99] disabled:opacity-60",
+                                    "flex w-full items-center gap-2.5 rounded-md border-2 p-2.5 text-left transition-all",
+                                    "active:scale-[0.99] disabled:opacity-60",
+                                    busy
+                                        ? "border-primary bg-primary/10"
+                                        : "border-border bg-secondary hover:bg-accent",
                                 )}
                             >
-                                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-background/70 text-muted-foreground">
+                                <span
+                                    className={cn(
+                                        "flex h-9 w-9 shrink-0 items-center justify-center rounded-md",
+                                        busy
+                                            ? "bg-primary text-primary-foreground"
+                                            : "bg-background/70 text-muted-foreground",
+                                    )}
+                                >
                                     <Icon className="h-5 w-5" />
                                 </span>
                                 <span className="min-w-0 flex-1 truncate text-sm font-medium">
-                                    {r.name}
+                                    {line.label}
                                 </span>
                                 {busy && (
                                     <Loader2 className="h-4 w-4 shrink-0 animate-spin text-primary" />
@@ -256,157 +518,12 @@ export function TransitRoutePicker({
             ) : (
                 <div className="flex flex-col items-center gap-1 rounded-md border border-dashed border-border/60 py-6 text-center text-sm text-muted-foreground">
                     <Train className="h-5 w-5" />
-                    <span>No routes found near you.</span>
+                    <span>No lines found near you.</span>
                     <span className="text-xs">
                         Board the line you&apos;re riding, then Refresh.
                     </span>
                 </div>
             )}
-        </div>
-    );
-}
-
-/** Non-interactive mini map: the route line + its stops, framed to the line. */
-function RoutePreviewMap({
-    geometry,
-    stops,
-    className,
-}: {
-    geometry?: number[][];
-    stops: { lat: number; lng: number; name?: string }[];
-    className?: string;
-}) {
-    const $theme = useStore(resolvedTheme);
-    const $tileKey = useStore(baseTileLayer);
-    const $satellite = useStore(satelliteView);
-    const $tfKey = useStore(thunderforestApiKey);
-    const mapRef = useRef<MapRef | null>(null);
-
-    const lineFC = useMemo(() => {
-        if (!geometry || geometry.length < 2) return null;
-        return {
-            type: "Feature" as const,
-            geometry: { type: "LineString" as const, coordinates: geometry },
-            properties: {},
-        };
-    }, [geometry]);
-    const stopsFC = useMemo(
-        () => ({
-            type: "FeatureCollection" as const,
-            features: stops.map((s) => ({
-                type: "Feature" as const,
-                geometry: {
-                    type: "Point" as const,
-                    coordinates: [s.lng, s.lat],
-                },
-                properties: {},
-            })),
-        }),
-        [stops],
-    );
-
-    const mapStyle = useMemo(
-        () =>
-            buildStyle(
-                $tileKey,
-                $satellite,
-                $tfKey,
-                $theme === "dark" ? "dark" : "light",
-            ),
-        [$tileKey, $satellite, $tfKey, $theme],
-    );
-
-    const fit = () => {
-        const map = mapRef.current?.getMap();
-        if (!map) return;
-        try {
-            const fc = lineFC
-                ? { type: "FeatureCollection", features: [lineFC] }
-                : stopsFC;
-            if (
-                (fc as { features: unknown[] }).features.length === 0 &&
-                !lineFC
-            )
-                return;
-            const [minX, minY, maxX, maxY] = turfBbox(
-                lineFC
-                    ? (lineFC as never)
-                    : (stopsFC as never),
-            );
-            if (![minX, minY, maxX, maxY].every(Number.isFinite)) return;
-            map.fitBounds(
-                [
-                    [minX, minY],
-                    [maxX, maxY],
-                ],
-                { padding: 28, duration: 0, maxZoom: 15 },
-            );
-        } catch {
-            /* keep the default view */
-        }
-    };
-
-    const center = stops[0] ?? { lat: 0, lng: 0 };
-
-    return (
-        <div
-            className={cn(
-                "relative overflow-hidden rounded-lg border",
-                className,
-            )}
-        >
-            <MapGL
-                ref={mapRef}
-                initialViewState={{
-                    longitude: center.lng,
-                    latitude: center.lat,
-                    zoom: 11,
-                }}
-                mapStyle={mapStyle}
-                interactive={false}
-                attributionControl={false}
-                onLoad={(e) => {
-                    installMissingImageHandler(e.target);
-                    fit();
-                }}
-                style={{ width: "100%", height: "100%" }}
-            >
-                {lineFC && (
-                    <Source id="route-line-src" type="geojson" data={lineFC}>
-                        <Layer
-                            id="route-line-casing"
-                            type="line"
-                            layout={{ "line-cap": "round", "line-join": "round" }}
-                            paint={{
-                                "line-color": "#ffffff",
-                                "line-width": 6,
-                                "line-opacity": 0.7,
-                            }}
-                        />
-                        <Layer
-                            id="route-line-core"
-                            type="line"
-                            layout={{ "line-cap": "round", "line-join": "round" }}
-                            paint={{
-                                "line-color": "hsl(266,60%,45%)",
-                                "line-width": 3,
-                            }}
-                        />
-                    </Source>
-                )}
-                <Source id="route-stops-src" type="geojson" data={stopsFC}>
-                    <Layer
-                        id="route-stops"
-                        type="circle"
-                        paint={{
-                            "circle-radius": 4,
-                            "circle-color": "#ffffff",
-                            "circle-stroke-color": "hsl(266,60%,40%)",
-                            "circle-stroke-width": 2,
-                        }}
-                    />
-                </Source>
-            </MapGL>
         </div>
     );
 }

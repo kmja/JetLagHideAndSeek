@@ -122,6 +122,18 @@ function isPendingQuestionReady(
     q: { id: string; data: Record<string, unknown> } | null | undefined,
 ): boolean {
     if (!q) return false;
+    // v1073: the transit-line matching question has no map pin — it's gated on
+    // a picked route (with ≥1 selected stop), NOT on lat/lng. Without this the
+    // Send button stayed disabled forever (the question never gets a lat/lng),
+    // which read as a mysterious "can't send" (mistaken for a speed check).
+    if (
+        q.id === "matching" &&
+        (q.data as { type?: string }).type === "same-train-line"
+    ) {
+        const route = (q.data as { transitRoute?: { stops?: unknown[] } })
+            .transitRoute;
+        return Array.isArray(route?.stops) && route.stops.length > 0;
+    }
     if (q.id === "matching" || q.id === "measuring") {
         const lat = (q.data as { lat?: unknown }).lat;
         const lng = (q.data as { lng?: unknown }).lng;
