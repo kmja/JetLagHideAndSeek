@@ -120,7 +120,11 @@ export function hiderPoiColor(kind: string): string {
  * hider never enabled; POIs now appear only when turned on in Map options).
  * Persisted.
  */
-export const hiderPoiShow = persistentAtom<boolean>("hiderPoiShow", false, {
+// v1047: key bumped (`hiderPoiShow` → `hiderPoiShow2`) so a stale `true`
+// persisted from the v888 default-ON era is dropped — existing testers were
+// still seeing the native POI field they never enabled this build. New key →
+// clean `false` default.
+export const hiderPoiShow = persistentAtom<boolean>("hiderPoiShow2", false, {
     encode: (v) => JSON.stringify(v),
     decode: (v) => v === "true",
 });
@@ -130,8 +134,12 @@ export const hiderPoiShow = persistentAtom<boolean>("hiderPoiShow", false, {
  * group-coloured DOTS by `HiderPoiOverlay` (v894: multi-select, was a single
  * string). Chosen from the map drawer's searchable type list. Persisted.
  */
+// v1047: key bumped (`…Kinds` → `…Kinds2`) so a highlight set left persisted
+// from earlier testing is dropped — the orange highlight dots were showing on a
+// fresh session for POI types the hider never toggled this build. New key →
+// clean empty default (no dots until the hider picks a type).
 export const hiderPoiHighlightKinds = persistentAtom<string[]>(
-    "hiderPoiHighlightKinds",
+    "hiderPoiHighlightKinds2",
     [],
     { encode: JSON.stringify, decode: safeParseKinds },
 );

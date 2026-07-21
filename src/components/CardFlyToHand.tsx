@@ -154,7 +154,11 @@ export function CardFlyToHand() {
                     ref={(el) => {
                         elsRef.current[i] = el;
                     }}
-                    className="absolute w-[min(46vw,180px)] aspect-[5/7] drop-shadow-2xl will-change-transform"
+                    // No `filter: drop-shadow` here — a filter on a
+                    // will-change-transform element smears into a vertical trail
+                    // during the fast GPU transform on some Android devices. The
+                    // CardTile reads fine without it.
+                    className="absolute w-[min(46vw,180px)] aspect-[5/7] rounded-xl shadow-2xl will-change-transform"
                     style={{
                         // Centre the card's own box on (50%, 38%) via layout
                         // margins (NOT a transform) so the WAAPI transform below

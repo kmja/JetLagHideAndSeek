@@ -143,22 +143,36 @@ export function CardTile({
                 borderRadius: cu(2),
             }}
         >
+            {/* Selected-state fill — a translucent primary tint over the whole
+                card, matching how selected items read everywhere else in the app
+                (map options, wizard tiles). Pairs with the ring above. */}
+            {selected && selectionIndicator !== "none" && (
+                <span
+                    className="absolute inset-0 bg-primary/15 pointer-events-none z-[5]"
+                    style={{ borderRadius: cu(2) }}
+                    aria-hidden="true"
+                />
+            )}
             {/* Selection checkmark — floats in the top-right corner so
                 it doesn't compete with the title or icon for layout
                 space. Only visible when the parent picker enabled the
-                checkbox indicator and the card is selected. */}
+                checkbox indicator and the card is selected. Enlarged (v1047)
+                so it's an obvious tap-confirmation, not a speck. */}
             {selected && selectionIndicator === "checkbox" && (
                 <span
-                    className="absolute inline-flex items-center justify-center rounded-sm bg-primary text-primary-foreground z-10"
+                    className="absolute inline-flex items-center justify-center rounded-md bg-primary text-primary-foreground shadow-sm z-10"
                     style={{
-                        top: cu(2.7),
-                        right: cu(2.7),
-                        width: cu(6.7),
-                        height: cu(6.7),
+                        top: cu(3),
+                        right: cu(3),
+                        width: cu(13),
+                        height: cu(13),
                     }}
                     aria-hidden="true"
                 >
-                    <Check style={{ width: cu(4.7), height: cu(4.7) }} />
+                    <Check
+                        style={{ width: cu(9), height: cu(9) }}
+                        strokeWidth={3}
+                    />
                 </span>
             )}
 

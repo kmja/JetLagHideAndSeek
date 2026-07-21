@@ -1191,7 +1191,13 @@ export function GameLobbyDialog() {
                             <div className="text-[11px] uppercase tracking-[0.16em] font-poppins font-bold text-muted-foreground px-1">
                                 Preload the map
                             </div>
-                            {metered && (
+                            {/* On a metered link the checkbox is the CONSENT
+                                gate — shown only while preload is OFF (nothing
+                                downloading). Once the player opts in, the
+                                CompactPreloadBar below is the single status +
+                                Stop/Resume surface, so we hide the now-redundant
+                                checkbox (v1047). */}
+                            {metered && !preloadOn && (
                                 <label className="flex items-center gap-3 p-3 rounded-md border border-border bg-secondary/30 cursor-pointer animate-in fade-in duration-200">
                                     <Checkbox
                                         checked={preloadOn}

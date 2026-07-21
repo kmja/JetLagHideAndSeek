@@ -428,7 +428,42 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v1046`. Use `git log` for the per-version detail;
+build stamp. Current: `v1047`. Use `git log` for the per-version detail;
+
+**v1047 — reconnect-dialog dead-end fix + card-picker/POI/preload polish
+(live-testing batch).**
+- **Stuck "Reconnecting…" curtain fixed** (the spinner spins forever, "Retry
+  now" never appears — most common right after a NETWORK CHANGE). Root cause:
+  `new WebSocket(url)` can hang in CONNECTING indefinitely with no `close`/
+  `error`, so `handleClose`→`scheduleReconnect` never runs, the attempt counter
+  never advances, and the banner's retry (gated on `attempt ≥ 2`) never shows.
+  `transport.ts` now arms a **CONNECT_TIMEOUT_MS (8 s) ceiling** per socket: a
+  socket that hasn't reached OPEN by the deadline is abandoned + rescheduled, so
+  the attempt counter keeps climbing (backoff retries + the retry button appear).
+  Cleared on open/close/teardown. Belt-and-braces: `ReconnectingBanner` also
+  reveals "Retry now" after the curtain has been up `RETRY_FALLBACK_MS` (5 s)
+  regardless of the counter — the button `forceReconnect`s (drops any wedged
+  socket), so a reconnect is never a dead end.
+- **Fly-to-hand hardening:** dropped the `filter: drop-shadow` on the in-flight
+  card (a filter on a `will-change-transform` element smears into a vertical
+  trail during the GPU transform on some Android devices — the reported clipping
+  streak) for a plain `shadow-2xl` box-shadow. (The v1046 measured FLIP is
+  correct; the streak was the filter.)
+- **Card picker (`HandCardPicker`/`CardTile`):** the tiny corner checkbox on a
+  selected card is enlarged, and a selected card now gets the app's standard
+  **translucent primary-tint fill** (`bg-primary/15` over the card) in addition
+  to the ring — matching how selected items read everywhere else. The picker
+  footer puts the **primary action on the LEFT** (Cancel beside it, picked-count
+  on the right).
+- **Hider POI dots gone by default:** the orange POI dots / native POI field
+  were showing on a fresh session for types the hider never enabled this build —
+  stale values persisted under `hiderPoiShow` / `hiderPoiHighlightKinds` from the
+  v888 default-ON era. Bumped both persistent keys (`…2`) so the stale on-values
+  are dropped and everyone gets the clean off/empty defaults.
+- **Lobby preload declutter:** on a metered link the "Preload game data"
+  consent checkbox now shows ONLY while preload is off; once opted-in (or
+  running/done) the `CompactPreloadBar` ("Map ready" + Stop/Resume) is the single
+  status surface — no more two side-by-side preload components.
 
 **v1046 — real in-app rulebook DIAGRAMS + fly-to-hand rebuilt as a measured FLIP.**
 - **Rulebook diagrams (`src/content/rulebook.md`).** The rulebook had six text

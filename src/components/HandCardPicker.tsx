@@ -131,17 +131,10 @@ export function HandCardPicker({
                     )}
                 </div>
 
-                <DialogFooter className="px-6 py-4 shrink-0 border-t border-border gap-2 sm:gap-2 sm:justify-between">
-                    <span className="text-xs text-muted-foreground">
-                        {selected.length} / {pickCount} picked
-                    </span>
+                <DialogFooter className="px-6 py-4 shrink-0 border-t border-border gap-2 sm:gap-2 sm:justify-between items-center">
+                    {/* Primary action on the LEFT (v1047), Cancel beside it;
+                        the picked-count reads on the right. */}
                     <div className="flex gap-2">
-                        <Button
-                            variant="outline"
-                            onClick={() => onOpenChange(false)}
-                        >
-                            Cancel
-                        </Button>
                         <Button
                             onClick={() => {
                                 if (!canConfirm) return;
@@ -153,7 +146,16 @@ export function HandCardPicker({
                             <Check className="w-4 h-4" />
                             {confirmLabel}
                         </Button>
+                        <Button
+                            variant="outline"
+                            onClick={() => onOpenChange(false)}
+                        >
+                            Cancel
+                        </Button>
                     </div>
+                    <span className="text-xs text-muted-foreground shrink-0">
+                        {selected.length} / {pickCount} picked
+                    </span>
                 </DialogFooter>
             </DialogContent>
         </Dialog>

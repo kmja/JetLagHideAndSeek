@@ -25,6 +25,14 @@ import { Button } from "@/components/ui/button";
  * staring at a frozen board that isn't receiving updates.
  */
 const SHOW_DELAY_MS = 1500;
+/**
+ * Even if the attempt counter is somehow stuck (e.g. a socket wedged in
+ * CONNECTING before the transport's own connect-timeout trips), always give the
+ * user a manual escape hatch once the curtain has been up this long. The button
+ * calls `forceReconnect`, which drops whatever socket exists and opens a fresh
+ * one — so it can recover a state the auto-reconnect can't.
+ */
+const RETRY_FALLBACK_MS = 5_000;
 
 export function ReconnectingBanner() {
     const $status = useStore(transportStatus);
@@ -33,12 +41,15 @@ export function ReconnectingBanner() {
     const $demo = useStore(demoMode);
     const $attempt = useStore(transportReconnectAttempt);
     const [visible, setVisible] = useState(false);
+    const [fallbackRetry, setFallbackRetry] = useState(false);
     // Hold the manual "Retry now" back until the FIRST automatic reconnect
     // attempt has actually failed (attempt ≥ 2 = first retry already came back
     // unsuccessful). Offering it during a healthy in-progress reconnect just
     // invites the user to interrupt it. The auto-reconnect resolves the vast
-    // majority of drops on its own within a second or two.
-    const showRetry = $attempt >= 2;
+    // majority of drops on its own within a second or two — but if we've been
+    // sitting on the curtain past RETRY_FALLBACK_MS, show it regardless so a
+    // wedged reconnect is never a dead end.
+    const showRetry = $attempt >= 2 || fallbackRetry;
 
     // In a real online game but the socket isn't open → we're disconnected.
     // Demo mode presents as "open" and never hits this, but guard anyway.
@@ -48,10 +59,18 @@ export function ReconnectingBanner() {
     useEffect(() => {
         if (!disconnected) {
             setVisible(false);
+            setFallbackRetry(false);
             return;
         }
         const t = window.setTimeout(() => setVisible(true), SHOW_DELAY_MS);
-        return () => window.clearTimeout(t);
+        const t2 = window.setTimeout(
+            () => setFallbackRetry(true),
+            RETRY_FALLBACK_MS,
+        );
+        return () => {
+            window.clearTimeout(t);
+            window.clearTimeout(t2);
+        };
     }, [disconnected]);
 
     if (!visible) return null;

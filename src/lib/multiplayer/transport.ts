@@ -33,6 +33,17 @@ const PING_INTERVAL_MS = 25_000;
 const RECONNECT_BASE_MS = 250;
 const RECONNECT_MAX_MS = 8_000;
 /**
+ * A `new WebSocket(url)` can hang in CONNECTING indefinitely — most commonly
+ * right after a NETWORK CHANGE (Wi-Fi ↔ cellular), where the browser opens a
+ * socket against the dead interface and neither `open` nor `close`/`error` ever
+ * fires. Without a ceiling that attempt would spin forever: `handleClose` never
+ * runs, so `scheduleReconnect` never bumps the attempt counter, so the banner's
+ * "Retry now" (gated on attempts) never appears and nothing ever retries (the
+ * reported "stuck on the reconnecting dialog, spinner never resolves"). If a
+ * socket hasn't reached OPEN within this window we abandon it and reschedule.
+ */
+const CONNECT_TIMEOUT_MS = 8_000;
+/**
  * After the tab resumes, a socket that still reads `readyState === OPEN` may
  * actually be a ZOMBIE — the OS killed it while backgrounded without firing a
  * `close` event, so the cached status stays "open" and nothing reconnects
@@ -56,6 +67,9 @@ export class MultiplayerTransport {
     private reconnectAttempt = 0;
     private reconnectTimer: number | null = null;
     private pingTimer: number | null = null;
+    /** Ceiling on how long a single socket may sit in CONNECTING before we
+     *  give up on it and reschedule (see CONNECT_TIMEOUT_MS). */
+    private connectTimer: number | null = null;
     /** Epoch ms of the last inbound message — the liveness signal a resume
      *  probe checks to unmask a zombie socket. */
     private lastInboundAt = 0;
@@ -248,6 +262,23 @@ export class MultiplayerTransport {
             return;
         }
         this.socket = socket;
+        // Ceiling on a hung CONNECTING socket (network change, unreachable
+        // endpoint). If it hasn't opened by the deadline, abandon it and
+        // reschedule — this is what keeps the attempt counter (and therefore
+        // the banner's "Retry now") advancing when no close/error ever fires.
+        if (this.connectTimer !== null) window.clearTimeout(this.connectTimer);
+        this.connectTimer = window.setTimeout(() => {
+            this.connectTimer = null;
+            if (this.socket === socket && socket.readyState !== WebSocket.OPEN) {
+                try {
+                    socket.close(1000, "connect timeout");
+                } catch {
+                    /* ignore */
+                }
+                this.socket = null;
+                if (!this.closedByUser) this.scheduleReconnect();
+            }
+        }, CONNECT_TIMEOUT_MS);
         // Generation guard: only the CURRENT socket's events act. Without
         // this, a superseded socket (closed by forceReconnect while a fresh
         // one is already connecting — e.g. the "Retry now" button firing
@@ -273,6 +304,10 @@ export class MultiplayerTransport {
     }
 
     private handleOpen() {
+        if (this.connectTimer !== null) {
+            window.clearTimeout(this.connectTimer);
+            this.connectTimer = null;
+        }
         const isReconnect = this.reconnectAttempt > 0;
         this.reconnectAttempt = 0;
         this.emit("reconnectAttempt", 0);
@@ -325,6 +360,10 @@ export class MultiplayerTransport {
 
     private handleClose() {
         this.clearPings();
+        if (this.connectTimer !== null) {
+            window.clearTimeout(this.connectTimer);
+            this.connectTimer = null;
+        }
         this.socket = null;
         if (this.closedByUser) {
             this.setStatus("closed");
@@ -525,6 +564,10 @@ export class MultiplayerTransport {
         if (this.reconnectTimer !== null) {
             window.clearTimeout(this.reconnectTimer);
             this.reconnectTimer = null;
+        }
+        if (this.connectTimer !== null) {
+            window.clearTimeout(this.connectTimer);
+            this.connectTimer = null;
         }
     }
 
