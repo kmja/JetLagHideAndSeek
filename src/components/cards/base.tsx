@@ -384,8 +384,14 @@ export const QuestionCard = ({
                     // separating, not a contrasting block. Margins/inset are
                     // owned by the list container (QuestionSidebar) so the
                     // card sits flush in the configure dialog too.
-                    "relative overflow-hidden border shadow-lg",
-                    "border-sidebar-border bg-sidebar-accent",
+                    "relative overflow-hidden",
+                    // v1083: in the CONFIGURE dialog only the TOP header card
+                    // carries the gray surface (below); the container is
+                    // transparent so the config controls sit on the dialog
+                    // background, not a full-height gray block.
+                    forceExpanded
+                        ? ""
+                        : "border shadow-lg border-sidebar-border bg-sidebar-accent",
                     className,
                 )}
             >
@@ -409,7 +415,11 @@ export const QuestionCard = ({
                               ? "Expand question details"
                               : "Collapse question details"
                     }
-                    className="rounded-none border-0 shadow-none bg-transparent"
+                    className={cn(
+                        forceExpanded
+                            ? "rounded-lg border border-sidebar-border bg-sidebar-accent shadow-none"
+                            : "rounded-none border-0 shadow-none bg-transparent",
+                    )}
                 />
                 {/* Smooth height animation via the grid-rows 0fr→1fr trick
                     (animates to the real content height, unlike a max-h
@@ -426,7 +436,7 @@ export const QuestionCard = ({
                 >
                     <div className="overflow-hidden">
                         {bodyMounted && (
-                            <div className="pb-2">
+                            <div className={cn("pb-2", forceExpanded && "pt-3")}>
                                 {/* Expanded: a static map highlighting this
                                     question's resulting area. Suppressed in
                                     the configure dialog (already embeds the

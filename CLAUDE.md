@@ -430,6 +430,34 @@ bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
 build stamp. Current: `v1069`. Use `git log` for the per-version detail;
 
+**v1083 — configure-dialog gray + transit-line picker restyle + Send-gate fix +
+heading-default.**
+- **Send button was stuck disabled for the transit-line question**
+  (`AddQuestionDialog`): `pendingUsesPicker` was true for ALL matching questions,
+  so Send waited on `pickerReady` — but the transit-line question renders the
+  `TransitRoutePicker`, not the map `InlineLocationPicker` that fires
+  `onPickerReady`, so it never flipped. Now the transit-line question is excluded
+  from `pendingUsesPicker` (it's ready-gated purely by a picked route with ≥1
+  stop). THIS was the "still can't send".
+- **Configure-dialog gray only on the header card** (`cards/base.tsx`,
+  `forceExpanded`): the whole card carried `bg-sidebar-accent`, graying the
+  entire content area. Now the container is transparent and only the top
+  `QuestionOverlayCard` header keeps the gray (rounded card), so the config
+  controls sit on the dialog background. Body gets `pt-3` above the controls.
+- **Transit-line direction section restyled** (`TransitRoutePicker`): the
+  heading row is a neutral (not red-selected) box; the compass is a display-style
+  BADGE (rotated arrow + cardinal abbreviation "W"/"NE"/… stacked below it); the
+  label reads "Toward <terminus>" ("Toward" in muted style); "Reverse" text → a
+  neutral `ArrowUpDown` icon button (no red).
+- **Stop timeline**: the connecting rail line is now DASHED in the muted
+  foreground color (was solid red) with taller rows so the dashes read between
+  checkboxes; the "You" badge moved right next to the station name and uses the
+  map's blue GPS dot (`#2A81CB`) instead of the red pill.
+- **Direction default from heading** (`TransitRoutePicker`): on pick, a one-shot
+  device-heading read (in PARALLEL with the route fetch, so no added latency)
+  picks the travel direction whose terminus bearing best matches where the seeker
+  is actually moving; falls back to forward when there's no heading (stationary).
+
 **v1082 — configure-dialog + transit-line picker polish.**
 - **Configure dialog** (`AddQuestionDialog`): removed the header/content and
   content/footer DIVIDER lines (`border-b`/`border-t`); the "Rules" button now

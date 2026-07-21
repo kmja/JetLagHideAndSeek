@@ -6,7 +6,6 @@ import {
     Check,
     ChevronDown,
     Loader2,
-    MapPin,
     RefreshCw,
     Train,
 } from "lucide-react";
@@ -106,20 +105,50 @@ function bearing(
     return (Math.atan2(y, x) * 180) / Math.PI;
 }
 
-const COMPASS_WORDS = [
-    "north",
-    "northeast",
-    "east",
-    "southeast",
-    "south",
-    "southwest",
-    "west",
-    "northwest",
-];
-/** A cardinal word ("north", "southeast", …) for a bearing in degrees. */
-function compassWord(deg: number): string {
+/** Smallest absolute difference between two compass bearings (degrees). */
+function bearingDiff(a: number, b: number): number {
+    const d = Math.abs((((a - b) % 360) + 360) % 360);
+    return d > 180 ? 360 - d : d;
+}
+
+/** Best-effort device travel heading (degrees 0..360) from a one-shot GPS
+ *  read — null when unavailable / stationary (heading is only reported while
+ *  moving). Never rejects; bounded to ~2.5 s so it can't stall the pick. */
+function currentHeadingSafe(): Promise<number | null> {
+    return new Promise((resolve) => {
+        if (typeof navigator === "undefined" || !navigator.geolocation) {
+            resolve(null);
+            return;
+        }
+        let done = false;
+        const finish = (v: number | null) => {
+            if (done) return;
+            done = true;
+            resolve(v);
+        };
+        const t = setTimeout(() => finish(null), 2500);
+        navigator.geolocation.getCurrentPosition(
+            (pos) => {
+                clearTimeout(t);
+                const h = pos.coords.heading;
+                finish(
+                    typeof h === "number" && Number.isFinite(h) ? h : null,
+                );
+            },
+            () => {
+                clearTimeout(t);
+                finish(null);
+            },
+            { enableHighAccuracy: true, timeout: 2000, maximumAge: 5000 },
+        );
+    });
+}
+
+const COMPASS_ABBR = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"];
+/** A short cardinal abbreviation ("N", "SE", …) for a bearing in degrees. */
+function compassAbbr(deg: number): string {
     const i = Math.round(((deg % 360) + 360) / 45) % 8;
-    return COMPASS_WORDS[i];
+    return COMPASS_ABBR[i];
 }
 
 /** The line label = the route name with any ": A - B" direction stripped. */
@@ -279,7 +308,12 @@ export function TransitRoutePicker({
     const pickLine = async (line: TransitLine) => {
         setPickingKey(line.key);
         try {
-            const detail = await fetchTransitRouteDetail(line.memberIds[0]);
+            // Read the device heading IN PARALLEL with the route fetch (usually
+            // slower), so estimating the travel direction adds no latency.
+            const [detail, heading] = await Promise.all([
+                fetchTransitRouteDetail(line.memberIds[0]),
+                currentHeadingSafe(),
+            ]);
             if (detail.stops.length === 0) {
                 toast.error(
                     "That line has no mapped stops — pick another line.",
@@ -303,11 +337,41 @@ export function TransitRoutePicker({
                     }
                 });
             }
-            // Default: the nearest stop + every stop AFTER it (in list order).
-            // No fix → select every stop (a normal train stops everywhere).
+            // v1083: default the travel direction from the device heading (if
+            // moving) — pick the terminus whose bearing from the nearest stop
+            // is closest to where the seeker is actually heading. Falls back to
+            // `forward` (toward the end of the list) when there's no heading.
+            let forward = true;
+            if (nearestIdx >= 0 && heading != null && stops.length >= 2) {
+                const near = stops[nearestIdx];
+                const endTerm = stops[stops.length - 1];
+                const startTerm = stops[0];
+                const bFwd = bearing(
+                    near.lat,
+                    near.lng,
+                    endTerm.lat,
+                    endTerm.lng,
+                );
+                const bBwd = bearing(
+                    near.lat,
+                    near.lng,
+                    startTerm.lat,
+                    startTerm.lng,
+                );
+                forward = bearingDiff(heading, bFwd) <= bearingDiff(heading, bBwd);
+            }
+            // Default: the nearest stop + every stop AHEAD of it in the chosen
+            // direction. No fix → select every stop (a normal train stops
+            // everywhere).
             const selected = new Set<number>();
-            const from = nearestIdx >= 0 ? nearestIdx : 0;
-            for (let i = from; i < stops.length; i++) selected.add(i);
+            if (nearestIdx >= 0) {
+                if (forward)
+                    for (let i = nearestIdx; i < stops.length; i++)
+                        selected.add(i);
+                else for (let i = 0; i <= nearestIdx; i++) selected.add(i);
+            } else {
+                for (let i = 0; i < stops.length; i++) selected.add(i);
+            }
             const line2: PickedLine = {
                 key: line.key,
                 memberKeyId: line.memberIds[0],
@@ -315,7 +379,7 @@ export function TransitRoutePicker({
                 mode: line.mode,
                 stops,
                 nearestIdx,
-                forward: true,
+                forward,
                 selected,
             };
             setPickedLine(line2);
@@ -377,25 +441,11 @@ export function TransitRoutePicker({
             pickedLine.nearestIdx >= 0
                 ? pickedLine.stops[pickedLine.nearestIdx]
                 : null;
-        const dirWord =
-            nearest && target
-                ? compassWord(
-                      bearing(
-                          nearest.lat,
-                          nearest.lng,
-                          target.lat,
-                          target.lng,
-                      ),
-                  )
-                : null;
-        const dirLabel =
-            target && dirWord
-                ? `${dirWord} toward ${target.name ?? "the end"}`
-                : null;
-        const dirBearing =
-            nearest && target
-                ? bearing(nearest.lat, nearest.lng, target.lat, target.lng)
-                : 0;
+        const hasDir = !!(nearest && target);
+        const dirBearing = hasDir
+            ? bearing(nearest!.lat, nearest!.lng, target.lat, target.lng)
+            : 0;
+        const dirAbbr = hasDir ? compassAbbr(dirBearing) : null;
 
         // v1081: order the stops in travel direction (nearest near the top,
         // travelling downward). Show only the TWO most-recent stops BEHIND the
@@ -442,20 +492,28 @@ export function TransitRoutePicker({
                     </div>
                 </div>
 
-                {/* Direction filter — a plain header row (not selected); the
-                    reverse action is a small icon button. */}
-                {dirLabel && (
-                    <div className="flex items-center gap-2 rounded-md border border-border bg-secondary/40 px-3 py-2 text-sm">
-                        <ArrowUp
-                            className="h-4 w-4 shrink-0 text-muted-foreground"
-                            style={{ transform: `rotate(${dirBearing}deg)` }}
-                        />
+                {/* Direction filter — a compass badge (arrow + cardinal abbr)
+                    as a clearly-separate display element, the "Toward <end>"
+                    label, and a neutral icon-only reverse button. */}
+                {hasDir && (
+                    <div className="flex items-center gap-3 rounded-md border border-border bg-secondary/30 px-3 py-2 text-sm">
+                        <div className="flex w-10 shrink-0 flex-col items-center justify-center gap-0.5 rounded-md border border-border bg-background py-1">
+                            <ArrowUp
+                                className="h-4 w-4 text-foreground"
+                                style={{
+                                    transform: `rotate(${dirBearing}deg)`,
+                                }}
+                            />
+                            <span className="text-[10px] font-bold uppercase leading-none text-muted-foreground">
+                                {dirAbbr}
+                            </span>
+                        </div>
                         <span className="min-w-0 flex-1">
                             <span className="text-muted-foreground">
-                                Heading{" "}
+                                Toward{" "}
                             </span>
-                            <span className="font-semibold capitalize">
-                                {dirLabel}
+                            <span className="font-semibold">
+                                {target.name ?? "the end"}
                             </span>
                         </span>
                         <button
@@ -463,7 +521,7 @@ export function TransitRoutePicker({
                             onClick={flipDirection}
                             aria-label="Reverse direction"
                             title="Reverse direction"
-                            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-primary transition-colors hover:bg-primary/10"
+                            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
                         >
                             <ArrowUpDown className="h-4 w-4" />
                         </button>
@@ -488,13 +546,13 @@ export function TransitRoutePicker({
                             return (
                                 <div
                                     key={`${i}-${s.name ?? ""}`}
-                                    className="flex w-full items-stretch gap-3 py-1 pl-1 pr-2 opacity-40"
+                                    className="flex w-full items-stretch gap-3 py-1.5 pl-1 pr-2 opacity-40"
                                 >
                                     <span className="relative flex w-7 shrink-0 items-center justify-center self-stretch">
                                         {!isFirst && (
-                                            <span className="absolute left-1/2 top-0 h-1/2 w-0.5 -translate-x-1/2 bg-primary/35" />
+                                            <span className="absolute left-1/2 top-0 h-1/2 -translate-x-1/2 border-l-2 border-dashed border-muted-foreground/50" />
                                         )}
-                                        <span className="absolute bottom-0 left-1/2 h-1/2 w-0.5 -translate-x-1/2 bg-primary/35" />
+                                        <span className="absolute bottom-0 left-1/2 h-1/2 -translate-x-1/2 border-l-2 border-dashed border-muted-foreground/50" />
                                         <span className="relative z-10 h-3.5 w-3.5 shrink-0 rounded-sm border border-muted-foreground/50 bg-background" />
                                     </span>
                                     <span className="min-w-0 flex-1 truncate py-0.5 text-sm">
@@ -509,17 +567,17 @@ export function TransitRoutePicker({
                                 type="button"
                                 onClick={() => toggleStop(i)}
                                 className={cn(
-                                    "flex w-full items-stretch gap-3 rounded-md py-2 pl-1 pr-2 text-left transition-colors hover:bg-accent/60",
+                                    "flex w-full items-stretch gap-3 rounded-md py-2.5 pl-1 pr-2 text-left transition-colors hover:bg-accent/60",
                                     !on && "opacity-55",
                                 )}
                             >
-                                {/* rail column: connecting line + node */}
+                                {/* rail column: dashed connecting line + node */}
                                 <span className="relative flex w-7 shrink-0 items-center justify-center self-stretch">
                                     {!isFirst && (
-                                        <span className="absolute left-1/2 top-0 h-1/2 w-0.5 -translate-x-1/2 bg-primary/35" />
+                                        <span className="absolute left-1/2 top-0 h-1/2 -translate-x-1/2 border-l-2 border-dashed border-muted-foreground/50" />
                                     )}
                                     {!isLast && (
-                                        <span className="absolute bottom-0 left-1/2 h-1/2 w-0.5 -translate-x-1/2 bg-primary/35" />
+                                        <span className="absolute bottom-0 left-1/2 h-1/2 -translate-x-1/2 border-l-2 border-dashed border-muted-foreground/50" />
                                     )}
                                     <span
                                         className={cn(
@@ -533,12 +591,19 @@ export function TransitRoutePicker({
                                     </span>
                                 </span>
                                 <span className="flex min-w-0 flex-1 items-center gap-2 py-0.5">
-                                    <span className="min-w-0 flex-1 truncate text-base">
+                                    <span className="min-w-0 truncate text-base">
                                         {label}
                                     </span>
                                     {isNearest && (
-                                        <span className="flex shrink-0 items-center gap-1 rounded-full bg-primary/15 px-2 py-0.5 text-xs font-semibold text-primary">
-                                            <MapPin className="h-3.5 w-3.5" />
+                                        <span className="flex shrink-0 items-center gap-1.5 text-xs font-semibold text-[#2A81CB]">
+                                            <span
+                                                aria-hidden
+                                                className="inline-block h-2.5 w-2.5 rounded-full border border-white bg-[#2A81CB]"
+                                                style={{
+                                                    boxShadow:
+                                                        "0 0 0 1px #2A81CB",
+                                                }}
+                                            />
                                             You
                                         </span>
                                     )}

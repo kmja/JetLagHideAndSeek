@@ -451,8 +451,17 @@ export const AddQuestionDialog = ({
         configuringQuestionKey.set(pendingKey);
         return () => configuringQuestionKey.set(null);
     }, [pendingKey]);
+    // The transit-line matching question renders the TransitRoutePicker, NOT
+    // the map-based InlineLocationPicker — so it never fires `onPickerReady`.
+    // Gating Send on `pickerReady` for it would leave the button disabled
+    // forever (the reported "still can't send"): it's ready-gated purely by
+    // `isPendingQuestionReady` (a picked route with ≥1 stop).
+    const pendingIsTransitLine =
+        pendingQuestion?.id === "matching" &&
+        (pendingQuestion?.data as { type?: string })?.type ===
+            "same-train-line";
     const pendingUsesPicker =
-        pendingQuestion?.id === "matching" ||
+        (pendingQuestion?.id === "matching" && !pendingIsTransitLine) ||
         pendingQuestion?.id === "measuring" ||
         pendingQuestion?.id === "radius" ||
         pendingQuestion?.id === "tentacles";
