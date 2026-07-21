@@ -63,6 +63,22 @@ let masterPMTiles: PMTiles | null = null;
 let masterUrl: string | null = null;
 let activePack: ActivePack | null = null;
 
+/**
+ * The in-memory PMTiles handle for the currently-loaded city pack (offline),
+ * or null when none is loaded. Lets headless readers (e.g. the body-of-water
+ * `water`-layer read) pull vector geometry straight from the PRELOADED pack for
+ * the current play area instead of range-reading the master archive over the
+ * network (v1074). Returns the zoom range so the caller can stay in-bounds.
+ */
+export function getActivePackReader(): {
+    osmId: number;
+    pmtiles: PMTiles;
+    minZoom: number;
+    maxZoom: number;
+} | null {
+    return activePack;
+}
+
 /** Lazily (re)build the master PMTiles handle for a given master URL.
  *  The merge protocol learns the master URL from the style source URL,
  *  so we don't need it injected up front. */

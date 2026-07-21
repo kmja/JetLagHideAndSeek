@@ -430,6 +430,28 @@ bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
 build stamp. Current: `v1069`. Use `git log` for the per-version detail;
 
+**v1074 — body-of-water reads the water layer from the PRELOADED pack (not the
+master archive over the network).** Body-of-water hit LIVE Overpass in Stockholm
+even though the tile pack was preloaded AND `/api/water` was cached — because the
+two water sources it actually reads are separate from both. The elimination's
+primary source is the basemap `water` vector layer read HEADLESS via
+`ensureBasemapWaterForArea` → `fetchBasemapLayerPolys(pmtilesUrl, …)` — which
+range-read the **master ~127 GB archive over the network**, NOT the preloaded
+city pack. On a cellular link that read is slow / fails and times out under the
+4.5 s cap → empty water → the cold `/api/water`-then-live-Overpass fallback. (The
+pmtiles PACK is the basemap for DISPLAY; it wasn't wired to the water-geometry
+read.) Fix: `tilePack.ts` exposes `getActivePackReader()` (the in-memory PMTiles
+handle for the loaded city pack, offline), `basemapTiles.ts` gains
+`fetchLayerPolysFromPM(pm, …)`, and `ensureBasemapWaterForArea` now reads the
+`water` layer straight from the loaded pack for the current play area (the pack
+covers z0..15, so z11 water is in it), falling back to the master URL only when
+no pack is loaded. So a preloaded city gets its body-of-water geometry offline
+and never touches Overpass. (Secondary/latent: `fetchPrewarmedAreaWater()`
+returned null for a cached Stockholm — a `resp.json()` failure on the served
+`/api/water` body [the v738/v739 double-gzip class] or a key drift — the pack
+read routes the elimination around it; that fallback path can be diagnosed
+separately if it still bites the nearest-water label.)
+
 **v1073 — transit-line question overhaul (group lines, selected state, stop
 checklist) + Send-gate fix + speed checks removed.**
 - **Transit-line picker rebuilt** (`TransitRoutePicker`): (1) the raw OSM routes

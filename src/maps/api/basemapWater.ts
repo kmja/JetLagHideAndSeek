@@ -7,7 +7,11 @@ import type { MapRef } from "react-map-gl/maplibre";
 import { mapGeoLocation, polyGeoJSON } from "@/lib/context";
 import { dissolveWater } from "@/lib/geometry/client";
 import { pmtilesUrl } from "@/lib/protomapsStyle";
-import { fetchBasemapLayerPolys } from "@/maps/api/basemapTiles";
+import { getActivePackReader } from "@/lib/tilePack";
+import {
+    fetchBasemapLayerPolys,
+    fetchLayerPolysFromPM,
+} from "@/maps/api/basemapTiles";
 import { playAreaSignature } from "@/maps/geo-utils/playAreaIndex";
 
 /**
@@ -188,16 +192,34 @@ export function ensureBasemapWaterForArea(
     let run = ensured.get(key);
     if (run) return capAwait(run);
     run = (async () => {
-        const url = pmtilesUrl.get();
-        if (!url) return;
         // v1007: read at a LOWER zoom (fewer, larger tiles → fewer polygons →
         // a far lighter downstream buffer, which is what over-loaded and timed
         // the overlay out). Water needs no fine detail — we simplify + buffer by
         // kilometres anyway.
-        const feats = await fetchBasemapLayerPolys(url, bbox, "water", {
-            targetZoom: 11,
-            maxTiles: 24,
-        });
+        // v1074: read the `water` layer from the PRELOADED city pack (in-memory,
+        // offline, this play area) when it's loaded — NOT the master archive
+        // over the network. The master read is a fresh range-fetch that on a
+        // cellular link is slow / fails (it timed out under the 4.5 s cap →
+        // empty water → the cold LIVE-Overpass fallback the user saw, even
+        // though the pack is preloaded). The pack covers z0..15, so z11 water is
+        // in it. Falls back to the master URL only when no pack is loaded.
+        const pack = getActivePackReader();
+        const packOsm = mapGeoLocation.get()?.properties?.osm_id;
+        const usePack =
+            pack && (packOsm == null || pack.osmId === packOsm) ? pack : null;
+        const feats = usePack
+            ? await fetchLayerPolysFromPM(usePack.pmtiles, bbox, "water", {
+                  targetZoom: Math.min(11, usePack.maxZoom),
+                  maxTiles: 24,
+              })
+            : await (async () => {
+                  const url = pmtilesUrl.get();
+                  if (!url) return null;
+                  return fetchBasemapLayerPolys(url, bbox, "water", {
+                      targetZoom: 11,
+                      maxTiles: 24,
+                  });
+              })();
         // eslint-disable-next-line no-console
         console.log(
             `[water] headless read: ${feats ? feats.length : "null"} water polys @z11`,

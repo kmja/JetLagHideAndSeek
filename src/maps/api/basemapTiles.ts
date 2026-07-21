@@ -83,9 +83,22 @@ export async function fetchBasemapLayerPolys(
     sourceLayer: string,
     opts?: { targetZoom?: number; minZoom?: number; maxTiles?: number },
 ): Promise<Feature<Polygon | MultiPolygon>[] | null> {
+    if (!url) return null;
+    return fetchLayerPolysFromPM(getPM(url), bbox, sourceLayer, opts);
+}
+
+/**
+ * Same as {@link fetchBasemapLayerPolys} but reads from a PROVIDED PMTiles
+ * handle — used to read straight from the in-memory PRELOADED city pack
+ * (offline, instant) instead of the master archive over the network (v1074).
+ */
+export async function fetchLayerPolysFromPM(
+    pm: PMTiles,
+    bbox: [number, number, number, number],
+    sourceLayer: string,
+    opts?: { targetZoom?: number; minZoom?: number; maxTiles?: number },
+): Promise<Feature<Polygon | MultiPolygon>[] | null> {
     try {
-        if (!url) return null;
-        const pm = getPM(url);
         const header = await pm.getHeader();
         const archiveMax = Number.isFinite(header?.maxZoom)
             ? (header.maxZoom as number)
