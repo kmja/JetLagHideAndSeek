@@ -983,14 +983,30 @@ async function fetchPrewarmedTransitRoutes(): Promise<any> {
     try {
         const resp = await fetch(`${TRANSIT_ROUTES_BY_RELATION_BASE}/${relId}`);
         if (resp.ok) {
-            const json = (await resp.json()) as { elements?: unknown[] };
-            if (Array.isArray(json?.elements) && json.elements.length > 0) {
+            // v1078: parse GZIP-TOLERANTLY. A double-/residual-gzipped body
+            // (the v738/v739 class) makes `resp.json()` throw on the 0x1f magic
+            // byte → this returned null → the picker fell to LIVE Overpass even
+            // for a WARM city (the reported Stockholm bug). `safeJsonFromCachedResponse`
+            // peels any gzip layers off the raw bytes first.
+            const json = (await safeJsonFromCachedResponse(resp)) as {
+                elements?: unknown[];
+            };
+            const n = Array.isArray(json?.elements) ? json.elements.length : 0;
+            // eslint-disable-next-line no-console
+            console.log(`[transit-routes] r${relId}: ${n} elements from R2`);
+            if (n > 0) {
                 transitRoutesCache.set(relId, json);
                 return json;
             }
+        } else {
+            // eslint-disable-next-line no-console
+            console.warn(
+                `[transit-routes] r${relId}: endpoint ${resp.status} → live fallback`,
+            );
         }
-    } catch {
-        /* network issue → cold fallback */
+    } catch (e) {
+        // eslint-disable-next-line no-console
+        console.warn(`[transit-routes] r${relId}: parse/network fail → live`, e);
     }
     // Cold (miss / no-boundary) — warm in the background so the NEXT game is
     // served from R2; this game falls to the live query per-function.

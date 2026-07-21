@@ -430,6 +430,23 @@ bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
 build stamp. Current: `v1069`. Use `git log` for the per-version detail;
 
+**v1078 — transit-line question hits Overpass despite a warm city (gzip-tolerant
+prewarm parse) + loading-state header.**
+- **The picker fell to LIVE Overpass for a WARM Stockholm** because
+  `fetchPrewarmedTransitRoutes` read `/api/transit-routes/<id>` with plain
+  `resp.json()` — a double-/residual-gzipped body (the v738/v739 class) throws on
+  the `0x1f` gzip magic byte → the catch returned null → live fallback, even
+  though the endpoint IS cached. Now it parses via `safeJsonFromCachedResponse`
+  (which PEELS every gzip layer off the raw bytes — extended from one peel to a
+  bounded loop), and logs a `[transit-routes] rN: M elements from R2` /
+  `endpoint <status>` / `parse fail` diagnostic so a still-live repro is
+  pinpointable (miss vs parse-fail vs added-adjacents, which legitimately bypass
+  the single-relation prewarm).
+- **Loading-state header** (`TransitRoutePicker`): the "Pick the line…" prompt +
+  Refresh button only render once there ARE lines; while loading, only the
+  "Finding lines near you…" placeholder shows. The empty state got its own
+  Refresh button (the header's moved).
+
 **v1077 — underlined link-style action buttons → standard secondary buttons.** The
 persistently-underlined "link button with underlined text" style was replaced by
 the shared `Button variant="secondary" size="sm"` on the standalone actions that

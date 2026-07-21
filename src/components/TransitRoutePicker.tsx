@@ -564,24 +564,30 @@ export function TransitRoutePicker({
     // ── Not picked yet: the grouped line list ──
     return (
         <div className="space-y-2">
-            <div className="flex items-center justify-between">
-                <p className="text-xs text-muted-foreground">
-                    Pick the transit line you&apos;re riding right now:
-                </p>
-                <button
-                    type="button"
-                    onClick={() => void loadRoutes()}
-                    disabled={loadingList}
-                    className="flex items-center gap-1 rounded-md px-2 py-1 text-xs font-semibold text-primary hover:bg-primary/10 disabled:opacity-50"
-                >
-                    {loadingList ? (
-                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    ) : (
-                        <RefreshCw className="h-3.5 w-3.5" />
-                    )}
-                    Refresh
-                </button>
-            </div>
+            {/* v1078: the "Pick the line…" header + Refresh only show once
+                there ARE lines. While loading, only the "Finding lines…"
+                placeholder is shown (no premature Pick prompt / disabled
+                Refresh). */}
+            {lines && lines.length > 0 && (
+                <div className="flex items-center justify-between">
+                    <p className="text-xs text-muted-foreground">
+                        Pick the transit line you&apos;re riding right now:
+                    </p>
+                    <button
+                        type="button"
+                        onClick={() => void loadRoutes()}
+                        disabled={loadingList}
+                        className="flex items-center gap-1 rounded-md px-2 py-1 text-xs font-semibold text-primary hover:bg-primary/10 disabled:opacity-50"
+                    >
+                        {loadingList ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                            <RefreshCw className="h-3.5 w-3.5" />
+                        )}
+                        Refresh
+                    </button>
+                </div>
+            )}
             {loadingList && lines === null ? (
                 <div className="flex items-center justify-center gap-2 rounded-md border border-dashed border-border/60 py-8 text-sm text-muted-foreground">
                     <Loader2 className="h-4 w-4 animate-spin" />
@@ -660,12 +666,25 @@ export function TransitRoutePicker({
                     })}
                 </div>
             ) : (
-                <div className="flex flex-col items-center gap-1 rounded-md border border-dashed border-border/60 py-6 text-center text-sm text-muted-foreground">
+                <div className="flex flex-col items-center gap-2 rounded-md border border-dashed border-border/60 py-6 text-center text-sm text-muted-foreground">
                     <Train className="h-5 w-5" />
                     <span>No lines found near you.</span>
                     <span className="text-xs">
-                        Board the line you&apos;re riding, then Refresh.
+                        Board the line you&apos;re riding, then refresh.
                     </span>
+                    <button
+                        type="button"
+                        onClick={() => void loadRoutes()}
+                        disabled={loadingList}
+                        className="mt-1 flex items-center gap-1 rounded-md px-2.5 py-1 text-xs font-semibold text-primary hover:bg-primary/10 disabled:opacity-50"
+                    >
+                        {loadingList ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                            <RefreshCw className="h-3.5 w-3.5" />
+                        )}
+                        Refresh
+                    </button>
                 </div>
             )}
         </div>

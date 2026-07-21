@@ -374,20 +374,20 @@ export function responseFromBuffer(
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export async function safeJsonFromCachedResponse(resp: Response): Promise<any> {
-    const buf = new Uint8Array(await resp.arrayBuffer());
-    if (buf.length >= 2 && buf[0] === 0x1f && buf[1] === 0x8b) {
-        // Looks like gzip magic. Pipe it through DecompressionStream and
-        // parse the result. Available in all evergreen browsers and
-        // Cloudflare Workers.
+    let buf = new Uint8Array(await resp.arrayBuffer());
+    // Peel EVERY gzip layer (v1078): a body can be double-gzipped when a
+    // build stored gzip AND the browser/CF left a residual gzip layer after
+    // its transparent decode (the v738/v739 class). Loop while the bytes
+    // still start with the gzip magic (bounded to 4 to avoid a runaway).
+    for (let i = 0; i < 4; i++) {
+        if (!(buf.length >= 2 && buf[0] === 0x1f && buf[1] === 0x8b)) break;
         try {
-            const blob = new Blob([buf]);
-            const stream = blob
+            const stream = new Blob([buf as BlobPart])
                 .stream()
                 .pipeThrough(new DecompressionStream("gzip"));
-            const decoded = await new Response(stream).text();
-            return JSON.parse(decoded);
+            buf = new Uint8Array(await new Response(stream).arrayBuffer());
         } catch {
-            // Fall through to the raw parse — caller catches.
+            break; // not really gzip / corrupt — parse what we have
         }
     }
     return JSON.parse(new TextDecoder().decode(buf));
