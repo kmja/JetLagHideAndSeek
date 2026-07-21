@@ -17,10 +17,16 @@ import MapGL, {
     Source,
 } from "react-map-gl/maplibre";
 
-import { baseTileLayer, polyGeoJSON, thunderforestApiKey } from "@/lib/context";
+import {
+    baseTileLayer,
+    polyGeoJSON,
+    questionFinishedMapData,
+    thunderforestApiKey,
+} from "@/lib/context";
 import { satelliteView } from "@/lib/gameSetup";
 import { buildStyle } from "@/lib/mapStyle";
 import { PLAY_AREA_COLOR } from "@/lib/playAreaStyle";
+import { holedMask } from "@/maps";
 import { installMissingImageHandler } from "@/lib/protomapsStyle";
 import { resolvedTheme } from "@/lib/theme";
 import { cn } from "@/lib/utils";
@@ -175,6 +181,20 @@ export function ThermometerPreviewMap({
         }, [lat, lng, km, bearing, tip]);
 
     const dot = useMemo(() => turfPoint([lng, lat]), [lat, lng]);
+
+    // v1076: dim the already-eliminated area (from prior questions), like every
+    // other configure preview — invert the remaining working polygon
+    // (`questionFinishedMapData`) into a world-minus-remaining cover.
+    const $maskData = useStore(questionFinishedMapData);
+    const maskInverted = useMemo(() => {
+        if (!$maskData) return null;
+        try {
+            return holedMask($maskData as never) as GeoJSON.Feature | null;
+        } catch {
+            return null;
+        }
+    }, [$maskData]);
+
     const mapStyle = useMemo(
         () =>
             buildStyle(
@@ -251,6 +271,31 @@ export function ThermometerPreviewMap({
                 }}
                 style={{ width: "100%", height: "100%" }}
             >
+                {maskInverted && (
+                    <Source
+                        id="thermo-mask"
+                        type="geojson"
+                        data={maskInverted as GeoJSON.Feature}
+                    >
+                        <Layer
+                            id="thermo-mask-fill"
+                            type="fill"
+                            paint={{
+                                "fill-color": "#0f172a",
+                                "fill-opacity": 0.55,
+                            }}
+                        />
+                        <Layer
+                            id="thermo-mask-outline"
+                            type="line"
+                            paint={{
+                                "line-color": PLAY_AREA_COLOR,
+                                "line-width": 1.5,
+                                "line-opacity": 0.7,
+                            }}
+                        />
+                    </Source>
+                )}
                 {colderHalf && (
                     <Source
                         id="thermo-colder-src"

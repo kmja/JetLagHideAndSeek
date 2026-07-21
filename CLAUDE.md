@@ -430,6 +430,26 @@ bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
 build stamp. Current: `v1069`. Use `git log` for the per-version detail;
 
+**v1076 — radar sweep banding + thermometer preview elimination mask + draw-picker
+backdrop fade.**
+- **Radar trail banding** (`Map.tsx` `SWEEP_SEGMENTS` 24 → 96): the sweep trail
+  is a fan of flat-opacity wedges with hard edges (`fill-antialias:false`, to
+  avoid seams), so 24 wide wedges over 150° stepped the opacity ~0.017 every 6°
+  → visible arcs. 96 thin wedges (~1.6° each) drop the per-band step to ~0.004
+  and the arcs sub-pixel, so the trail reads as a smooth gradient. Still cheap
+  (inline trig, v895).
+- **Thermometer configure preview now dims the already-eliminated area**
+  (`ThermometerPreviewMap`), like every other configure preview — it inverts the
+  remaining working polygon (`questionFinishedMapData`) via `holedMask` and
+  paints the world-minus-remaining cover (`#0f172a`/0.55 + a brand-red outline)
+  under the hotter/colder half-planes.
+- **Draw-picker dimming backdrop fades instead of popping** (`DrawPickerDialog`):
+  the dialog is `open` until the PARENT unmounts it on resolve (open never goes
+  false), so Radix's `state=closed` overlay exit-animation never ran — the
+  backdrop just vanished. An `overlayClassName` now fades the overlay to
+  `opacity-0` while `finished` (the component stays mounted ~760 ms), so it
+  dissolves with the cards' fly-to-hand.
+
 **v1075 — transit-line picker: endpoints, accordion sections, named direction
 button.** Follow-ups to v1073's picker. (1) Each grouped line row now shows its
 two TERMINUS stations as a subtitle (`parseEndpoints` off the OSM route name,

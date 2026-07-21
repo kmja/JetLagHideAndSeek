@@ -1597,7 +1597,13 @@ export function Map({ className }: MapProps) {
     // set burns no CPU.
     const SWEEP_PERIOD_MS = 4000; // ms per full rotation
     const SWEEP_TRAIL_DEG = 150; // length of the fading trail behind the beam
-    const SWEEP_SEGMENTS = 24; // trail resolution
+    // v1076: 96 (was 24) thin wedges. The trail is a fan of flat-opacity
+    // wedges with hard edges (fill-antialias:false, to avoid seams), so 24
+    // wide wedges over 150° stepped the opacity ~0.017 every 6° → visible
+    // banding. 96 wedges (~1.6° each) drop the per-band step to ~0.004 and the
+    // arcs sub-pixel, so the trail reads as a smooth gradient. Still cheap —
+    // the per-vertex offset is inline trig (v895), not turf.
+    const SWEEP_SEGMENTS = 96; // trail resolution
     useEffect(() => {
         if (radarTargets.length === 0) return;
         let raf = 0;

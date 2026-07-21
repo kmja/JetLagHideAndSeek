@@ -218,6 +218,16 @@ export function DrawPickerDialog() {
         <Dialog open={true}>
             <DialogContent
                 closeIcon={false}
+                // v1076: fade the dimming backdrop out during the fly-to-hand
+                // instead of popping. The dialog is `open` until the PARENT
+                // unmounts it on resolve (open never goes false), so Radix's
+                // state=closed overlay exit-animation never runs — the overlay
+                // just vanished. Fading it here while `finished` (the component
+                // stays mounted ~760ms) makes it dissolve with the cards.
+                overlayClassName={cn(
+                    "transition-opacity duration-500 ease-out",
+                    finished && "opacity-0",
+                )}
                 className={cn(
                     "!bg-transparent !border-0 !shadow-none",
                     "flex flex-col p-0 gap-3",
