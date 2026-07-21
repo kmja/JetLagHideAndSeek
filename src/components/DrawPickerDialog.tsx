@@ -244,7 +244,13 @@ export function DrawPickerDialog() {
                     (not free-scroll) still LOCKS onto exactly one card. */}
                 <div className="relative py-2">
                     <div
-                        className="overflow-hidden"
+                        // v1048: vertical padding gives the SELECTED card's lift
+                        // (translateY(-6px) scale(1.02)) headroom inside the
+                        // clip box — otherwise its top clipped against this
+                        // `overflow-hidden` edge (the horizontal peek NEEDS the
+                        // hidden overflow, and CSS can't do overflow-x:hidden +
+                        // overflow-y:visible, so padding is the fix).
+                        className="overflow-hidden py-4"
                         onTouchStart={(e) => {
                             if (chromeFadeOn) return;
                             const t = e.touches[0];

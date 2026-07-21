@@ -428,7 +428,13 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v1048`. Use `git log` for the per-version detail;
+build stamp. Current: `v1049`. Use `git log` for the per-version detail;
+
+**v1049 — draw-picker selected-card top-clip fix.** Selecting a card in the
+peek carousel lifts it (`translateY(-6px) scale(1.02)`), and its top clipped
+against the track's `overflow-hidden` edge (which the horizontal peek needs, and
+CSS can't do overflow-x:hidden + overflow-y:visible). Added `py-4` to the clip
+container so the lifted card has vertical headroom inside the clip box.
 
 **v1048 — draw-picker fly-to-hand ROOT CAUSE (clipping) + toaster icon gap.**
 The card-clipping-mid-flight was NOT `CardFlyToHand` (photo auto-keep) — it was
