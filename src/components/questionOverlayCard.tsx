@@ -190,7 +190,13 @@ export function summarizeQuestion(q: {
                 bigLabel: subLabel
                     ? `${categoryLabel} · ${subLabel}`
                     : categoryLabel,
-                detail: "Same nearest one as you?",
+                // v1080: the transit-line question isn't "same nearest" — it
+                // asks whether the line you're riding stops at the hider's
+                // station.
+                detail:
+                    subType === "same-train-line"
+                        ? "Does your line stop at their station?"
+                        : "Same nearest one as you?",
             };
         }
         case "measuring": {

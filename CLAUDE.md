@@ -430,6 +430,32 @@ bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
 build stamp. Current: `v1069`. Use `git log` for the per-version detail;
 
+**v1080 — transit-line picker refinement + configure-dialog padding.** From two
+screenshots of the same 8-item list, all in `TransitRoutePicker` (the picked-line
+view) unless noted:
+- **Compass icon fixed.** The direction button rotated a Lucide `Navigation`
+  glyph by the raw travel bearing — but `Navigation` already points to the
+  top-RIGHT (~NE), so a "southeast" heading rendered pointing south-southwest.
+  Swapped to `ArrowUp` (points due north at 0°) rotated by the bearing, so the
+  needle matches the cardinal word.
+- **Stop list centred on the nearest stop.** The list is now ordered in the
+  chosen travel direction (nearest near the top, travelling downward) and the
+  stops BEHIND the nearest (in that direction) are COLLAPSED by default behind a
+  "Show N earlier stops" expander (`showEarlier`, reset on pick + on flip). The
+  seeker cares about the stops AHEAD; the earlier ones are one tap away.
+- **Direction + stops are a clear SUBSECTION of the line card.** The line header,
+  the direction button, and the stop checklist are now one bordered card
+  (`rounded-md border-2 border-primary/40`) — header on a `bg-primary/10` row, the
+  direction + stops in a `border-t` body — instead of three sibling blocks.
+- **Removed clutter:** the "Deselect any stops your train skips." caption, the
+  "All"/"None" toggle button (+ the now-unused `setAll`), and the "The hider
+  answers yes if …" footer line.
+- **Subheader wording** (`questionOverlayCard`): the matching same-train-line
+  card detail reads "Does your line stop at their station?" instead of the
+  misleading "Same nearest one as you?".
+- **Configure-dialog content padding** (`AddQuestionDialog`): the scroll body's
+  vertical padding bumped `py-3` → `py-4` so the question card isn't cramped.
+
 **v1079 — Curse of the Unguided Tourist: the seekers send a verification photo
 BACK to the hider.** The card ends "They must send a picture to the hider for
 verification" — the hider→seeker Street View image was already wired (v938), but

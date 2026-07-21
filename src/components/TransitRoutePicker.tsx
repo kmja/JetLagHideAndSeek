@@ -1,10 +1,10 @@
 import { useStore } from "@nanostores/react";
 import {
+    ArrowUp,
     Check,
     ChevronDown,
     Loader2,
     MapPin,
-    Navigation,
     RefreshCw,
     Train,
 } from "lucide-react";
@@ -214,6 +214,10 @@ export function TransitRoutePicker({
     const [loadingList, setLoadingList] = useState(false);
     const [pickingKey, setPickingKey] = useState<string | null>(null);
     const [pickedLine, setPickedLine] = useState<PickedLine | null>(null);
+    // v1080: the stops BEHIND the nearest (in the chosen travel direction) are
+    // collapsed by default — the seeker cares about the stops AHEAD. This
+    // reveals them.
+    const [showEarlier, setShowEarlier] = useState(false);
 
     const lines = useMemo(
         () => (routes ? groupLines(routes) : null),
@@ -317,6 +321,7 @@ export function TransitRoutePicker({
                 selected,
             };
             setPickedLine(line2);
+            setShowEarlier(false);
             commitSelection(line2);
         } catch {
             toast.error("Couldn't load that line's stops. Try again.");
@@ -331,17 +336,6 @@ export function TransitRoutePicker({
             const selected = new Set(prev.selected);
             if (selected.has(idx)) selected.delete(idx);
             else selected.add(idx);
-            const next = { ...prev, selected };
-            commitSelection(next);
-            return next;
-        });
-    };
-
-    const setAll = (on: boolean) => {
-        setPickedLine((prev) => {
-            if (!prev) return prev;
-            const selected = new Set<number>();
-            if (on) prev.stops.forEach((_, i) => selected.add(i));
             const next = { ...prev, selected };
             commitSelection(next);
             return next;
@@ -365,6 +359,7 @@ export function TransitRoutePicker({
             commitSelection(next);
             return next;
         });
+        setShowEarlier(false);
     };
 
     const changeLine = () => {
@@ -401,9 +396,30 @@ export function TransitRoutePicker({
             target && dirWord
                 ? `${dirWord} toward ${target.name ?? "the end"}`
                 : null;
+        const dirBearing =
+            nearest && target
+                ? bearing(nearest.lat, nearest.lng, target.lat, target.lng)
+                : 0;
+
+        // v1080: order the stops in travel direction (nearest near the top,
+        // travelling downward) and COLLAPSE the ones BEHIND the nearest stop.
+        const displayOrder =
+            pickedLine.forward
+                ? pickedLine.stops.map((_, i) => i)
+                : pickedLine.stops.map((_, i) => pickedLine.stops.length - 1 - i);
+        const nearestPos =
+            pickedLine.nearestIdx >= 0
+                ? displayOrder.indexOf(pickedLine.nearestIdx)
+                : 0;
+        const earlierCount = nearestPos;
+        const shown =
+            showEarlier || earlierCount <= 0
+                ? displayOrder
+                : displayOrder.slice(nearestPos);
+
         return (
-            <div className="space-y-2">
-                <div className="flex items-center gap-2 rounded-md border-2 border-primary bg-primary/10 p-2.5">
+            <div className="overflow-hidden rounded-md border-2 border-primary/40">
+                <div className="flex items-center gap-2 bg-primary/10 p-2.5">
                     <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground">
                         <Icon className="h-5 w-5" />
                     </span>
@@ -426,92 +442,88 @@ export function TransitRoutePicker({
                     )}
                 </div>
 
-                {dirLabel && (
-                    <button
-                        type="button"
-                        onClick={flipDirection}
-                        className="flex w-full items-center gap-2 rounded-md border border-primary/40 bg-primary/5 px-3 py-2 text-left text-sm hover:bg-primary/10"
-                    >
-                        <Navigation
-                            className="h-4 w-4 shrink-0 text-primary"
-                            style={{
-                                transform: `rotate(${bearing(
-                                    nearest!.lat,
-                                    nearest!.lng,
-                                    target!.lat,
-                                    target!.lng,
-                                )}deg)`,
-                            }}
-                        />
-                        <span className="min-w-0 flex-1">
-                            <span className="text-muted-foreground">
-                                Heading{" "}
+                <div className="space-y-2 border-t border-primary/20 p-2.5">
+                    {dirLabel && (
+                        <button
+                            type="button"
+                            onClick={flipDirection}
+                            className="flex w-full items-center gap-2 rounded-md border border-primary/40 bg-primary/5 px-3 py-2 text-left text-sm hover:bg-primary/10"
+                        >
+                            <ArrowUp
+                                className="h-4 w-4 shrink-0 text-primary"
+                                style={{
+                                    transform: `rotate(${dirBearing}deg)`,
+                                }}
+                            />
+                            <span className="min-w-0 flex-1">
+                                <span className="text-muted-foreground">
+                                    Heading{" "}
+                                </span>
+                                <span className="font-semibold capitalize">
+                                    {dirLabel}
+                                </span>
                             </span>
-                            <span className="font-semibold capitalize">
-                                {dirLabel}
+                            <span className="shrink-0 text-xs font-semibold text-primary">
+                                Reverse
                             </span>
-                        </span>
-                        <span className="shrink-0 text-xs font-semibold text-primary">
-                            Reverse
-                        </span>
-                    </button>
-                )}
-                <div className="flex items-center justify-between gap-2 text-xs">
-                    <span className="text-muted-foreground">
-                        Deselect any stops your train skips.
-                    </span>
-                    <button
-                        type="button"
-                        onClick={() => setAll(count < pickedLine.stops.length)}
-                        className="rounded-md px-2 py-1 font-semibold text-primary hover:bg-primary/10"
-                    >
-                        {count < pickedLine.stops.length ? "All" : "None"}
-                    </button>
-                </div>
+                        </button>
+                    )}
 
-                <div className="max-h-72 space-y-1 overflow-y-auto pr-1">
-                    {pickedLine.stops.map((s, i) => {
-                        const on = pickedLine.selected.has(i);
-                        const isNearest = i === pickedLine.nearestIdx;
-                        return (
-                            <button
-                                key={`${i}-${s.name ?? ""}`}
-                                type="button"
-                                onClick={() => toggleStop(i)}
-                                className={cn(
-                                    "flex w-full items-center gap-2.5 rounded-md border px-2.5 py-2 text-left transition-colors",
-                                    on
-                                        ? "border-primary/60 bg-primary/10"
-                                        : "border-border bg-secondary/40 opacity-60",
-                                )}
-                            >
-                                <span
+                    {earlierCount > 0 && !showEarlier && (
+                        <button
+                            type="button"
+                            onClick={() => setShowEarlier(true)}
+                            className="flex w-full items-center justify-center gap-1 rounded-md border border-dashed border-border/60 px-2 py-1.5 text-xs font-semibold text-muted-foreground hover:bg-accent"
+                        >
+                            <ChevronDown className="h-3.5 w-3.5" />
+                            Show {earlierCount} earlier stop
+                            {earlierCount === 1 ? "" : "s"}
+                        </button>
+                    )}
+
+                    <div className="max-h-72 space-y-1 overflow-y-auto pr-1">
+                        {shown.map((i) => {
+                            const s = pickedLine.stops[i];
+                            const on = pickedLine.selected.has(i);
+                            const isNearest = i === pickedLine.nearestIdx;
+                            return (
+                                <button
+                                    key={`${i}-${s.name ?? ""}`}
+                                    type="button"
+                                    onClick={() => toggleStop(i)}
                                     className={cn(
-                                        "flex h-5 w-5 shrink-0 items-center justify-center rounded border",
+                                        "flex w-full items-center gap-2.5 rounded-md border px-2.5 py-2 text-left transition-colors",
                                         on
-                                            ? "border-primary bg-primary text-primary-foreground"
-                                            : "border-muted-foreground/40",
+                                            ? "border-primary/60 bg-primary/10"
+                                            : "border-border bg-secondary/40 opacity-60",
                                     )}
                                 >
-                                    {on && <Check className="h-3.5 w-3.5" />}
-                                </span>
-                                <span className="min-w-0 flex-1 truncate text-sm">
-                                    {s.name ?? `Stop ${i + 1}`}
-                                </span>
-                                {isNearest && (
-                                    <span className="flex shrink-0 items-center gap-1 rounded-full bg-primary/15 px-1.5 py-0.5 text-[10px] font-semibold text-primary">
-                                        <MapPin className="h-3 w-3" />
-                                        You
+                                    <span
+                                        className={cn(
+                                            "flex h-5 w-5 shrink-0 items-center justify-center rounded border",
+                                            on
+                                                ? "border-primary bg-primary text-primary-foreground"
+                                                : "border-muted-foreground/40",
+                                        )}
+                                    >
+                                        {on && (
+                                            <Check className="h-3.5 w-3.5" />
+                                        )}
                                     </span>
-                                )}
-                            </button>
-                        );
-                    })}
+                                    <span className="min-w-0 flex-1 truncate text-sm">
+                                        {s.name ?? `Stop ${i + 1}`}
+                                    </span>
+                                    {isNearest && (
+                                        <span className="flex shrink-0 items-center gap-1 rounded-full bg-primary/15 px-1.5 py-0.5 text-[10px] font-semibold text-primary">
+                                            <MapPin className="h-3 w-3" />
+                                            You
+                                        </span>
+                                    )}
+                                </button>
+                            );
+                        })}
+                    </div>
                 </div>
-                <p className="text-[11px] leading-snug text-muted-foreground">
-                    The hider answers &quot;yes&quot; if their station is one of
-                    the selected stops.
-                </p>
             </div>
         );
     }

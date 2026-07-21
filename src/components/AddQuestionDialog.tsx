@@ -1442,7 +1442,7 @@ export const AddQuestionDialog = ({
                                 )}
                         </div>
 
-                        <div className="flex-1 overflow-y-auto px-6 py-3 min-h-0 relative">
+                        <div className="flex-1 overflow-y-auto px-6 py-4 min-h-0 relative">
                             {/* v773: progressive reveal — NO full-body veil.
                                 The question card (category header + config
                                 controls) renders immediately; each async
