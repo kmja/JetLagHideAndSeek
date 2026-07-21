@@ -2361,7 +2361,9 @@ export function Map({ className }: MapProps) {
                                 id="hiding-zones-labels"
                                 type="symbol"
                                 filter={["==", ["geometry-type"], "Point"]}
-                                minzoom={11}
+                                // v1064: labels only at higher zoom — a
+                                // metro-wide field of names was too busy.
+                                minzoom={13}
                                 layout={{
                                     // v835: prefer the shortened label
                                     // (abbreviated + truncated) computed in

@@ -1009,7 +1009,11 @@ export function HiderBackgroundMap() {
                             <Layer
                                 id="hider-reach-labels"
                                 type="symbol"
-                                minzoom={11}
+                                // v1064: labels only at higher zoom — at a
+                                // metro-wide zoom (~11) the whole field of
+                                // station names crammed together was too busy
+                                // (the dots still show at all zooms).
+                                minzoom={13}
                                 filter={["==", ["geometry-type"], "Point"]}
                                 layout={{
                                     // v835: shortened label (abbreviated +

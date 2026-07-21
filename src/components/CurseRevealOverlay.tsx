@@ -209,7 +209,14 @@ export function CurseRevealOverlay() {
                     Inside it, the star and the squiggles get their OWN spin
                     wrappers so the snakes can rotate SLOWER than the star. */}
                 <div
-                    className="relative"
+                    // shrink-0 is CRITICAL: the box is 150vmin (wider than the
+                    // screen), and as a flex item the default flex-shrink:1 would
+                    // squash it horizontally to the viewport width — making it a
+                    // NON-SQUARE box, so the spin wrapper's centre no longer
+                    // matched the star's centre and the star rotated around an
+                    // off-centre pivot. shrink-0 keeps it a true 150vmin square
+                    // centred on screen, so it spins around its own centre.
+                    className="relative shrink-0"
                     style={{ width: "150vmin", height: "150vmin" }}
                 >
                     {/* Star spin wrapper — keeps spinning throughout (incl. the

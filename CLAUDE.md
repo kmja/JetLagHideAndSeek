@@ -428,7 +428,21 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v1063`. Use `git log` for the per-version detail;
+build stamp. Current: `v1064`. Use `git log` for the per-version detail;
+
+**v1064 — curse star spins on its OWN centre + hiding-zone labels only at higher
+zoom.**
+- **Off-centre star rotation** (`CurseRevealOverlay`): the 150vmin star box is a
+  flex item WIDER than the screen, so the default `flex-shrink:1` squashed it
+  horizontally to the viewport width — making a NON-square box whose centre no
+  longer matched the star's, so it rotated around an off-centre pivot. Adding
+  `shrink-0` keeps it a true 150vmin square (verified 585×585 centred at screen
+  centre on a 390px phone), so the star spins around its own centre.
+- **Hiding-zone labels too busy at low zoom** (`HiderBackgroundMap`
+  `hider-reach-labels` + seeker `Map` `hiding-zones-labels`): the station-name
+  labels showed from `minzoom 11`, so a metro-wide view was a wall of names.
+  Raised to `minzoom 13` — the dots still show at every zoom, names appear once
+  zoomed into a neighbourhood.
 
 **v1063 — curse-reveal star ACTUALLY-small root cause: it was barely bigger than
 the card on a phone + force-latest-build debug button.** The star markup was
