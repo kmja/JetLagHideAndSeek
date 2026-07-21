@@ -430,6 +430,36 @@ bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
 build stamp. Current: `v1069`. Use `git log` for the per-version detail;
 
+**v1081 — transit-line ferry routes are prewarmed (no more Overpass in ferry
+games) + admin-division tiles deduped per country.**
+- **Transit-line question still hit LIVE Overpass in Stockholm** despite the
+  v1078 gzip parse fix — because that only covered the RAIL prewarm path. The
+  prewarmed `transit-routes` set (`transitRoutesQuery`) covered rail modes ONLY
+  (`subway|train|light_rail|tram|monorail`), so `findTransitRoutesNear` fired a
+  LIVE `around:${gps}` query to supplement whenever the game allowed **bus OR
+  ferry** — and a Stockholm Large game allows ferry (`inferTransitModes`). That
+  position-keyed query is uncacheable → guaranteed R2 miss → live Overpass →
+  rate-limit errors. Fix: added **`ferry`** to the combined `transitRoutesQuery`
+  regex (ferry route relations are few → light, safe for the combined query) in
+  BOTH the worker (`overpass-cache/src/index.ts`) and the laptop
+  (`laptop-prewarm.mjs`, byte-identical) so ferry lines serve from R2 like rail;
+  the client's live `missing` supplement (`overpass.ts`) now covers **bus only**.
+  Bus stays Overpass-live (its whole-city route set is too heavy to prewarm —
+  the area-stations lesson; bus is only in Small games). **Self-healing:** the
+  query change orphans existing `transit-routes` R2 entries, but a client miss
+  fires `?warm=1` (`warmRelationTransitRoutes` runs the NEW query + stores), so
+  each city re-warms on its first post-deploy transit-line question — no manual
+  re-warm needed, and no worse than the current live path during the one-game
+  transition.
+- **Admin-division tiles deduped per country** (`AddQuestionDialog`): the
+  matching "Same X" picker offers four admin tiers, but a country's `TIER_OVERRIDES`
+  (`adminDivisions.ts`) can map several to the SAME OSM level — Sweden has only
+  Län (level 4) + Kommun (level 7), so `SE = [4,7,7,7]` made `admin-2/-3/-4` all
+  render as an identical "Municipality (Kommun)" tile (the reported "all the same
+  (kommun)"). The picker now keeps only the FIRST tile per distinct OSM level for
+  the play area's country, so Sweden shows Län + one Kommun tile instead of three
+  duplicates. Also affects NO/DK (same `[4,7,7,7]`).
+
 **v1080 — transit-line picker refinement + configure-dialog padding.** From two
 screenshots of the same 8-item list, all in `TransitRoutePicker` (the picked-line
 view) unless noted:

@@ -4662,7 +4662,12 @@ function transitRoutesQuery(
     extent: [number, number, number, number],
 ): string {
     const tuple = transitBboxTuple(extent);
-    return `\n[out:json][timeout:180][bbox:${tuple}];\nrelation["type"="route"]["route"~"^(subway|train|light_rail|tram|monorail)$"];\nout tags geom;\n>;\nout tags;\n`;
+    // v1081: include `ferry` — ferry route relations are few (light), so the
+    // "Transit line" picker is Overpass-free for ferry too (was firing a LIVE
+    // `around:` query for it in ferry-allowed games, e.g. Stockholm Large).
+    // Bus is deliberately still EXCLUDED (hundreds of heavy-geometry relations
+    // per metro would time out the combined query — same lesson as area-stations).
+    return `\n[out:json][timeout:180][bbox:${tuple}];\nrelation["type"="route"]["route"~"^(subway|train|light_rail|tram|monorail|ferry)$"];\nout tags geom;\n>;\nout tags;\n`;
 }
 
 /** Cron-side shard query. Same template as `transitRouteQuery`, with

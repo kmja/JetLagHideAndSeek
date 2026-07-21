@@ -2624,7 +2624,8 @@ async function processMetroRoutes(city, extent) {
  */
 function transitRoutesQuery(extent) {
     const tuple = transitBboxTuple(extent);
-    return `\n[out:json][timeout:180][bbox:${tuple}];\nrelation["type"="route"]["route"~"^(subway|train|light_rail|tram|monorail)$"];\nout tags geom;\n>;\nout tags;\n`;
+    // v1081: include `ferry` (byte-identical to overpass-cache/src/index.ts).
+    return `\n[out:json][timeout:180][bbox:${tuple}];\nrelation["type"="route"]["route"~"^(subway|train|light_rail|tram|monorail|ferry)$"];\nout tags geom;\n>;\nout tags;\n`;
 }
 
 async function processTransitRoutes(city, extent) {

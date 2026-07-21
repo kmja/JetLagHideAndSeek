@@ -1183,10 +1183,31 @@ export const AddQuestionDialog = ({
                     {subtypePickerFor &&
                         (() => {
                             const meta = CATEGORIES[subtypePickerFor];
-                            const subtypes = getSubtypes(
+                            const rawSubtypes = getSubtypes(
                                 subtypePickerFor,
                                 $gameSize,
                             );
+                            // v1081: drop redundant admin-division tiles. Some
+                            // countries have fewer real OSM admin tiers than the
+                            // rulebook's four — Sweden has only Län (level 4) +
+                            // Kommun (level 7), so `admin-2/-3/-4` ALL map to
+                            // level 7 and render as three identical "Municipality
+                            // (Kommun)" tiles. Keep only the FIRST tile per
+                            // distinct OSM level for the play area's country.
+                            const isoForAdmin =
+                                $mapGeo?.properties?.countrycode;
+                            const seenAdminLevels = new Set<number>();
+                            const subtypes = rawSubtypes?.filter((s) => {
+                                const tier = ADMIN_TIER_NUM[s.value];
+                                if (!tier) return true;
+                                const lvl = adminTierToOsmLevel(
+                                    isoForAdmin,
+                                    tier,
+                                );
+                                if (seenAdminLevels.has(lvl)) return false;
+                                seenAdminLevels.add(lvl);
+                                return true;
+                            });
                             // Rulebook-template description for this category.
                             // Lives here (subdialog header) rather than on the
                             // small category tiles so the grid stays clean.

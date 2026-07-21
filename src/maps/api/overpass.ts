@@ -1102,11 +1102,11 @@ export const findTransitRoutesNear = async (
             );
             if (isNear) near.push(summary);
         }
-        // The prewarmed set covers rail modes only; if the game additionally
-        // allows bus/ferry, supplement with a live around-query for those.
-        const missing = modes.filter(
-            (m) => m === "bus" || m === "ferry",
-        );
+        // The prewarmed set now covers rail + FERRY (v1081); only BUS is still
+        // Overpass-live (its whole-city route set is too heavy to prewarm — the
+        // area-stations lesson). So supplement with a live around-query for bus
+        // ONLY when the game allows it (Small games). Everything else is R2.
+        const missing = modes.filter((m) => m === "bus");
         if (missing.length > 0) {
             near.push(...(await liveRoutesNear(lat, lng, missing, radiusMeters)));
         }
