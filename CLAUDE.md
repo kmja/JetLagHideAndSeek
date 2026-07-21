@@ -428,7 +428,18 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v1057`. Use `git log` for the per-version detail;
+build stamp. Current: `v1058`. Use `git log` for the per-version detail;
+
+**v1058 — curse-reveal star ROOT CAUSE: explicit viewport size (was rendering
+absent/tiny).** The star wasn't just small — on the reporter's device it didn't
+render AT ALL. Cause: the star SVG sized itself through a nested percentage chain
+(`absolute inset-0 m-auto w-full h-full` inside a `w-[108vmin]` box), which some
+mobile browsers didn't resolve, collapsing the SVG to ~0. Fixed by setting the
+size EXPLICITLY in viewport units on the SVG itself (`w-[100vmin] h-[100vmin]`)
+and letting the spin wrapper size to it — no percentage inheritance. The squiggle
+SVG overlays at the same explicit size. Renders big and visible even under
+`prefers-reduced-motion` (the size no longer depends on the intro animation's
+fill state).
 
 **v1057 — choreographed curse-reveal exit + toaster spacing.**
 - **Curse-reveal exit** (`CurseRevealOverlay`): dismiss now plays a 3-part exit

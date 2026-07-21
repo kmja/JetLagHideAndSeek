@@ -196,24 +196,23 @@ export function CurseRevealOverlay() {
                 </filter>
             </svg>
 
-            {/* Rotating background layer (slow infinite spin). The spin box is
-                a REAL sized element centred by the outer flex, so it spins
-                around its own centre = screen centre. The star + squiggles are
-                centred WITHIN it via `inset-0 m-auto` (NOT a translate — the
-                grow-in animations overwrite `transform`, which is exactly what
-                made the star orbit instead of spinning in place). */}
+            {/* Rotating background layer (slow infinite spin). The spin wrapper
+                sizes to the star SVG (no separate percentage box), and the outer
+                flex centres it, so it spins around screen centre. The star size
+                is set EXPLICITLY in viewport units on the SVG itself — the old
+                `inset-0 m-auto w-full h-full` percentage chain didn't resolve on
+                some devices, so the star rendered invisibly small / absent. */}
             <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                {/* The spin box keeps spinning throughout — including during the
-                    exit, so the star shrinks WHILE it spins. */}
-                <div className="relative w-[108vmin] h-[108vmin] motion-safe:animate-[curseRevealSpin_46s_linear_infinite]">
+                {/* The spin wrapper keeps spinning throughout — including during
+                    the exit, so the star shrinks WHILE it spins. */}
+                <div className="relative motion-safe:animate-[curseRevealSpin_46s_linear_infinite]">
                     {/* Star — grows in FAST (beat 1); big enough that its points
-                        push well past the frame edges. Fills the spin box.
-                        Drawn FIRST so the snakes sit ON TOP of it. On EXIT it
-                        shrinks to nothing in the centre (the parent keeps
-                        spinning). */}
+                        graze the frame edges. Drawn FIRST so the snakes sit ON
+                        TOP of it. On EXIT it shrinks to nothing in the centre
+                        (the parent keeps spinning). */}
                     <svg
                         viewBox="0 0 200 200"
-                        className={`absolute inset-0 m-auto w-full h-full ${
+                        className={`block w-[100vmin] h-[100vmin] ${
                             exiting
                                 ? "scale-0 opacity-90 transition-all duration-[600ms] ease-in"
                                 : "motion-safe:animate-[curseRevealStarIn_360ms_cubic-bezier(0.2,0.9,0.3,1)_both]"
@@ -229,11 +228,11 @@ export function CurseRevealOverlay() {
                         />
                     </svg>
                     {/* Squiggles — smooth navy snakes that grow OUT ON TOP of the
-                        star, delayed + ease-out (beat 3). Fill the spin box. On
-                        EXIT they fade away. */}
+                        star, delayed + ease-out (beat 3). Same explicit size,
+                        overlaid on the star. On EXIT they fade away. */}
                     <svg
                         viewBox="0 0 200 200"
-                        className={`absolute inset-0 w-full h-full ${
+                        className={`absolute inset-0 w-[100vmin] h-[100vmin] ${
                             exiting
                                 ? "opacity-0 transition-opacity duration-[320ms] ease-out"
                                 : "motion-safe:animate-[curseRevealSquiggleIn_620ms_520ms_cubic-bezier(0.22,1,0.36,1)_both]"
