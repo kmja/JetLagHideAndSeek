@@ -21,7 +21,7 @@ import { RulebookSheet } from "@/components/RulebookSheet";
 import { SpoofIndicator } from "@/components/SpoofIndicator";
 import { WakeLockController } from "@/components/WakeLockController";
 import { installGpsSpoof } from "@/lib/debugGpsSpoof";
-import { setupCompleted, welcomeSeen } from "@/lib/gameSetup";
+import { hidingPeriodEndsAt, setupCompleted, welcomeSeen } from "@/lib/gameSetup";
 import { playerRole } from "@/lib/hiderRole";
 import { lazyWithRetry } from "@/lib/lazyWithRetry";
 
@@ -98,6 +98,17 @@ function GameRouteGate({
     const $welcomeSeen = useStore(welcomeSeen);
     const $setupCompleted = useStore(setupCompleted);
     const $role = useStore(playerRole);
+    // v1070: only enforce the role→route redirect once the game is actually
+    // IN PROGRESS (the hiding clock is armed). Pre-game BOTH `/` and `/h`
+    // render the exact same lobby, so a role change (switching teams in the
+    // lobby) shouldn't swap routes — a swap unmounts/remounts the whole shell
+    // + reloads the lobby's preview map (the "reload when I switch teams"
+    // jank). Staying put pre-game means switching teams just updates the
+    // roster. The instant the clock arms, this gate re-evaluates (it reads
+    // hidingPeriodEndsAt) and redirects a mis-routed player to their shell,
+    // masked by the GoGoGo flourish that plays over the swap.
+    const $hidingEndsAt = useStore(hidingPeriodEndsAt);
+    const gameInProgress = Number.isFinite($hidingEndsAt);
     if (!$welcomeSeen) {
         // Preserve a shared `?join=CODE` deep link when bouncing a fresh
         // device to /welcome, so the join flow can prefill the room code
@@ -111,7 +122,7 @@ function GameRouteGate({
         );
     }
     if (!$setupCompleted) return <Navigate to="/setup" replace />;
-    if ($role !== null) {
+    if ($role !== null && gameInProgress) {
         const onHiderSide = $role === "hider";
         if (expectedRole === "seeker" && onHiderSide) {
             return <Navigate to="/h" replace />;

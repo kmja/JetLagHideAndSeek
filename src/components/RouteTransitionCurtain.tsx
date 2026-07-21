@@ -2,6 +2,7 @@ import { useStore } from "@nanostores/react";
 import { useEffect, useRef, useState } from "react";
 
 import { HideSeekWordmark } from "@/components/JetLagLogo";
+import { hidingPeriodEndsAt } from "@/lib/gameSetup";
 import { playerRole } from "@/lib/hiderRole";
 import { cn } from "@/lib/utils";
 
@@ -42,7 +43,15 @@ export function RouteTransitionCurtain() {
         // case the jank was reported for. A coHider↔hider shuffle or a
         // seeker↔null change stays on the same shell → isHiderSide is
         // unchanged → no curtain.
-        if (isHiderSide(prev) !== isHiderSide(role)) {
+        // v1070: only curtain when a real shell swap happens — i.e. once the
+        // game is IN PROGRESS. Pre-game a role change (switching teams in the
+        // lobby) no longer swaps routes (GameRouteGate only enforces role→route
+        // once the clock is armed), so flashing a wipe on every team toggle
+        // would be gratuitous.
+        if (
+            isHiderSide(prev) !== isHiderSide(role) &&
+            Number.isFinite(hidingPeriodEndsAt.get())
+        ) {
             setActive(true);
             setShown(true);
             const HOLD_MS = 320; // covers the tree swap + first map init frame

@@ -338,6 +338,15 @@ export function GameLobbyDialog() {
         playerRole.set(role);
         setOnlineRole(role);
         if (typeof window === "undefined") return;
+        // v1070: pre-game, DON'T swap routes on a team switch — both `/` and
+        // `/h` render the same lobby, so a route change only remounts the shell
+        // and reloads the preview map (the "lobby reloads when I switch teams"
+        // jank). GameRouteGate now only enforces role→route once the clock is
+        // armed; mirror that here so the immediate move doesn't fight it. The
+        // route is corrected the instant the game starts (masked by the GoGoGo
+        // flourish). Mid-game role swaps are already disabled in the UI, so
+        // this branch only runs pre-game in practice.
+        if (!Number.isFinite($hidingEndsAt)) return;
         // v756: SOFT-navigate (SPA) instead of window.location.assign — a full
         // reload here tore down the live WS + let the reconnect snapshot
         // clobber the wizard's transit/size settings (the "lobby reloads when

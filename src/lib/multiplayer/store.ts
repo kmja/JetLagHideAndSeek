@@ -859,7 +859,14 @@ function reconcileLocalRoleFromPresence(roster: GameState["participants"]) {
     // app lives on `/`; the hider home on `/h`. Skip the navigation
     // on first role assignment (prev === null) — that path is the
     // initial RolePicker landing which already steers the user.
-    if (prev !== null && typeof window !== "undefined") {
+    // v1070: also skip pre-game — both routes render the same lobby, so a
+    // team switch shouldn't swap shells (the "lobby reloads when I switch
+    // teams" jank). GameRouteGate corrects the route once the clock arms.
+    if (
+        prev !== null &&
+        Number.isFinite(hidingPeriodEndsAt.get()) &&
+        typeof window !== "undefined"
+    ) {
         const path = window.location.pathname;
         const onHider = path === "/h" || path.startsWith("/h/");
         const onSeeker =

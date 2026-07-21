@@ -990,48 +990,57 @@ function HidingZoneSection({
                 // question-log outcome maps), then the zone identity: "YOUR
                 // ZONE" eyebrow, a large station name, and the transit modes
                 // serving it + the roam radius. No coordinates.
-                <div className="rounded-md border border-border bg-secondary/40 p-3 space-y-3">
-                    <Suspense
-                        fallback={
-                            <div className="w-full h-44 rounded-lg border border-dashed border-border" />
-                        }
-                    >
-                        <ZonePreviewMap
-                            lat={zone.stationLat}
-                            lng={zone.stationLng}
-                            radiusMeters={radiusMeters}
-                            padding={2}
-                            snapshot
-                            className="w-full h-44"
-                        />
-                    </Suspense>
-                    <div className="min-w-0">
-                        <div className="text-[10px] uppercase tracking-[0.16em] font-poppins font-bold text-muted-foreground">
-                            Your zone
+                // v1070: the hiding zone is always a CIRCLE, so a full-width
+                // wide map wastes space. Lay the card out as a row — a SQUARE
+                // map on the left + the zone identity beside it.
+                <div className="rounded-md border border-border bg-secondary/40 p-3">
+                    <div className="flex items-stretch gap-3">
+                        <div className="shrink-0 w-32 sm:w-40">
+                            <Suspense
+                                fallback={
+                                    <div className="aspect-square w-full rounded-lg border border-dashed border-border" />
+                                }
+                            >
+                                <ZonePreviewMap
+                                    lat={zone.stationLat}
+                                    lng={zone.stationLng}
+                                    radiusMeters={radiusMeters}
+                                    padding={2}
+                                    snapshot
+                                    className="aspect-square w-full"
+                                />
+                            </Suspense>
                         </div>
-                        <div className="text-2xl font-inter-tight font-bold leading-tight truncate mt-0.5">
-                            {zone.stationName}
-                        </div>
-                        {(zoneModes.length > 0 || radiusLabel) && (
-                            <div className="flex items-center flex-wrap gap-x-2.5 gap-y-1 mt-1.5 text-xs text-muted-foreground">
-                                {zoneModes.length > 0 && (
-                                    <span className="flex items-center gap-1.5 text-foreground/70">
-                                        {zoneModes.map((m) => {
-                                            const Icon = TRANSIT_ICONS[m];
-                                            return (
-                                                <Icon
-                                                    key={m}
-                                                    className="w-4 h-4"
-                                                    strokeWidth={2.4}
-                                                    aria-label={m}
-                                                />
-                                            );
-                                        })}
-                                    </span>
-                                )}
-                                {radiusLabel && <span>{radiusLabel} radius</span>}
+                        <div className="min-w-0 flex-1 flex flex-col justify-center">
+                            <div className="text-[10px] uppercase tracking-[0.16em] font-poppins font-bold text-muted-foreground">
+                                Your zone
                             </div>
-                        )}
+                            <div className="text-2xl font-inter-tight font-bold leading-tight mt-0.5 break-words">
+                                {zone.stationName}
+                            </div>
+                            {(zoneModes.length > 0 || radiusLabel) && (
+                                <div className="flex items-center flex-wrap gap-x-2.5 gap-y-1 mt-1.5 text-xs text-muted-foreground">
+                                    {zoneModes.length > 0 && (
+                                        <span className="flex items-center gap-1.5 text-foreground/70">
+                                            {zoneModes.map((m) => {
+                                                const Icon = TRANSIT_ICONS[m];
+                                                return (
+                                                    <Icon
+                                                        key={m}
+                                                        className="w-4 h-4"
+                                                        strokeWidth={2.4}
+                                                        aria-label={m}
+                                                    />
+                                                );
+                                            })}
+                                        </span>
+                                    )}
+                                    {radiusLabel && (
+                                        <span>{radiusLabel} radius</span>
+                                    )}
+                                </div>
+                            )}
+                        </div>
                     </div>
                     {/* v803: no "Change" — locking a zone can't be undone. */}
                 </div>

@@ -11,7 +11,11 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { appNavigate } from "@/lib/appNavigate";
-import { setupCompleted, welcomeSeen } from "@/lib/gameSetup";
+import {
+    hidingPeriodEndsAt,
+    setupCompleted,
+    welcomeSeen,
+} from "@/lib/gameSetup";
 import { playerRole } from "@/lib/hiderRole";
 import {
     currentGameCode,
@@ -114,6 +118,12 @@ export function RolePicker() {
         playerRole.set(selected);
         setOnlineRole(selected);
         if (typeof window === "undefined") return;
+        // v1070: pre-game, don't swap routes — both `/` and `/h` render the
+        // same lobby, so picking (or switching) a role should just update the
+        // roster, not remount the shell + reload the preview map. GameRouteGate
+        // corrects the route once the clock arms (a mid-game joiner still gets
+        // routed to their shell here). Mirrors the lobby's joinTeam gate.
+        if (!Number.isFinite(hidingPeriodEndsAt.get())) return;
         // v756: SOFT-navigate (SPA) — a window.location reload tore down the
         // live WS and let the reconnect snapshot clobber the wizard's
         // transit/size settings (the "lobby reloads when I pick hider" bug).

@@ -430,6 +430,37 @@ bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
 build stamp. Current: `v1069`. Use `git log` for the per-version detail;
 
+**v1070 — no lobby reload when switching teams + committed-zone card = square
+map + side content.**
+- **Switching teams in the lobby no longer reloads/remounts the shell.** Picking
+  or switching seeker↔hider set `playerRole`, and `GameRouteGate` (App.tsx)
+  UNCONDITIONALLY enforced role→route (`/` seeker, `/h` hider) — so a pre-game
+  team switch soft-navigated between the two routes, and since each route mounts
+  its OWN `SeekerPage`/`HiderPage` (each with its own `GameLobbyDialog` +
+  `PlayAreaPreviewMap`), the lobby fully remounted and the preview map reloaded
+  (the "reload when I switch teams" jank). But PRE-GAME both routes render the
+  EXACT same lobby, so the route only needs to be role-specific once the game is
+  IN PROGRESS. Fix: `GameRouteGate` now gates the role→route redirect on
+  `Number.isFinite(hidingPeriodEndsAt)` (game running), so pre-game a role change
+  just updates the roster and stays on the current route (lobby stays mounted).
+  The three navigation sites (`GameLobbyDialog.joinTeam`, `RolePicker.confirmJoin`,
+  `store.reconcileLocalRoleFromPresence`) mirror the same guard — they only
+  soft-navigate when the clock is armed (a mid-game joiner still routes to their
+  shell). The instant the game starts, `GameRouteGate` re-evaluates (it reads the
+  clock) and redirects a mis-routed player to their shell, masked by the GoGoGo
+  flourish that already plays over the swap. `RouteTransitionCurtain` gained the
+  same clock gate so a pre-game team toggle (which no longer swaps routes) doesn't
+  flash a gratuitous branded wipe.
+- **Committed-zone card = square map + side-by-side content.** The hider's
+  committed-zone card (`HiderHome` `HidingZoneSection`, the `zone && !editing`
+  branch) rendered a full-width `ZonePreviewMap` (`w-full h-44`) with the zone
+  name + modes + radius stacked BELOW it — wasteful, since a hiding zone is always
+  a circle so a square preview frames it exactly. Restructured into a flex row: a
+  SQUARE snapshot map (`aspect-square w-full` inside a `shrink-0 w-32 sm:w-40`
+  column) on the left, with the "Your zone" eyebrow + station name (`break-words`)
+  + transit-mode glyphs + radius label in a `min-w-0 flex-1 flex flex-col
+  justify-center` column beside it.
+
 **v1069 — configure-map pin is the seeker's GPS marker on every question.** The
 `InlineLocationPicker` pin rendered as the canonical `SelfPositionMarker` (blue
 GPS dot) only in lock-to-GPS mode; otherwise it was an orange teardrop. Since the
