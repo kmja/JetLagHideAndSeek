@@ -430,6 +430,19 @@ bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
 build stamp. Current: `v1069`. Use `git log` for the per-version detail;
 
+**v1075 — transit-line picker: endpoints, accordion sections, named direction
+button.** Follow-ups to v1073's picker. (1) Each grouped line row now shows its
+two TERMINUS stations as a subtitle (`parseEndpoints` off the OSM route name,
+e.g. "Uppsala – Södertälje centrum"). (2) The line list is grouped into
+collapsible ACCORDION sections per transit type (`MODE_SECTIONS`: Train / Metro /
+Tram-light-rail / Bus / Ferry, `<details open>` with an uppercase subheader +
+count). (3) The stop checklist's "Flip direction" became a clear **named
+direction button** — a rotated compass `Navigation` arrow + "Heading <cardinal>
+toward <terminus>" (e.g. "north toward Uppsala"), computed from the bearing
+between the seeker's nearest stop and the terminus the current direction heads
+to; tapping Reverses. `PickedLine` gained a `forward` flag driving the label +
+which side of the nearest stop is selected.
+
 **v1074 — body-of-water reads the water layer from the PRELOADED pack (not the
 master archive over the network).** Body-of-water hit LIVE Overpass in Stockholm
 even though the tile pack was preloaded AND `/api/water` was cached — because the

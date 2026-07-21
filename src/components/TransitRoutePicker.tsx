@@ -1,5 +1,13 @@
 import { useStore } from "@nanostores/react";
-import { Check, Loader2, MapPin, RefreshCw, Train } from "lucide-react";
+import {
+    Check,
+    ChevronDown,
+    Loader2,
+    MapPin,
+    Navigation,
+    RefreshCw,
+    Train,
+} from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "react-toastify";
 
@@ -79,6 +87,39 @@ function haversineM(
     return 2 * R * Math.asin(Math.min(1, Math.sqrt(h)));
 }
 
+/** Compass bearing (degrees) from A to B. */
+function bearing(
+    aLat: number,
+    aLng: number,
+    bLat: number,
+    bLng: number,
+): number {
+    const φ1 = (aLat * Math.PI) / 180;
+    const φ2 = (bLat * Math.PI) / 180;
+    const Δλ = ((bLng - aLng) * Math.PI) / 180;
+    const y = Math.sin(Δλ) * Math.cos(φ2);
+    const x =
+        Math.cos(φ1) * Math.sin(φ2) -
+        Math.sin(φ1) * Math.cos(φ2) * Math.cos(Δλ);
+    return (Math.atan2(y, x) * 180) / Math.PI;
+}
+
+const COMPASS_WORDS = [
+    "north",
+    "northeast",
+    "east",
+    "southeast",
+    "south",
+    "southwest",
+    "west",
+    "northwest",
+];
+/** A cardinal word ("north", "southeast", …) for a bearing in degrees. */
+function compassWord(deg: number): string {
+    const i = Math.round(((deg % 360) + 360) / 45) % 8;
+    return COMPASS_WORDS[i];
+}
+
 /** The line label = the route name with any ": A - B" direction stripped. */
 function lineLabel(name: string): string {
     const colon = name.split(":")[0]?.trim();
@@ -86,11 +127,25 @@ function lineLabel(name: string): string {
     return name;
 }
 
+/** The two terminus names from a route name, e.g. "Tåg 40: A - B" → [A, B]. */
+function parseEndpoints(name: string): [string, string] | null {
+    const after = name.includes(":")
+        ? name.split(":").slice(1).join(":").trim()
+        : name;
+    const parts = after.split(/\s[–—-]\s/).map((p) => p.trim());
+    if (parts.length >= 2 && parts[0] && parts[parts.length - 1]) {
+        return [parts[0], parts[parts.length - 1]];
+    }
+    return null;
+}
+
 /** A group of directional route variants that are the SAME transit line. */
 type TransitLine = {
     key: string;
     label: string;
     mode: string;
+    /** The two terminus names, if parseable, for the row subtitle. */
+    endpoints?: [string, string];
     /** All member route ids (directions/variants); picking fetches the first. */
     memberIds: string[];
 };
@@ -104,17 +159,28 @@ function groupLines(routes: TransitRouteSummary[]): TransitLine[] {
         const existing = byKey.get(key);
         if (existing) {
             existing.memberIds.push(r.id);
+            if (!existing.endpoints) existing.endpoints = parseEndpoints(r.name) ?? undefined;
         } else {
             byKey.set(key, {
                 key,
                 label: lineLabel(r.name),
                 mode: r.mode,
+                endpoints: parseEndpoints(r.name) ?? undefined,
                 memberIds: [r.id],
             });
         }
     }
     return [...byKey.values()];
 }
+
+/** Transit-type accordion sections, in display order. */
+const MODE_SECTIONS: { key: string; label: string; modes: string[] }[] = [
+    { key: "train", label: "Train", modes: ["train"] },
+    { key: "subway", label: "Metro", modes: ["subway", "monorail"] },
+    { key: "tram", label: "Tram / light rail", modes: ["tram", "light_rail"] },
+    { key: "bus", label: "Bus", modes: ["bus"] },
+    { key: "ferry", label: "Ferry", modes: ["ferry"] },
+];
 
 type PickedLine = {
     key: string;
@@ -125,6 +191,9 @@ type PickedLine = {
     stops: { lat: number; lng: number; name?: string }[];
     /** Index of the seeker's nearest stop (or -1 if unknown). */
     nearestIdx: number;
+    /** Direction of travel: true = toward the END of the stop list (higher
+     *  index), false = toward the START. Drives the "toward <terminus>" label. */
+    forward: boolean;
     /** Selected stop indices (the answer set). */
     selected: Set<number>;
 };
@@ -244,6 +313,7 @@ export function TransitRoutePicker({
                 mode: line.mode,
                 stops,
                 nearestIdx,
+                forward: true,
                 selected,
             };
             setPickedLine(line2);
@@ -278,19 +348,20 @@ export function TransitRoutePicker({
         });
     };
 
-    /** Flip the default direction: select the nearest + everything BEFORE it. */
+    /** Flip travel direction: re-select the nearest + everything on the other
+     *  side of it, and flip the `forward` flag (drives the "toward …" label). */
     const flipDirection = () => {
         setPickedLine((prev) => {
             if (!prev || prev.nearestIdx < 0) return prev;
+            const forward = !prev.forward;
             const selected = new Set<number>();
-            const hasAfter = prev.selected.has(prev.nearestIdx + 1);
-            if (hasAfter) {
-                for (let i = 0; i <= prev.nearestIdx; i++) selected.add(i);
-            } else {
+            if (forward) {
                 for (let i = prev.nearestIdx; i < prev.stops.length; i++)
                     selected.add(i);
+            } else {
+                for (let i = 0; i <= prev.nearestIdx; i++) selected.add(i);
             }
-            const next = { ...prev, selected };
+            const next = { ...prev, forward, selected };
             commitSelection(next);
             return next;
         });
@@ -307,6 +378,29 @@ export function TransitRoutePicker({
     if (pickedLine) {
         const Icon = modeIcon(pickedLine.mode);
         const count = pickedLine.selected.size;
+        // The terminus the current travel direction heads toward + its compass
+        // word, for a clear "north toward Uppsala" direction button.
+        const targetIdx = pickedLine.forward ? pickedLine.stops.length - 1 : 0;
+        const target = pickedLine.stops[targetIdx];
+        const nearest =
+            pickedLine.nearestIdx >= 0
+                ? pickedLine.stops[pickedLine.nearestIdx]
+                : null;
+        const dirWord =
+            nearest && target
+                ? compassWord(
+                      bearing(
+                          nearest.lat,
+                          nearest.lng,
+                          target.lat,
+                          target.lng,
+                      ),
+                  )
+                : null;
+        const dirLabel =
+            target && dirWord
+                ? `${dirWord} toward ${target.name ?? "the end"}`
+                : null;
         return (
             <div className="space-y-2">
                 <div className="flex items-center gap-2 rounded-md border-2 border-primary bg-primary/10 p-2.5">
@@ -332,30 +426,47 @@ export function TransitRoutePicker({
                     )}
                 </div>
 
+                {dirLabel && (
+                    <button
+                        type="button"
+                        onClick={flipDirection}
+                        className="flex w-full items-center gap-2 rounded-md border border-primary/40 bg-primary/5 px-3 py-2 text-left text-sm hover:bg-primary/10"
+                    >
+                        <Navigation
+                            className="h-4 w-4 shrink-0 text-primary"
+                            style={{
+                                transform: `rotate(${bearing(
+                                    nearest!.lat,
+                                    nearest!.lng,
+                                    target!.lat,
+                                    target!.lng,
+                                )}deg)`,
+                            }}
+                        />
+                        <span className="min-w-0 flex-1">
+                            <span className="text-muted-foreground">
+                                Heading{" "}
+                            </span>
+                            <span className="font-semibold capitalize">
+                                {dirLabel}
+                            </span>
+                        </span>
+                        <span className="shrink-0 text-xs font-semibold text-primary">
+                            Reverse
+                        </span>
+                    </button>
+                )}
                 <div className="flex items-center justify-between gap-2 text-xs">
                     <span className="text-muted-foreground">
                         Deselect any stops your train skips.
                     </span>
-                    <div className="flex items-center gap-1.5">
-                        {pickedLine.nearestIdx >= 0 && (
-                            <button
-                                type="button"
-                                onClick={flipDirection}
-                                className="rounded-md px-2 py-1 font-semibold text-primary hover:bg-primary/10"
-                            >
-                                Flip direction
-                            </button>
-                        )}
-                        <button
-                            type="button"
-                            onClick={() => setAll(count < pickedLine.stops.length)}
-                            className="rounded-md px-2 py-1 font-semibold text-primary hover:bg-primary/10"
-                        >
-                            {count < pickedLine.stops.length
-                                ? "All"
-                                : "None"}
-                        </button>
-                    </div>
+                    <button
+                        type="button"
+                        onClick={() => setAll(count < pickedLine.stops.length)}
+                        className="rounded-md px-2 py-1 font-semibold text-primary hover:bg-primary/10"
+                    >
+                        {count < pickedLine.stops.length ? "All" : "None"}
+                    </button>
                 </div>
 
                 <div className="max-h-72 space-y-1 overflow-y-auto pr-1">
@@ -477,41 +588,74 @@ export function TransitRoutePicker({
                     Finding lines near you…
                 </div>
             ) : lines && lines.length > 0 ? (
-                <div className="max-h-72 space-y-1.5 overflow-y-auto pr-1">
-                    {lines.map((line) => {
-                        const Icon = modeIcon(line.mode);
-                        const busy = pickingKey === line.key;
+                <div className="max-h-72 space-y-2 overflow-y-auto pr-1">
+                    {MODE_SECTIONS.map((section) => {
+                        const sectionLines = lines.filter((l) =>
+                            section.modes.includes(l.mode),
+                        );
+                        if (sectionLines.length === 0) return null;
                         return (
-                            <button
-                                key={line.key}
-                                type="button"
-                                onClick={() => void pickLine(line)}
-                                disabled={pickingKey !== null}
-                                className={cn(
-                                    "flex w-full items-center gap-2.5 rounded-md border-2 p-2.5 text-left transition-all",
-                                    "active:scale-[0.99] disabled:opacity-60",
-                                    busy
-                                        ? "border-primary bg-primary/10"
-                                        : "border-border bg-secondary hover:bg-accent",
-                                )}
+                            <details
+                                key={section.key}
+                                open
+                                className="group/sec rounded-md border border-border bg-secondary/30"
                             >
-                                <span
-                                    className={cn(
-                                        "flex h-9 w-9 shrink-0 items-center justify-center rounded-md",
-                                        busy
-                                            ? "bg-primary text-primary-foreground"
-                                            : "bg-background/70 text-muted-foreground",
-                                    )}
-                                >
-                                    <Icon className="h-5 w-5" />
-                                </span>
-                                <span className="min-w-0 flex-1 truncate text-sm font-medium">
-                                    {line.label}
-                                </span>
-                                {busy && (
-                                    <Loader2 className="h-4 w-4 shrink-0 animate-spin text-primary" />
-                                )}
-                            </button>
+                                <summary className="flex cursor-pointer list-none items-center gap-2 px-2.5 py-2 text-[11px] font-bold uppercase tracking-[0.12em] text-muted-foreground">
+                                    <ChevronDown className="h-3.5 w-3.5 shrink-0 transition-transform group-open/sec:rotate-0 -rotate-90" />
+                                    {section.label}
+                                    <span className="ml-auto text-[10px] font-semibold normal-case tracking-normal opacity-70">
+                                        {sectionLines.length}
+                                    </span>
+                                </summary>
+                                <div className="space-y-1.5 p-1.5 pt-0">
+                                    {sectionLines.map((line) => {
+                                        const Icon = modeIcon(line.mode);
+                                        const busy = pickingKey === line.key;
+                                        return (
+                                            <button
+                                                key={line.key}
+                                                type="button"
+                                                onClick={() =>
+                                                    void pickLine(line)
+                                                }
+                                                disabled={pickingKey !== null}
+                                                className={cn(
+                                                    "flex w-full items-center gap-2.5 rounded-md border-2 p-2.5 text-left transition-all",
+                                                    "active:scale-[0.99] disabled:opacity-60",
+                                                    busy
+                                                        ? "border-primary bg-primary/10"
+                                                        : "border-border bg-secondary hover:bg-accent",
+                                                )}
+                                            >
+                                                <span
+                                                    className={cn(
+                                                        "flex h-9 w-9 shrink-0 items-center justify-center rounded-md",
+                                                        busy
+                                                            ? "bg-primary text-primary-foreground"
+                                                            : "bg-background/70 text-muted-foreground",
+                                                    )}
+                                                >
+                                                    <Icon className="h-5 w-5" />
+                                                </span>
+                                                <span className="min-w-0 flex-1">
+                                                    <span className="block truncate text-sm font-medium">
+                                                        {line.label}
+                                                    </span>
+                                                    {line.endpoints && (
+                                                        <span className="block truncate text-xs text-muted-foreground">
+                                                            {line.endpoints[0]} –{" "}
+                                                            {line.endpoints[1]}
+                                                        </span>
+                                                    )}
+                                                </span>
+                                                {busy && (
+                                                    <Loader2 className="h-4 w-4 shrink-0 animate-spin text-primary" />
+                                                )}
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            </details>
                         );
                     })}
                 </div>
