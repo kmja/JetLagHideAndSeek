@@ -759,6 +759,50 @@ export function resolvePendingDraw(keepIds: string[]): void {
 }
 
 /**
+ * Keep ONE card from the pending draw straight into the hand, mid-pick
+ * (v1059). For a multi-keep draw (tentacle draw-4-keep-2) the picker
+ * commits each pick as it's made — the card leaves the picker and lands
+ * in the hand immediately (no confusing empty gap in the carousel, and
+ * the hider sees it arrive), decrementing `keep`. The remaining
+ * un-picked cards are discarded together via `discardRemainingDraw`
+ * once the last keep is made.
+ */
+export function keepCardFromDraw(id: string): void {
+    const current = pendingDraw.get();
+    if (!current) return;
+    const card = current.cards.find((c) => c.id === id);
+    if (!card) return;
+    hiderHand.set([...hiderHand.get(), card]);
+    pendingDraw.set({
+        ...current,
+        cards: current.cards.filter((c) => c.id !== id),
+        keep: Math.max(0, current.keep - 1),
+    });
+}
+
+/**
+ * Discard every card still left in the pending draw (the un-picked
+ * ones) and close the pick — advancing to the next queued cycle if any,
+ * else clearing `pendingDraw` (v1059). Pairs with `keepCardFromDraw`:
+ * the keeps happen incrementally, then this sweeps the rest into the
+ * discard pile once the keep budget is spent.
+ */
+export function discardRemainingDraw(): void {
+    const current = pendingDraw.get();
+    if (!current) return;
+    if (current.cards.length > 0)
+        hiderDiscard.set([...hiderDiscard.get(), ...current.cards]);
+    const queue = pendingDrawQueue.get();
+    if (queue.length > 0) {
+        const [next, ...rest] = queue;
+        pendingDrawQueue.set(rest);
+        pendingDraw.set(next);
+    } else {
+        pendingDraw.set(null);
+    }
+}
+
+/**
  * Direct hand-pile draw (used by powerups like Discard 1 Draw 2 / Draw 1
  * Expand Hand — those don't go through the keep-K picker, they always
  * add to the hand). Returns the drawn cards for callers to display.

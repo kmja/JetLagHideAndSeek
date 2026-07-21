@@ -428,7 +428,23 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v1058`. Use `git log` for the per-version detail;
+build stamp. Current: `v1059`. Use `git log` for the per-version detail;
+
+**v1059 — draw picker multi-keep: commit each pick immediately + discard-to-ocean
+fall.** Two fixes to the keep-K picker (tentacle draw-4-keep-2, etc.):
+- **The empty-gap bug** — the first pick of a multi-keep left a blank slot in the
+  carousel (kept card `opacity:0`) AND didn't reach the hand until the whole draw
+  resolved at the end. Now each pick is COMMITTED immediately: new
+  `keepCardFromDraw(id)` (`hiderRole.ts`) moves the card straight into the hand
+  (it flies there via `CardFlyToHand`) and REMOVES it from `pendingDraw.cards`, so
+  the carousel tightens with no gap and the hider sees each kept card arrive. The
+  reset effect keys on `sourceQuestionKey` only (the card list now shrinks
+  mid-pick).
+- **Discard-to-ocean** — on the LAST keep, the remaining un-picked cards now fall
+  away to the SIDES (`translate(±62vw, 120vh)` + rotate, staggered) and sink,
+  instead of the dialog snapping shut. The carousel switches to `overflow-visible`
+  during the fall so they aren't clipped; after ~760 ms `discardRemainingDraw()`
+  sweeps them into the discard pile and closes the draw.
 
 **v1058 — curse-reveal star ROOT CAUSE: explicit viewport size (was rendering
 absent/tiny).** The star wasn't just small — on the reporter's device it didn't

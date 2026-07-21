@@ -12,8 +12,9 @@ import {
 import { type GameSize, gameSize } from "@/lib/gameSetup";
 import {
     cardFlyToHand,
+    discardRemainingDraw,
+    keepCardFromDraw,
     pendingDraw,
-    resolvePendingDraw,
 } from "@/lib/hiderRole";
 import { play } from "@/lib/sound";
 import { cn } from "@/lib/utils";
@@ -49,7 +50,6 @@ import { CardTile } from "./CardTile";
  *  long enough that the motion reads. Total time per pick is fly +
  *  small settle; the final discard adds one more fade pass. */
 const FLY_MS = 450;
-const FADE_MS = 600;
 
 // v901 peek-carousel geometry: the active card is CARD_BASIS_PCT% of the
 // container width, centred, so PEEK_PCT% of each neighbour shows at the edges.
@@ -61,16 +61,10 @@ const SWIPE_THRESHOLD = 45;
 export function DrawPickerDialog() {
     const $pending = useStore(pendingDraw);
     const $gameSize = useStore(gameSize);
-    // Cards the hider has already confirmed picking. Appended in
-    // pick order; passed to `resolvePendingDraw` at the very end.
-    const [keptIds, setKeptIds] = useState<string[]>([]);
-    // All picks made — remaining (un-kept) cards fade and fall. After
-    // the fade we resolve the draw. (v1050: the fly-to-hand itself is now
-    // handled by the shared `CardFlyToHand` FLIP once the draw resolves, so
-    // this picker no longer runs its own in-tray fly animation.)
+    // Once the LAST keep is made, the remaining un-picked cards fall away to
+    // the sides (sinking into the ocean) before the pending draw is cleared.
     const [finished, setFinished] = useState(false);
-    // Track timers across the kept lifecycle so a hot-reload or fast
-    // reopen of the picker doesn't fire stale callbacks.
+    // Track timers so a hot-reload or fast reopen doesn't fire stale callbacks.
     const timersRef = useRef<number[]>([]);
     // v886: which card the stepper is showing. An index-based stepper (one
     // card centred at a time, prev/next) replaced the free-scroll carousel,
@@ -88,90 +82,81 @@ export function DrawPickerDialog() {
         null,
     );
 
-    // Reset local picker state whenever a fresh draw arrives. Reset on
-    // both the question key AND the card-id signature so re-draws for
-    // the same question key (impossible today but harmless to guard)
-    // also reset.
-    const cardKey = $pending?.cards.map((c) => c.id).join(",") ?? "";
+    // Reset local picker state whenever a NEW draw session starts. Keyed on the
+    // source question key only — NOT the card list, which now SHRINKS as each
+    // keep is committed (v1059: `keepCardFromDraw` removes the kept card from
+    // `pendingDraw.cards`), so keying on the cards would wrongly reset mid-pick.
+    // A queued repeat-draw with the same key is reset explicitly in the discard
+    // timeout below.
     useEffect(() => {
-        setKeptIds([]);
         setFinished(false);
         setViewIndex(0);
         return () => {
             for (const t of timersRef.current) clearTimeout(t);
             timersRef.current = [];
         };
-    }, [$pending?.sourceQuestionKey, cardKey]);
+    }, [$pending?.sourceQuestionKey]);
 
     if (!$pending) return null;
 
     const total = $pending.cards.length;
     const keep = $pending.keep;
-    const picksRemaining = keep - keptIds.length;
 
     // v1053: the CENTERED (active) card is the pick target — like the hand
     // carousel. No separate two-tap highlight; the action applies to whatever
     // card is centred, so the "Pick this card" button can never end up on a
     // peeking neighbour.
+    // v1059: each pick is committed IMMEDIATELY — the card lands in the hand
+    // (flies there) and leaves the carousel, so a multi-keep draw never shows a
+    // confusing empty gap and the hider sees each kept card arrive. On the LAST
+    // keep the remaining un-picked cards fall away to the sides before the draw
+    // clears.
     const confirmActive = () => {
-        const card = $pending?.cards[viewIndex];
-        if (!card || keptIds.includes(card.id)) return;
+        const cards = $pending?.cards ?? [];
+        const card = cards[viewIndex];
+        if (!card || finished) return;
         const id = card.id;
-        const next = [...keptIds, id];
-        const isLastPick = next.length >= keep;
         // v911: light swish as the kept card heads to the hand.
         play("cardDraw");
 
-        if (isLastPick) {
-            // v1050: hand the fly-to-hand off to the shared `CardFlyToHand`
-            // FLIP instead of the DrawPicker's own straight-down animation.
-            // `resolvePendingDraw` adds the kept cards to the hand (so the fan
-            // renders their REAL slots) and clears `pendingDraw` (this dialog
-            // unmounts); `cardFlyToHand.set` then flies each kept card from
-            // centre to its actual slot — landing at the right spot in the fan,
-            // shrinking to hand size, and revealing the slot only on arrival
-            // (a seamless slot-in). This is the same measured FLIP the
-            // photo-answer auto-keep uses, so the two flows now match.
-            const keptCards = ($pending?.cards ?? []).filter((c) =>
-                next.includes(c.id),
-            );
-            // Measure the on-screen carousel card NOW (before resolve unmounts
-            // this dialog) so the fly-to-hand starts EXACTLY where this card is
-            // — a seamless continuation, not a new card popping in.
-            const el = document.querySelector<HTMLElement>(
-                `[data-draw-card="${
-                    typeof CSS !== "undefined" && CSS.escape
-                        ? CSS.escape(id)
-                        : id
-                }"]`,
-            );
-            const rect = el?.getBoundingClientRect();
-            const fromRect =
-                rect && rect.width > 0
-                    ? {
-                          left: rect.left,
-                          top: rect.top,
-                          width: rect.width,
-                          height: rect.height,
-                      }
-                    : undefined;
-            resolvePendingDraw(next);
-            if (keptCards.length)
-                cardFlyToHand.set({ cards: keptCards, fromRect });
-            return;
-        }
+        // Measure the on-screen carousel card NOW so the fly-to-hand starts
+        // EXACTLY where this card is — a seamless continuation, not a new card
+        // popping in.
+        const el = document.querySelector<HTMLElement>(
+            `[data-draw-card="${
+                typeof CSS !== "undefined" && CSS.escape ? CSS.escape(id) : id
+            }"]`,
+        );
+        const rect = el?.getBoundingClientRect();
+        const fromRect =
+            rect && rect.width > 0
+                ? {
+                      left: rect.left,
+                      top: rect.top,
+                      width: rect.width,
+                      height: rect.height,
+                  }
+                : undefined;
 
-        // Multi-keep, not the last pick yet: commit this pick (the card leaves
-        // the tray) and advance the stepper to the next un-kept card. All kept
-        // cards fly to the hand together when the final pick resolves.
-        setKeptIds(next);
-        const cards = $pending?.cards ?? [];
-        for (let k = 1; k <= cards.length; k++) {
-            const cand = (viewIndex + k) % cards.length;
-            if (!next.includes(cards[cand].id)) {
-                setViewIndex(cand);
-                break;
-            }
+        const wasLast = keep <= 1;
+        // Commit the keep: card → hand, removed from the pending cards, keep--.
+        keepCardFromDraw(id);
+        cardFlyToHand.set({ cards: [card], fromRect });
+
+        if (wasLast) {
+            // The keep budget is spent — the remaining cards fall to the ocean,
+            // then the draw is cleared (or the next queued cycle opens).
+            setFinished(true);
+            const t = window.setTimeout(() => {
+                discardRemainingDraw();
+                setFinished(false);
+                setViewIndex(0);
+            }, 760);
+            timersRef.current.push(t);
+        } else {
+            // The kept card was removed from the carousel; keep the view within
+            // the now-shorter list (the next card slides into this slot).
+            setViewIndex((i) => Math.min(i, cards.length - 2));
         }
     };
 
@@ -242,7 +227,13 @@ export function DrawPickerDialog() {
                         // `overflow-hidden` edge (the horizontal peek NEEDS the
                         // hidden overflow, and CSS can't do overflow-x:hidden +
                         // overflow-y:visible, so padding is the fix).
-                        className="overflow-hidden py-4"
+                        // v1059: while the discarded cards fall away to the
+                        // sides, switch to `overflow-visible` so they aren't
+                        // clipped by the peek box.
+                        className={cn(
+                            "py-4",
+                            finished ? "overflow-visible" : "overflow-hidden",
+                        )}
                         onTouchStart={(e) => {
                             if (chromeFadeOn) return;
                             const t = e.touches[0];
@@ -289,9 +280,16 @@ export function DrawPickerDialog() {
                             }}
                         >
                             {$pending.cards.map((card, i) => {
-                                const isKept = keptIds.includes(card.id);
-                                const isFading = chromeFadeOn && !isKept;
+                                // v1059: once the last keep is made, the
+                                // remaining un-picked cards fall away to the
+                                // SIDES + sink (discarded into the ocean). Spread
+                                // them left→right so they fan out as they drop.
+                                const isFading = finished;
                                 const isActive = i === viewIndex;
+                                const fadeDir =
+                                    total <= 1
+                                        ? -1
+                                        : (i / (total - 1)) * 2 - 1;
                                 return (
                                     <div
                                         key={card.id}
@@ -301,17 +299,20 @@ export function DrawPickerDialog() {
                                         <div
                                             className={cn(
                                                 "w-full transition-all duration-300 ease-out",
-                                                isActive
-                                                    ? "scale-100 opacity-100"
-                                                    : "scale-[0.86] opacity-45",
+                                                isFading
+                                                    ? ""
+                                                    : isActive
+                                                      ? "scale-100 opacity-100"
+                                                      : "scale-[0.86] opacity-45",
                                             )}
                                         >
                                             <CardCell
                                                 card={card}
                                                 gameSize={$gameSize}
                                                 isActive={isActive}
-                                                isKept={isKept}
                                                 isFading={isFading}
+                                                fadeDir={fadeDir}
+                                                fadeDelay={i * 90}
                                                 disabled={finished}
                                                 onTap={() => {
                                                     // A swipe suppresses the
@@ -388,9 +389,7 @@ export function DrawPickerDialog() {
                                     "h-2 rounded-full transition-all",
                                     i === viewIndex
                                         ? "w-5 bg-white"
-                                        : keptIds.includes(card.id)
-                                          ? "w-2 bg-primary"
-                                          : "w-2 bg-white/50",
+                                        : "w-2 bg-white/50",
                                 )}
                             />
                         ))}
@@ -407,8 +406,9 @@ function CardCell({
     card,
     gameSize,
     isActive,
-    isKept,
     isFading,
+    fadeDir,
+    fadeDelay,
     disabled,
     onTap,
     onConfirm,
@@ -416,36 +416,29 @@ function CardCell({
     card: import("@/lib/hiderDeck").Card;
     gameSize: GameSize;
     isActive: boolean;
-    isKept: boolean;
     isFading: boolean;
+    fadeDir: number;
+    fadeDelay: number;
     disabled: boolean;
     onTap: () => void;
     onConfirm: () => void;
 }) {
-    // The centred (active), not-yet-kept card is the pick target: it gets the
-    // selected ring + the "Pick this card" button. Peeking neighbours are
+    // The centred (active), not-yet-discarded card is the pick target: it gets
+    // the selected ring + the "Pick this card" button. Peeking neighbours are
     // dimmed and only tap-to-centre.
-    const isTarget = isActive && !isKept && !isFading;
-    // Card transform per phase. Defaults (resting + highlighted) sit in the
-    // grid spot; fading / kept apply transforms with their own profiles.
-    // (v1050: the fly-to-hand is no longer done here — once the draw resolves
-    // the kept card is added to the hand and the shared `CardFlyToHand` FLIP
-    // flies it to its real slot in the fan.)
+    const isTarget = isActive && !isFading;
+    // Card transform per phase.
     const cardStyle: CSSProperties = (() => {
-        if (isKept) {
-            return { opacity: 0, pointerEvents: "none" };
-        }
         if (isFading) {
-            // Slight stagger via per-card random offset so all
-            // discards don't snap in unison. Math.random is OK here
-            // — the stagger is purely cosmetic, no state depends on
-            // the value.
+            // v1059: the last keep was made — this un-picked card is discarded.
+            // It falls OUTWARD to its side (fadeDir −1..1) and sinks off the
+            // bottom while rotating, like a card dropped into the ocean.
             return {
-                transform: `translateY(${30 + Math.random() * 20}px) rotate(${
-                    (Math.random() - 0.5) * 12
+                transform: `translate(${fadeDir * 62}vw, 120vh) rotate(${
+                    fadeDir * 26
                 }deg)`,
                 opacity: 0,
-                transition: `transform ${FADE_MS}ms ease-in, opacity ${FADE_MS}ms ease-in`,
+                transition: `transform 720ms cubic-bezier(0.45,0,0.7,1) ${fadeDelay}ms, opacity 720ms ease-in ${fadeDelay + 120}ms`,
                 pointerEvents: "none",
             };
         }
@@ -466,7 +459,7 @@ function CardCell({
                     card={card}
                     gameSize={gameSize}
                     selected={isTarget}
-                    onClick={disabled || isKept ? undefined : onTap}
+                    onClick={disabled ? undefined : onTap}
                     selectionIndicator={isTarget ? "ring" : "none"}
                     // Keep the poker-card aspect ratio (CardTile's native
                     // `aspect-[5/7]`). Cards must never stretch — long
