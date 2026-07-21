@@ -949,6 +949,44 @@ export function DebugPhaseControls(_props: { floating?: DebugFloating } = {}) {
                     </p>
                 </Section>
 
+                <Section title="Build / cache">
+                    <DebugButton
+                        onClick={async () => {
+                            // v1063: force the NEWEST deploy immediately — the
+                            // PWA deliberately doesn't hot-update during an
+                            // active game (v930), so a running game session
+                            // keeps serving the build it started with. This
+                            // drops the service worker + every cache and hard-
+                            // reloads into the latest build (for testing).
+                            try {
+                                if ("serviceWorker" in navigator) {
+                                    const regs =
+                                        await navigator.serviceWorker.getRegistrations();
+                                    await Promise.all(
+                                        regs.map((r) => r.unregister()),
+                                    );
+                                }
+                                if (typeof caches !== "undefined") {
+                                    const keys = await caches.keys();
+                                    await Promise.all(
+                                        keys.map((k) => caches.delete(k)),
+                                    );
+                                }
+                            } catch {
+                                /* best-effort */
+                            }
+                            window.location.reload();
+                        }}
+                    >
+                        Force latest build (clear cache)
+                    </DebugButton>
+                    <p className="text-[10px] text-muted-foreground italic px-1">
+                        Current: {APP_VERSION}. Drops the service worker + caches
+                        and hard-reloads to the newest deploy — the app normally
+                        won&apos;t auto-update mid-game.
+                    </p>
+                </Section>
+
                 <Section title="Hidden time (screenshots)">
                     <DebugButton
                         onClick={() => {

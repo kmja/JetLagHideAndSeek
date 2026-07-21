@@ -428,7 +428,20 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v1062`. Use `git log` for the per-version detail;
+build stamp. Current: `v1063`. Use `git log` for the per-version detail;
+
+**v1063 — curse-reveal star ACTUALLY-small root cause: it was barely bigger than
+the card on a phone + force-latest-build debug button.** The star markup was
+correct all along (headless render at a WIDE viewport showed it filling 91% of
+the width), but at a NARROW phone width (~390px) the `100vmin` star is barely
+bigger than the `min(78vw,300px)` ≈ 300px card — so only thin point slivers
+peeked around the card, reading as "tiny." Verified headlessly at 390×844: at
+`100vmin` the card dominates; at `150vmin` the star clearly frames the card with
+its points off-screen (the reference look). Bumped the star + squiggle box to
+**`150vmin`**. Also added a **"Force latest build (clear cache)"** debug button
+(`DebugPhaseControls` → Build/cache section) that drops the service worker + all
+caches and hard-reloads — the app deliberately doesn't auto-update mid-game
+(v930), so this is the reliable way to pull the newest deploy while testing.
 
 **v1062 — station overlay slides from top-CENTRE + Overpass toast de-stacking +
 draw-picker slide-to-fill.**

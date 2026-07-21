@@ -210,7 +210,7 @@ export function CurseRevealOverlay() {
                     wrappers so the snakes can rotate SLOWER than the star. */}
                 <div
                     className="relative"
-                    style={{ width: "100vmin", height: "100vmin" }}
+                    style={{ width: "150vmin", height: "150vmin" }}
                 >
                     {/* Star spin wrapper — keeps spinning throughout (incl. the
                         exit, so the star shrinks WHILE it spins). */}
@@ -223,8 +223,8 @@ export function CurseRevealOverlay() {
                             style={{
                                 position: "absolute",
                                 inset: 0,
-                                width: "100vmin",
-                                height: "100vmin",
+                                width: "150vmin",
+                                height: "150vmin",
                             }}
                             className={
                                 exiting
@@ -252,8 +252,8 @@ export function CurseRevealOverlay() {
                             style={{
                                 position: "absolute",
                                 inset: 0,
-                                width: "100vmin",
-                                height: "100vmin",
+                                width: "150vmin",
+                                height: "150vmin",
                             }}
                             className={
                                 exiting
