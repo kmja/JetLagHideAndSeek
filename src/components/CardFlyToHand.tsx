@@ -7,23 +7,31 @@ import { gameSize } from "@/lib/gameSetup";
 import { cardFlyToHand } from "@/lib/hiderRole";
 
 /**
- * v1043 (rebuilt v1046): a one-shot flourish that FLIES an auto-kept card down
- * into its real slot in the hand fan. Answering a photo question (a
- * draw-1-keep-1 reward) silently added a card to the hand with no feedback;
- * `presentDraw` now sets `cardFlyToHand`, and this overlay pops the card in
- * centre-screen, holds a beat, then does a measured FLIP: it reads the exact
- * on-screen rect of the destination fan card (`[data-hand-card="<id>"]`),
- * animates the flying card to THAT position + size (shrinking as it goes), and
- * reveals the fan slot underneath on arrival — so the card neatly slots into
- * place instead of fading out at a guessed position while the real card "pops
- * in from nowhere" (the old CSS-to-a-fixed-vh approach).
+ * v1043 (rebuilt v1046, seamless-origin v1052): a one-shot flourish that FLIES a
+ * card into its real slot in the hand fan. Two entry points:
+ *
+ *   - Photo-answer AUTO-KEEP (`presentDraw`) sets `{cards}` with NO origin rect:
+ *     the card POPS in at screen centre, then does a measured FLIP to its real
+ *     fan slot.
+ *   - The DRAW PICKER (`DrawPickerDialog`) sets `{cards, fromRect}` = the picked
+ *     carousel card's on-screen rect: the flying card STARTS at that exact
+ *     position + size (no pop) so it reads as the SAME card continuing from the
+ *     carousel down to the hand — a true FLIP with no "new card spawned on top".
+ *
+ * Either way it reads the destination fan card's rect (`[data-hand-card]`),
+ * animates the flying card there (shrinking to hand size), and reveals the fan
+ * slot underneath on arrival — so the card neatly slots into place.
  *
  * Mounted once on `HiderPage`. Renders nothing unless a draw just fired.
  */
 export function CardFlyToHand() {
-    const cards = useStore(cardFlyToHand);
+    const payload = useStore(cardFlyToHand);
     const $size = useStore(gameSize);
     const elsRef = useRef<Array<HTMLDivElement | null>>([]);
+
+    const cards = payload?.cards ?? null;
+    const fromRect = payload?.fromRect;
+    const seamless = Boolean(fromRect);
 
     useEffect(() => {
         if (!cards || cards.length === 0) return;
@@ -35,7 +43,6 @@ export function CardFlyToHand() {
 
         const total = cards.length;
         let done = 0;
-        // Track which fan slots we hid so cleanup always restores them.
         const hidden: HTMLElement[] = [];
         const finishOne = () => {
             done += 1;
@@ -94,35 +101,50 @@ export function CardFlyToHand() {
                 target.style.opacity = "0";
                 hidden.push(target);
 
-                const anim = el.animate(
-                    [
-                        {
-                            transform: "translate(0,0) scale(.62) rotate(-7deg)",
-                            opacity: 0,
-                            offset: 0,
-                        },
-                        {
-                            transform: "translate(0,0) scale(1) rotate(0deg)",
-                            opacity: 1,
-                            offset: 0.16,
-                        },
-                        {
-                            transform: "translate(0,0) scale(1) rotate(0deg)",
-                            opacity: 1,
-                            offset: 0.4,
-                        },
-                        {
-                            transform: `translate(${dx}px,${dy}px) scale(${scale}) rotate(4deg)`,
-                            opacity: 1,
-                            offset: 1,
-                        },
-                    ],
-                    {
-                        duration: 1050,
-                        easing: "cubic-bezier(0.5,0,0.2,1)",
-                        fill: "forwards",
-                    },
-                );
+                // Seamless (from the carousel): start EXACTLY where the card is
+                // (opacity 1, identity transform) and fly — no intro pop. Centre
+                // pop (photo auto-keep): grow in first, hold, then fly.
+                const keyframes = seamless
+                    ? [
+                          {
+                              transform: "translate(0,0) scale(1) rotate(0deg)",
+                              opacity: 1,
+                              offset: 0,
+                          },
+                          {
+                              transform: `translate(${dx}px,${dy}px) scale(${scale}) rotate(3deg)`,
+                              opacity: 1,
+                              offset: 1,
+                          },
+                      ]
+                    : [
+                          {
+                              transform:
+                                  "translate(0,0) scale(.62) rotate(-7deg)",
+                              opacity: 0,
+                              offset: 0,
+                          },
+                          {
+                              transform: "translate(0,0) scale(1) rotate(0deg)",
+                              opacity: 1,
+                              offset: 0.16,
+                          },
+                          {
+                              transform: "translate(0,0) scale(1) rotate(0deg)",
+                              opacity: 1,
+                              offset: 0.4,
+                          },
+                          {
+                              transform: `translate(${dx}px,${dy}px) scale(${scale}) rotate(4deg)`,
+                              opacity: 1,
+                              offset: 1,
+                          },
+                      ];
+                const anim = el.animate(keyframes, {
+                    duration: seamless ? 640 : 1050,
+                    easing: "cubic-bezier(0.5,0,0.2,1)",
+                    fill: "forwards",
+                });
                 const settle = () => {
                     target.style.opacity = prevOpacity;
                     finishOne();
@@ -142,7 +164,7 @@ export function CardFlyToHand() {
                 t.style.opacity = "";
             });
         };
-    }, [cards]);
+    }, [payload, cards, seamless]);
 
     if (!cards || cards.length === 0) return null;
 
@@ -154,21 +176,33 @@ export function CardFlyToHand() {
                     ref={(el) => {
                         elsRef.current[i] = el;
                     }}
-                    // No `filter: drop-shadow` here — a filter on a
+                    // No `filter: drop-shadow` — a filter on a
                     // will-change-transform element smears into a vertical trail
-                    // during the fast GPU transform on some Android devices. The
-                    // CardTile reads fine without it.
-                    className="absolute w-[min(46vw,180px)] aspect-[5/7] rounded-xl shadow-2xl will-change-transform"
-                    style={{
-                        // Centre the card's own box on (50%, 38%) via layout
-                        // margins (NOT a transform) so the WAAPI transform below
-                        // composes cleanly from a centred origin.
-                        left: "50%",
-                        top: "38%",
-                        marginLeft: "calc(min(46vw, 180px) * -0.5)",
-                        marginTop: "calc(min(46vw, 180px) * -0.7)",
-                        opacity: 0,
-                    }}
+                    // during the fast GPU transform on some Android devices.
+                    className="absolute rounded-xl shadow-2xl will-change-transform"
+                    style={
+                        seamless && fromRect
+                            ? {
+                                  // Start EXACTLY at the carousel card's rect so
+                                  // it's the SAME card continuing (no pop).
+                                  left: fromRect.left,
+                                  top: fromRect.top,
+                                  width: fromRect.width,
+                                  opacity: 1,
+                              }
+                            : {
+                                  // Centre the card's own box on (50%, 38%) via
+                                  // layout margins (NOT a transform) so the WAAPI
+                                  // transform composes from a centred origin.
+                                  width: "min(46vw, 180px)",
+                                  aspectRatio: "5 / 7",
+                                  left: "50%",
+                                  top: "38%",
+                                  marginLeft: "calc(min(46vw, 180px) * -0.5)",
+                                  marginTop: "calc(min(46vw, 180px) * -0.7)",
+                                  opacity: 0,
+                              }
+                    }
                 >
                     <CardTile card={card} gameSize={$size} />
                 </div>

@@ -428,7 +428,32 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v1051`. Use `git log` for the per-version detail;
+build stamp. Current: `v1053`. Use `git log` for the per-version detail;
+
+**v1053 — draw picker: the CENTRED card is the pick target (not a peeking
+neighbour).** The picker had a separate two-tap highlight (`selectedId`)
+decoupled from the centred card (`viewIndex`): you could select a card then
+swipe/step away, leaving the red ring + "Pick this card" button on a PEEKING
+neighbour while the centred card had nothing (the reported nonsense screenshot).
+Removed `selectedId`/`handleCardTap` entirely — like the hand carousel, the
+centred (active, not-yet-kept) card IS the pick target: it gets the selected
+ring + the "Pick this card" button, tapping a peek card just centres it, and the
+new `confirmActive` picks whatever is centred. So the action can never land on a
+neighbour.
+
+**v1052 — curse-reveal squiggles are smooth navy snakes ON TOP of the star +
+two copy trims.** Per the reference images the curse graphic's squiggly lines are
+groups of three PARALLEL snakes that undulate (smooth sine, not sharp zigzag)
+radiating outward on top of the purple star. `squigglePath`
+(`CurseRevealOverlay`) rebuilt to a smooth sine S-curve with a `lateral` offset
+param; the `squiggles` set is now 6 groups × 3 parallel snakes (same angle/phase,
+lateral ±11) drawn AFTER the star (so they sit on top), stroke `round`/`round`
+width 7. Star spin box `w-[160vmin]` + star fills it. Also removed the "Curse
+cast on seekers." success toast (`CastCurseDialog`) and the redundant "Clears
+automatically in …" line in the curse description (`CurseInbox` — the footer
+"Clears in" already shows it). (The v1052 fly-to-hand seamless-origin work —
+`CardFlyPayload.fromRect`, the DrawPicker measuring the carousel card's rect so
+the ghost starts EXACTLY where the card is — also shipped in this batch.)
 
 **v1051 — curse-reveal polish + Gambler's Feet fixes.**
 - **Curse reveal (`CurseRevealOverlay`):** the star is bigger (87%→96% of the

@@ -538,14 +538,32 @@ export const pendingDrawQueue = __globalPersistent<PendingDraw[]>(
     },
 );
 
+/** Origin rect (viewport coords) for a fly-to-hand animation, so the flying
+ *  card can START exactly where it already is on screen (e.g. the draw-picker
+ *  carousel card) and FLIP to the hand — a seamless continuation instead of a
+ *  new card popping in. */
+export interface CardFlyOrigin {
+    left: number;
+    top: number;
+    width: number;
+    height: number;
+}
+export interface CardFlyPayload {
+    cards: Card[];
+    /** Where the card visually starts. Omitted → the overlay pops it in at
+     *  screen centre (the photo-answer auto-keep flourish). */
+    fromRect?: CardFlyOrigin;
+}
+
 /**
  * v1043: cards auto-kept into the hand (a draw-1-keep-1 reward, e.g. answering
  * a photo question) with no picker — set here so a UI flourish can "fly" them
  * down to the hand fan, since the silent auto-add gave no visual feedback. The
  * `CardFlyToHand` overlay reads it, plays the animation, then clears it.
- * Volatile (a one-shot animation trigger).
+ * Volatile (a one-shot animation trigger). v1052: carries an optional origin
+ * rect so the draw picker can hand off its ON-SCREEN card seamlessly.
  */
-export const cardFlyToHand = __globalAtom<Card[] | null>(
+export const cardFlyToHand = __globalAtom<CardFlyPayload | null>(
     "__jlhs_cardFlyToHand",
     null,
 );
@@ -690,7 +708,7 @@ export function presentDraw(
         // Auto-keep — no choice to make. Fly the card(s) down to the hand so
         // the silent add has a visible beat (v1043).
         hiderHand.set([...hiderHand.get(), ...drawn]);
-        cardFlyToHand.set(drawn);
+        cardFlyToHand.set({ cards: drawn });
         return true;
     }
     const pending: PendingDraw = {

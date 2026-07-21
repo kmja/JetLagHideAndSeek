@@ -522,13 +522,8 @@ export function CurseInbox({
                                     className="w-full h-40 mt-1"
                                 />
                             )}
-                        {dlgMeta?.expiresAt != null && (
-                            <p className="text-xs text-purple-300 inline-flex items-center gap-1 tabular-nums">
-                                <Hourglass className="w-3 h-3" />
-                                Clears automatically in{" "}
-                                {formatCurseCountdown(dlgMeta.expiresAt - now)}
-                            </p>
-                        )}
+                        {/* v1052: the "clears in" countdown lives in the footer
+                            only — no need to repeat it here in the description. */}
                     </div>
 
                     {/* If multiple active curses exist, show the others too */}

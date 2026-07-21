@@ -47,22 +47,31 @@ function useStarPath(): string {
     }, []);
 }
 
-/** A wavy radial "squiggle" line, from ~r0 to ~r1 along `angleDeg`. */
-function squigglePath(angleDeg: number, r0: number, r1: number): string {
+/** A SMOOTH radial "snake" that UNDULATES (sine S-curve) from ~r0 to ~r1 along
+ *  `angleDeg`, shifted `lateral` units sideways. Three of these at offsets
+ *  −s/0/+s and the SAME phase read as a group of three parallel snakes (the
+ *  show's curse graphic). */
+function squigglePath(
+    angleDeg: number,
+    r0: number,
+    r1: number,
+    lateral: number,
+): string {
     const a = (angleDeg * Math.PI) / 180;
     const ax = Math.cos(a);
     const ay = Math.sin(a);
-    const px = -ay;
+    const px = -ay; // perpendicular (sideways)
     const py = ax;
-    const steps = 5;
-    const amp = 5;
+    const steps = 28;
+    const amp = 6; // undulation depth
+    const waves = 2.4; // number of humps along the length
     const cx = 100;
     const cy = 100;
     let d = "";
     for (let i = 0; i <= steps; i++) {
         const t = i / steps;
         const r = r0 + (r1 - r0) * t;
-        const wig = Math.sin(t * Math.PI * 2.2) * amp;
+        const wig = lateral + Math.sin(t * Math.PI * waves) * amp;
         const x = cx + ax * r + px * wig;
         const y = cy + ay * r + py * wig;
         d +=
@@ -85,13 +94,20 @@ export function CurseRevealOverlay() {
     const $gameSize = useStore(gameSize);
 
     const starPath = useStarPath();
-    const squiggles = useMemo(
-        () =>
-            Array.from({ length: 10 }, (_, i) =>
-                squigglePath(-90 + i * 36 + 18, 46, 96),
-            ),
-        [],
-    );
+    // Squiggles in GROUPS OF THREE — smooth navy "snakes" that UNDULATE (sine)
+    // as they radiate outward, drawn ON TOP of the star. Each group is three
+    // PARALLEL snakes (same angle + phase, shifted sideways −s/0/+s), so they
+    // read as a ribbon of three snakes. Six groups fan around the star.
+    const squiggles = useMemo(() => {
+        const out: string[] = [];
+        for (let g = 0; g < 6; g++) {
+            const base = -90 + g * 60;
+            for (const lat of [-11, 0, 11]) {
+                out.push(squigglePath(base, 34, 104, lat));
+            }
+        }
+        return out;
+    }, []);
 
     if (!received) return null;
 
@@ -158,9 +174,25 @@ export function CurseRevealOverlay() {
                 grow-in animations overwrite `transform`, which is exactly what
                 made the star orbit instead of spinning in place). */}
             <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                <div className="relative w-[135vmin] h-[135vmin] motion-safe:animate-[curseRevealSpin_46s_linear_infinite]">
-                    {/* Squiggles — grow OUT from behind the card, delayed +
-                        ease-out (beat 3). Fill the spin box. */}
+                <div className="relative w-[160vmin] h-[160vmin] motion-safe:animate-[curseRevealSpin_46s_linear_infinite]">
+                    {/* Star — grows in FAST (beat 1); big enough that its points
+                        push well past the frame edges. Fills the spin box.
+                        Drawn FIRST so the snakes sit ON TOP of it. */}
+                    <svg
+                        viewBox="0 0 200 200"
+                        className="absolute inset-0 m-auto w-full h-full motion-safe:animate-[curseRevealStarIn_360ms_cubic-bezier(0.2,0.9,0.3,1)_both]"
+                        aria-hidden="true"
+                    >
+                        <path
+                            d={starPath}
+                            fill={STAR_PURPLE}
+                            stroke={STAR_EDGE}
+                            strokeWidth={5}
+                            strokeLinejoin="round"
+                        />
+                    </svg>
+                    {/* Squiggles — smooth navy snakes that grow OUT ON TOP of the
+                        star, delayed + ease-out (beat 3). Fill the spin box. */}
                     <svg
                         viewBox="0 0 200 200"
                         className="absolute inset-0 w-full h-full motion-safe:animate-[curseRevealSquiggleIn_620ms_520ms_cubic-bezier(0.22,1,0.36,1)_both]"
@@ -174,24 +206,10 @@ export function CurseRevealOverlay() {
                                 stroke={SQUIGGLE}
                                 strokeWidth={7}
                                 strokeLinecap="round"
-                                opacity={0.92}
+                                strokeLinejoin="round"
+                                opacity={0.95}
                             />
                         ))}
-                    </svg>
-                    {/* Star — grows in FAST (beat 1); points just barely leave
-                        the frame. Centred in the box (96% of it ≈ 130vmin). */}
-                    <svg
-                        viewBox="0 0 200 200"
-                        className="absolute inset-0 m-auto w-[96%] h-[96%] motion-safe:animate-[curseRevealStarIn_360ms_cubic-bezier(0.2,0.9,0.3,1)_both]"
-                        aria-hidden="true"
-                    >
-                        <path
-                            d={starPath}
-                            fill={STAR_PURPLE}
-                            stroke={STAR_EDGE}
-                            strokeWidth={5}
-                            strokeLinejoin="round"
-                        />
                     </svg>
                 </div>
             </div>

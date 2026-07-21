@@ -61,10 +61,6 @@ const SWIPE_THRESHOLD = 45;
 export function DrawPickerDialog() {
     const $pending = useStore(pendingDraw);
     const $gameSize = useStore(gameSize);
-    // Currently highlighted (not yet confirmed). Tapping a card sets
-    // this; tapping the same card again clears it; tapping a
-    // different card swaps it.
-    const [selectedId, setSelectedId] = useState<string | null>(null);
     // Cards the hider has already confirmed picking. Appended in
     // pick order; passed to `resolvePendingDraw` at the very end.
     const [keptIds, setKeptIds] = useState<string[]>([]);
@@ -98,7 +94,6 @@ export function DrawPickerDialog() {
     // also reset.
     const cardKey = $pending?.cards.map((c) => c.id).join(",") ?? "";
     useEffect(() => {
-        setSelectedId(null);
         setKeptIds([]);
         setFinished(false);
         setViewIndex(0);
@@ -114,14 +109,18 @@ export function DrawPickerDialog() {
     const keep = $pending.keep;
     const picksRemaining = keep - keptIds.length;
 
-    const confirmSelected = () => {
-        if (selectedId === null) return;
-        const id = selectedId;
+    // v1053: the CENTERED (active) card is the pick target — like the hand
+    // carousel. No separate two-tap highlight; the action applies to whatever
+    // card is centred, so the "Pick this card" button can never end up on a
+    // peeking neighbour.
+    const confirmActive = () => {
+        const card = $pending?.cards[viewIndex];
+        if (!card || keptIds.includes(card.id)) return;
+        const id = card.id;
         const next = [...keptIds, id];
         const isLastPick = next.length >= keep;
         // v911: light swish as the kept card heads to the hand.
         play("cardDraw");
-        setSelectedId(null);
 
         if (isLastPick) {
             // v1050: hand the fly-to-hand off to the shared `CardFlyToHand`
@@ -136,8 +135,29 @@ export function DrawPickerDialog() {
             const keptCards = ($pending?.cards ?? []).filter((c) =>
                 next.includes(c.id),
             );
+            // Measure the on-screen carousel card NOW (before resolve unmounts
+            // this dialog) so the fly-to-hand starts EXACTLY where this card is
+            // — a seamless continuation, not a new card popping in.
+            const el = document.querySelector<HTMLElement>(
+                `[data-draw-card="${
+                    typeof CSS !== "undefined" && CSS.escape
+                        ? CSS.escape(id)
+                        : id
+                }"]`,
+            );
+            const rect = el?.getBoundingClientRect();
+            const fromRect =
+                rect && rect.width > 0
+                    ? {
+                          left: rect.left,
+                          top: rect.top,
+                          width: rect.width,
+                          height: rect.height,
+                      }
+                    : undefined;
             resolvePendingDraw(next);
-            if (keptCards.length) cardFlyToHand.set(keptCards);
+            if (keptCards.length)
+                cardFlyToHand.set({ cards: keptCards, fromRect });
             return;
         }
 
@@ -153,12 +173,6 @@ export function DrawPickerDialog() {
                 break;
             }
         }
-    };
-
-    const handleCardTap = (id: string) => {
-        if (finished) return;
-        if (keptIds.includes(id)) return;
-        setSelectedId((curr) => (curr === id ? null : id));
     };
 
     // v886: the cards are shown in an index-based STEPPER (one card centred at
@@ -275,7 +289,6 @@ export function DrawPickerDialog() {
                             }}
                         >
                             {$pending.cards.map((card, i) => {
-                                const isSelected = selectedId === card.id;
                                 const isKept = keptIds.includes(card.id);
                                 const isFading = chromeFadeOn && !isKept;
                                 const isActive = i === viewIndex;
@@ -296,7 +309,6 @@ export function DrawPickerDialog() {
                                             <CardCell
                                                 card={card}
                                                 gameSize={$gameSize}
-                                                isSelected={isSelected}
                                                 isActive={isActive}
                                                 isKept={isKept}
                                                 isFading={isFading}
@@ -309,14 +321,13 @@ export function DrawPickerDialog() {
                                                             false;
                                                         return;
                                                     }
-                                                    if (!isActive) {
-                                                        setViewIndex(i);
-                                                        setSelectedId(null);
-                                                        return;
-                                                    }
-                                                    handleCardTap(card.id);
+                                                    // Tapping a peeking neighbour
+                                                    // centres it; the centred card
+                                                    // is the pick target (its
+                                                    // button confirms).
+                                                    if (!isActive) setViewIndex(i);
                                                 }}
-                                                onConfirm={confirmSelected}
+                                                onConfirm={confirmActive}
                                             />
                                         </div>
                                     </div>
@@ -395,7 +406,6 @@ export function DrawPickerDialog() {
 function CardCell({
     card,
     gameSize,
-    isSelected,
     isActive,
     isKept,
     isFading,
@@ -405,7 +415,6 @@ function CardCell({
 }: {
     card: import("@/lib/hiderDeck").Card;
     gameSize: GameSize;
-    isSelected: boolean;
     isActive: boolean;
     isKept: boolean;
     isFading: boolean;
@@ -413,6 +422,10 @@ function CardCell({
     onTap: () => void;
     onConfirm: () => void;
 }) {
+    // The centred (active), not-yet-kept card is the pick target: it gets the
+    // selected ring + the "Pick this card" button. Peeking neighbours are
+    // dimmed and only tap-to-centre.
+    const isTarget = isActive && !isKept && !isFading;
     // Card transform per phase. Defaults (resting + highlighted) sit in the
     // grid spot; fading / kept apply transforms with their own profiles.
     // (v1050: the fly-to-hand is no longer done here — once the draw resolves
@@ -436,8 +449,8 @@ function CardCell({
                 pointerEvents: "none",
             };
         }
-        // Highlighted: small lift, leaves the resting bbox slightly.
-        if (isSelected) {
+        // The centred pick target: small lift, leaves the resting bbox slightly.
+        if (isTarget) {
             return {
                 transform: "translateY(-6px) scale(1.02)",
                 transition: "transform 180ms ease-out",
@@ -448,13 +461,13 @@ function CardCell({
 
     return (
         <div className="flex flex-col items-stretch gap-2">
-            <div style={cardStyle} className="w-full">
+            <div style={cardStyle} className="w-full" data-draw-card={card.id}>
                 <CardTile
                     card={card}
                     gameSize={gameSize}
-                    selected={isSelected}
+                    selected={isTarget}
                     onClick={disabled || isKept ? undefined : onTap}
-                    selectionIndicator={isSelected ? "ring" : "none"}
+                    selectionIndicator={isTarget ? "ring" : "none"}
                     // Keep the poker-card aspect ratio (CardTile's native
                     // `aspect-[5/7]`). Cards must never stretch — long
                     // descriptions scroll within the card body instead
@@ -468,7 +481,7 @@ function CardCell({
                 a card doesn't push the grid around. Renders the
                 button only for the highlighted card. */}
             <div className="h-10 w-full flex items-center justify-center">
-                {isSelected && isActive && !isFading && !isKept && (
+                {isTarget && (
                     <Button
                         type="button"
                         size="sm"

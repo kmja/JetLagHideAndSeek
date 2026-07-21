@@ -787,7 +787,6 @@ export function CastCurseDialog({
             payCostDiscards();
             discardCard(card.id);
             onCurseLanded();
-            toast.success(`${card.name} cast on seekers.`, { autoClose: 2500 });
             onOpenChange(false);
             return;
         }
