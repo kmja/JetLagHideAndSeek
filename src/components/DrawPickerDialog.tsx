@@ -1,6 +1,7 @@
 import { useStore } from "@nanostores/react";
 import { Check, ChevronLeft, ChevronRight } from "lucide-react";
 import { type CSSProperties, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -482,32 +483,53 @@ function CardCell({
         });
     }, [isFlying]);
 
+    // v1048: the GHOST card — a copy of the flying card portaled to <body>
+    // (outside the dialog's transformed ancestor, so it's truly viewport-fixed
+    // and un-clipped) that does the actual flight via the Web Animations API.
+    const ghostRef = useRef<HTMLDivElement | null>(null);
+    useEffect(() => {
+        if (!isFlying || !flyRect) return;
+        const el = ghostRef.current;
+        if (!el) return;
+        const anim = el.animate(
+            [
+                {
+                    transform: "translate(0,0) scale(1) rotate(0deg)",
+                    opacity: 1,
+                    offset: 0,
+                },
+                {
+                    transform: `translate(${flyRect.dx}px, ${flyRect.dy}px) scale(0.34) rotate(-4deg)`,
+                    opacity: 0.95,
+                    offset: 1,
+                },
+            ],
+            {
+                duration: FLY_MS,
+                easing: "cubic-bezier(.4,0,.7,.2)",
+                fill: "forwards",
+            },
+        );
+        return () => anim.cancel();
+    }, [isFlying, flyRect]);
+
     // Card transform per phase. Defaults (resting + highlighted) sit
     // in the grid spot; flying / fading / kept apply transforms with
     // their own transition profiles.
     const cardStyle: CSSProperties = (() => {
         if (isFlying) {
-            // v316: until we've measured (one render after isFlying
-            // flips true) keep the resting transform so the card
-            // doesn't jump. The next render applies the measured
-            // translate and the CSS transition fires from rest →
-            // target in one smooth motion.
+            // v1048: the in-grid card is only the MEASUREMENT anchor now. While
+            // we measure (one render after isFlying flips) it stays visible; once
+            // we have the rect, we HIDE it and a body-portaled GHOST card (below)
+            // does the actual flight. The old `position: fixed` here did NOT
+            // escape clipping — DialogContent has a centering `transform`, and a
+            // transformed ancestor makes `position: fixed` resolve relative to
+            // (and clip within) THAT ancestor, not the viewport (the reported
+            // clipping). The ghost portals to <body>, outside the transform.
             if (!flyRect) {
-                return { transition: "transform 180ms ease-out" };
+                return { transition: "transform 120ms ease-out" };
             }
-            // v883: pin to the measured viewport rect so the fly escapes the
-            // carousel's overflow clipping, then translate to the hand.
-            return {
-                position: "fixed",
-                left: flyRect.left,
-                top: flyRect.top,
-                width: flyRect.width,
-                zIndex: 60,
-                transform: `translate(${flyRect.dx}px, ${flyRect.dy}px) scale(0.36) rotate(-3deg)`,
-                opacity: 0.9,
-                transition: `transform ${FLY_MS}ms cubic-bezier(.4,.0,.7,.2), opacity ${FLY_MS}ms ease-in`,
-                pointerEvents: "none",
-            };
+            return { opacity: 0 };
         }
         if (isKept) {
             return { opacity: 0, pointerEvents: "none" };
@@ -562,6 +584,34 @@ function CardCell({
                     className="w-full"
                 />
             </div>
+            {/* v1048: the flying GHOST — portaled to <body> so no transformed /
+                overflow-clipping ancestor can clip it. Positioned at the source
+                cell's measured viewport rect, then WAAPI-animated to the hand
+                strip at the bottom-centre. Only mounts during the fly. */}
+            {isFlying &&
+                flyRect &&
+                typeof document !== "undefined" &&
+                createPortal(
+                    <div
+                        ref={ghostRef}
+                        aria-hidden="true"
+                        className="fixed pointer-events-none rounded-xl shadow-2xl will-change-transform"
+                        style={{
+                            left: flyRect.left,
+                            top: flyRect.top,
+                            width: flyRect.width,
+                            zIndex: 2000,
+                        }}
+                    >
+                        <CardTile
+                            card={card}
+                            gameSize={gameSize}
+                            selectionIndicator="none"
+                            className="w-full"
+                        />
+                    </div>,
+                    document.body,
+                )}
             {/* Confirm-pick button slot. Reserved height so selecting
                 a card doesn't push the grid around. Renders the
                 button only for the highlighted card. */}

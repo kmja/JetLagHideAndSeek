@@ -428,7 +428,24 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v1047`. Use `git log` for the per-version detail;
+build stamp. Current: `v1048`. Use `git log` for the per-version detail;
+
+**v1048 — draw-picker fly-to-hand ROOT CAUSE (clipping) + toaster icon gap.**
+The card-clipping-mid-flight was NOT `CardFlyToHand` (photo auto-keep) — it was
+the **`DrawPickerDialog`** fly-to-hand (draw → keep a card), a SEPARATE
+animation. Root cause: its `CardCell` flew the card with `position: fixed` +
+the measured viewport rect, believing that escaped the carousel's overflow
+(v883). But `DialogContent` has a **centering `transform`**, and a transformed
+ancestor makes `position: fixed` resolve relative to (and clip within) THAT
+ancestor, not the viewport — so the card was still clipped by the dialog +
+carousel (the reported vertical-strip clip). Fixed with a real **GHOST CARD**
+(the user's suggestion): while flying, the in-grid cell is just the measurement
+anchor (hidden once measured) and a copy of the card is **`createPortal`-ed to
+`<body>`** — outside every transformed/overflow ancestor — positioned at the
+cell's measured rect and **WAAPI-animated** to the bottom-centre hand strip, so
+it's truly viewport-fixed and un-clipped. Uses a `box-shadow` (not
+`filter: drop-shadow`, which smears during the GPU transform — the v1047
+lesson). Also: **toaster icon→text gap** widened (`0.625rem` → `0.9rem`).
 
 **v1047 — reconnect-dialog dead-end fix + card-picker/POI/preload polish
 (live-testing batch).**

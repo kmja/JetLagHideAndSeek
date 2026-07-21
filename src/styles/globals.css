@@ -1159,7 +1159,8 @@ div.leaflet-control-attribution.leaflet-control {
     margin: 0 !important;
     display: flex !important;
     align-items: center !important;
-    gap: 0.625rem !important;
+    /* v1048: more breathing room between the severity icon and the text. */
+    gap: 0.9rem !important;
     color: inherit !important;
 }
 /* v304: backplate removed. The icon SVG itself carries the
