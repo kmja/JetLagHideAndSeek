@@ -428,7 +428,18 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v1064`. Use `git log` for the per-version detail;
+build stamp. Current: `v1065`. Use `git log` for the per-version detail;
+
+**v1065 — adjacents show for non-baked warm cities (Stockholm fix).** v1061's
+`bakedOnly:true` was too strict: a city whose adjacency isn't baked into
+`world-cities.json` yet (the generated data isn't committed) returned an EMPTY
+candidate list, so NO adjacents showed even though the neighbours were warmed.
+`PlayAreaExtensions` now enumerates candidates the NORMAL way
+(`findExtensionCandidates` without `bakedOnly` — baked set if present, else the
+live admin-adjacency derivation, which is prewarmed + R2-cached for a warm city so
+it's Overpass-free in practice) and still FILTERS to the individually-warm
+(starred) neighbours. So Stockholm shows its ~9 warmed adjacents and hides the 1
+that failed to warm.
 
 **v1064 — curse star spins on its OWN centre + hiding-zone labels only at higher
 zoom.**

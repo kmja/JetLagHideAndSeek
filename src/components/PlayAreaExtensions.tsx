@@ -105,12 +105,16 @@ export function PlayAreaExtensions({ primary }: { primary: OpenStreetMap }) {
         setStatus("loading");
 
         let cancelled = false;
+        // v1065: enumerate candidates the NORMAL way (baked set if the city has
+        // one, else the live admin-adjacency derivation — which is prewarmed +
+        // R2-cached for a warm city, so it's Overpass-free in practice). We then
+        // FILTER to the individually-warm neighbours below, so a city whose
+        // adjacency isn't baked into world-cities.json yet (e.g. Stockholm) still
+        // shows its warmed adjacents. `bakedOnly:true` was too strict — it showed
+        // NOTHING for a non-baked city even when its neighbours were warmed.
         findExtensionCandidates(primary, $allowedTransit, {
             radiusKm: 25,
             limit: 14,
-            // v1061: Overpass-free only — a non-baked / warm-gap primary just
-            // yields no picker instead of a live admin-adjacency sweep.
-            bakedOnly: true,
         })
             .then((c) => {
                 if (cancelled) return;
