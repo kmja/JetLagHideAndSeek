@@ -428,7 +428,12 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v1053`. Use `git log` for the per-version detail;
+build stamp. Current: `v1054`. Use `git log` for the per-version detail;
+
+**v1054 — curse-reveal star bigger + thicker round-cap snakes.** The star spin
+box grew `160vmin`→`215vmin` (star points push further past the frame edges, per
+the reference) and the squiggle snakes thickened to `strokeWidth 8` (already
+`strokeLinecap="round"` — the flat-cap look was a stale build).
 
 **v1053 — draw picker: the CENTRED card is the pick target (not a peeking
 neighbour).** The picker had a separate two-tap highlight (`selectedId`)

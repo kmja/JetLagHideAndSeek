@@ -174,7 +174,7 @@ export function CurseRevealOverlay() {
                 grow-in animations overwrite `transform`, which is exactly what
                 made the star orbit instead of spinning in place). */}
             <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                <div className="relative w-[160vmin] h-[160vmin] motion-safe:animate-[curseRevealSpin_46s_linear_infinite]">
+                <div className="relative w-[215vmin] h-[215vmin] motion-safe:animate-[curseRevealSpin_46s_linear_infinite]">
                     {/* Star — grows in FAST (beat 1); big enough that its points
                         push well past the frame edges. Fills the spin box.
                         Drawn FIRST so the snakes sit ON TOP of it. */}
@@ -204,7 +204,7 @@ export function CurseRevealOverlay() {
                                 d={d}
                                 fill="none"
                                 stroke={SQUIGGLE}
-                                strokeWidth={7}
+                                strokeWidth={8}
                                 strokeLinecap="round"
                                 strokeLinejoin="round"
                                 opacity={0.95}
