@@ -1,7 +1,6 @@
 import { useStore } from "@nanostores/react";
 import { Check, ChevronLeft, ChevronRight } from "lucide-react";
 import { type CSSProperties, useEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -11,7 +10,11 @@ import {
     DialogTitle,
 } from "@/components/ui/dialog";
 import { type GameSize, gameSize } from "@/lib/gameSetup";
-import { pendingDraw, resolvePendingDraw } from "@/lib/hiderRole";
+import {
+    cardFlyToHand,
+    pendingDraw,
+    resolvePendingDraw,
+} from "@/lib/hiderRole";
 import { play } from "@/lib/sound";
 import { cn } from "@/lib/utils";
 
@@ -47,7 +50,6 @@ import { CardTile } from "./CardTile";
  *  small settle; the final discard adds one more fade pass. */
 const FLY_MS = 450;
 const FADE_MS = 600;
-const FINAL_HOLD_MS = 200;
 
 // v901 peek-carousel geometry: the active card is CARD_BASIS_PCT% of the
 // container width, centred, so PEEK_PCT% of each neighbour shows at the edges.
@@ -66,12 +68,10 @@ export function DrawPickerDialog() {
     // Cards the hider has already confirmed picking. Appended in
     // pick order; passed to `resolvePendingDraw` at the very end.
     const [keptIds, setKeptIds] = useState<string[]>([]);
-    // Card currently mid fly-to-hand. Used to apply the "flying"
-    // transform exactly once per pick so the animation runs cleanly
-    // before the card joins `keptIds` and becomes invisible.
-    const [flyingId, setFlyingId] = useState<string | null>(null);
     // All picks made — remaining (un-kept) cards fade and fall. After
-    // the fade we resolve the draw.
+    // the fade we resolve the draw. (v1050: the fly-to-hand itself is now
+    // handled by the shared `CardFlyToHand` FLIP once the draw resolves, so
+    // this picker no longer runs its own in-tray fly animation.)
     const [finished, setFinished] = useState(false);
     // Track timers across the kept lifecycle so a hot-reload or fast
     // reopen of the picker doesn't fire stale callbacks.
@@ -100,7 +100,6 @@ export function DrawPickerDialog() {
     useEffect(() => {
         setSelectedId(null);
         setKeptIds([]);
-        setFlyingId(null);
         setFinished(false);
         setViewIndex(0);
         return () => {
@@ -118,59 +117,46 @@ export function DrawPickerDialog() {
     const confirmSelected = () => {
         if (selectedId === null) return;
         const id = selectedId;
-        const isLastPick = keptIds.length + 1 >= keep;
-        // v911: light swish as the kept card flies to the hand.
+        const next = [...keptIds, id];
+        const isLastPick = next.length >= keep;
+        // v911: light swish as the kept card heads to the hand.
         play("cardDraw");
-        setFlyingId(id);
         setSelectedId(null);
 
         if (isLastPick) {
-            // v312: the non-picked cards' fade kicks off as part of
-            // the same render that sets flyingId — the render
-            // computes `flyingLast` from (flyingId !== null &&
-            // keptIds.length === keep - 1), and `isFading` is
-            // derived from that. So the picked card flies and the
-            // discards fall away in lockstep with no setTimeout gap
-            // between them. After the longer of the two animations
-            // plus a tiny hold, we commit the kept entry and hand
-            // off to the resolver.
-            const t = window.setTimeout(() => {
-                const next = [...keptIds, id];
-                setKeptIds(next);
-                setFlyingId(null);
-                setFinished(true);
-                const t2 = window.setTimeout(() => {
-                    resolvePendingDraw(next);
-                }, FINAL_HOLD_MS);
-                timersRef.current.push(t2);
-            }, Math.max(FLY_MS, FADE_MS));
-            timersRef.current.push(t);
+            // v1050: hand the fly-to-hand off to the shared `CardFlyToHand`
+            // FLIP instead of the DrawPicker's own straight-down animation.
+            // `resolvePendingDraw` adds the kept cards to the hand (so the fan
+            // renders their REAL slots) and clears `pendingDraw` (this dialog
+            // unmounts); `cardFlyToHand.set` then flies each kept card from
+            // centre to its actual slot — landing at the right spot in the fan,
+            // shrinking to hand size, and revealing the slot only on arrival
+            // (a seamless slot-in). This is the same measured FLIP the
+            // photo-answer auto-keep uses, so the two flows now match.
+            const keptCards = ($pending?.cards ?? []).filter((c) =>
+                next.includes(c.id),
+            );
+            resolvePendingDraw(next);
+            if (keptCards.length) cardFlyToHand.set(keptCards);
             return;
         }
 
-        // Non-final pick: fly the kept card down, then commit to
-        // keptIds so the picker presents the next pick.
-        const t1 = window.setTimeout(() => {
-            const nextKept = [...keptIds, id];
-            setKeptIds(nextKept);
-            setFlyingId(null);
-            // v886: advance the stepper to the next card the hider hasn't kept
-            // yet, so a multi-keep draw (e.g. tentacle: draw 4, keep 2) moves
-            // on instead of sitting on the now-empty slide.
-            const cards = $pending?.cards ?? [];
-            for (let k = 1; k <= cards.length; k++) {
-                const cand = (viewIndex + k) % cards.length;
-                if (!nextKept.includes(cards[cand].id)) {
-                    setViewIndex(cand);
-                    break;
-                }
+        // Multi-keep, not the last pick yet: commit this pick (the card leaves
+        // the tray) and advance the stepper to the next un-kept card. All kept
+        // cards fly to the hand together when the final pick resolves.
+        setKeptIds(next);
+        const cards = $pending?.cards ?? [];
+        for (let k = 1; k <= cards.length; k++) {
+            const cand = (viewIndex + k) % cards.length;
+            if (!next.includes(cards[cand].id)) {
+                setViewIndex(cand);
+                break;
             }
-        }, FLY_MS);
-        timersRef.current.push(t1);
+        }
     };
 
     const handleCardTap = (id: string) => {
-        if (flyingId || finished) return;
+        if (finished) return;
         if (keptIds.includes(id)) return;
         setSelectedId((curr) => (curr === id ? null : id));
     };
@@ -183,17 +169,9 @@ export function DrawPickerDialog() {
     // comfortable size so ALL its content fits; the flying-to-hand card escapes
     // the viewport's overflow via `position: fixed` (see CardCell).
 
-    // v306: chrome fades both during the final card's fly AND
-    // during the discard fade-out — they're now the same moment.
-    // `flyingLast` flips the fade on the instant the last pick is
-    // confirmed; `finished` keeps it faded after the fly completes
-    // until resolvePendingDraw clears `pendingDraw`. Earlier
-    // (v301) the fade only kicked in after the fly finished, so
-    // the chrome was still solid while the kept card was already
-    // flying down toward the hand.
-    const flyingLast =
-        flyingId !== null && keptIds.length === keep - 1;
-    const chromeFadeOn = finished || flyingLast;
+    // Chrome (title) fades once the draw is `finished` (all picks made). The
+    // fly-to-hand itself is handled by CardFlyToHand after resolve.
+    const chromeFadeOn = finished;
     const chromeFadeCls = cn(
         "transition-opacity ease-out",
         chromeFadeOn
@@ -299,9 +277,7 @@ export function DrawPickerDialog() {
                             {$pending.cards.map((card, i) => {
                                 const isSelected = selectedId === card.id;
                                 const isKept = keptIds.includes(card.id);
-                                const isFlying = flyingId === card.id;
-                                const isFading =
-                                    chromeFadeOn && !isKept && !isFlying;
+                                const isFading = chromeFadeOn && !isKept;
                                 const isActive = i === viewIndex;
                                 return (
                                     <div
@@ -323,11 +299,8 @@ export function DrawPickerDialog() {
                                                 isSelected={isSelected}
                                                 isActive={isActive}
                                                 isKept={isKept}
-                                                isFlying={isFlying}
                                                 isFading={isFading}
-                                                disabled={
-                                                    Boolean(flyingId) || finished
-                                                }
+                                                disabled={finished}
                                                 onTap={() => {
                                                     // A swipe suppresses the
                                                     // trailing tap.
@@ -425,7 +398,6 @@ function CardCell({
     isSelected,
     isActive,
     isKept,
-    isFlying,
     isFading,
     disabled,
     onTap,
@@ -436,107 +408,17 @@ function CardCell({
     isSelected: boolean;
     isActive: boolean;
     isKept: boolean;
-    isFlying: boolean;
     isFading: boolean;
     disabled: boolean;
     onTap: () => void;
     onConfirm: () => void;
 }) {
-    // v316: when the fly starts, measure the cell's current
-    // viewport position and compute the delta to the actual hand
-    // fan strip at the bottom of the screen. Without this the card
-    // flew a fixed `translateY(70vh)` past the picker — way off
-    // the bottom of the viewport. The new target is roughly the
-    // centre of the HiderHandFan peek strip (~34 px above the
-    // safe-area-aware viewport bottom), so the picked card visibly
-    // tucks into where the hand actually sits.
-    const wrapperRef = useRef<HTMLDivElement | null>(null);
-    // v883: capture the cell's viewport rect at fly-start so the flying card
-    // can go `position: fixed` and ESCAPE the carousel's `overflow-x-auto`
-    // (which would otherwise clip the card as it flies down to the hand).
-    const [flyRect, setFlyRect] = useState<{
-        left: number;
-        top: number;
-        width: number;
-        dx: number;
-        dy: number;
-    } | null>(null);
-    useEffect(() => {
-        if (!isFlying) {
-            setFlyRect(null);
-            return;
-        }
-        const el = wrapperRef.current;
-        if (!el) return;
-        const rect = el.getBoundingClientRect();
-        const cellCx = rect.left + rect.width / 2;
-        const cellCy = rect.top + rect.height / 2;
-        const vh = window.innerHeight;
-        const vw = window.innerWidth;
-        // Aim for the centre of the resting fan strip — see
-        // HiderHandFan PEEK_OFFSET (53 px below the viewport
-        // bottom; the visible peek is ~26 px above bottom). 34 px
-        // above bottom is a reliable landing for both Android and
-        // iOS safe areas.
-        const targetX = vw / 2;
-        const targetY = vh - 34;
-        setFlyRect({
-            left: rect.left,
-            top: rect.top,
-            width: rect.width,
-            dx: targetX - cellCx,
-            dy: targetY - cellCy,
-        });
-    }, [isFlying]);
-
-    // v1048: the GHOST card — a copy of the flying card portaled to <body>
-    // (outside the dialog's transformed ancestor, so it's truly viewport-fixed
-    // and un-clipped) that does the actual flight via the Web Animations API.
-    const ghostRef = useRef<HTMLDivElement | null>(null);
-    useEffect(() => {
-        if (!isFlying || !flyRect) return;
-        const el = ghostRef.current;
-        if (!el) return;
-        const anim = el.animate(
-            [
-                {
-                    transform: "translate(0,0) scale(1) rotate(0deg)",
-                    opacity: 1,
-                    offset: 0,
-                },
-                {
-                    transform: `translate(${flyRect.dx}px, ${flyRect.dy}px) scale(0.34) rotate(-4deg)`,
-                    opacity: 0.95,
-                    offset: 1,
-                },
-            ],
-            {
-                duration: FLY_MS,
-                easing: "cubic-bezier(.4,0,.7,.2)",
-                fill: "forwards",
-            },
-        );
-        return () => anim.cancel();
-    }, [isFlying, flyRect]);
-
-    // Card transform per phase. Defaults (resting + highlighted) sit
-    // in the grid spot; flying / fading / kept apply transforms with
-    // their own transition profiles.
+    // Card transform per phase. Defaults (resting + highlighted) sit in the
+    // grid spot; fading / kept apply transforms with their own profiles.
+    // (v1050: the fly-to-hand is no longer done here — once the draw resolves
+    // the kept card is added to the hand and the shared `CardFlyToHand` FLIP
+    // flies it to its real slot in the fan.)
     const cardStyle: CSSProperties = (() => {
-        if (isFlying) {
-            // v1048: the in-grid card is only the MEASUREMENT anchor now. While
-            // we measure (one render after isFlying flips) it stays visible; once
-            // we have the rect, we HIDE it and a body-portaled GHOST card (below)
-            // does the actual flight. The old `position: fixed` here did NOT
-            // escape clipping — DialogContent has a centering `transform`, and a
-            // transformed ancestor makes `position: fixed` resolve relative to
-            // (and clip within) THAT ancestor, not the viewport (the reported
-            // clipping). The ghost portals to <body>, outside the transform.
-            if (!flyRect) {
-                return { transition: "transform 120ms ease-out" };
-            }
-            return { opacity: 0 };
-        }
         if (isKept) {
             return { opacity: 0, pointerEvents: "none" };
         }
@@ -566,15 +448,7 @@ function CardCell({
 
     return (
         <div className="flex flex-col items-stretch gap-2">
-            <div
-                ref={wrapperRef}
-                style={cardStyle}
-                className="w-full"
-                // Critical: don't let the flying transform get clipped
-                // by an ancestor's overflow. The CardTile's own border
-                // / shadow stays inside its bbox; only the position
-                // moves.
-            >
+            <div style={cardStyle} className="w-full">
                 <CardTile
                     card={card}
                     gameSize={gameSize}
@@ -590,39 +464,11 @@ function CardCell({
                     className="w-full"
                 />
             </div>
-            {/* v1048: the flying GHOST — portaled to <body> so no transformed /
-                overflow-clipping ancestor can clip it. Positioned at the source
-                cell's measured viewport rect, then WAAPI-animated to the hand
-                strip at the bottom-centre. Only mounts during the fly. */}
-            {isFlying &&
-                flyRect &&
-                typeof document !== "undefined" &&
-                createPortal(
-                    <div
-                        ref={ghostRef}
-                        aria-hidden="true"
-                        className="fixed pointer-events-none rounded-xl shadow-2xl will-change-transform"
-                        style={{
-                            left: flyRect.left,
-                            top: flyRect.top,
-                            width: flyRect.width,
-                            zIndex: 2000,
-                        }}
-                    >
-                        <CardTile
-                            card={card}
-                            gameSize={gameSize}
-                            selectionIndicator="none"
-                            className="w-full"
-                        />
-                    </div>,
-                    document.body,
-                )}
             {/* Confirm-pick button slot. Reserved height so selecting
                 a card doesn't push the grid around. Renders the
                 button only for the highlighted card. */}
             <div className="h-10 w-full flex items-center justify-center">
-                {isSelected && isActive && !isFlying && !isFading && !isKept && (
+                {isSelected && isActive && !isFading && !isKept && (
                     <Button
                         type="button"
                         size="sm"

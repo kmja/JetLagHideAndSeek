@@ -428,7 +428,22 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v1049`. Use `git log` for the per-version detail;
+build stamp. Current: `v1050`. Use `git log` for the per-version detail;
+
+**v1050 — draw-picker fly-to-hand unified with the shared FLIP (smooth
+handover).** The draw picker's OWN fly animation flew the kept card straight
+DOWN to a fixed bottom-centre point, didn't shrink to hand size, and popped out
+while the real hand card popped in (no handover). Replaced it entirely: on the
+final pick, `confirmSelected` now calls `resolvePendingDraw` (adds the kept
+cards to the hand → the fan renders their REAL slots) then hands off to the
+shared **`CardFlyToHand`** measured FLIP (`cardFlyToHand.set(keptCards)`) — the
+same one the photo-answer auto-keep uses. It flies each card from centre to its
+ACTUAL slot in the fan, shrinks to hand size, and reveals the slot only on
+arrival, so it slots in seamlessly. Removed the DrawPicker's now-dead in-tray
+fly machinery (the `flyingId` state, the `CardCell` `position:fixed`/ghost/
+`flyRect` measurement + WAAPI effect from v1048, `FINAL_HOLD_MS`, the
+`createPortal` import). Multi-keep (tentacle) keeps each picked card leaving the
+tray and flies them all when the final pick resolves.
 
 **v1049 — draw-picker selected-card top-clip fix.** Selecting a card in the
 peek carousel lifts it (`translateY(-6px) scale(1.02)`), and its top clipped
