@@ -428,7 +428,15 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v1055`. Use `git log` for the per-version detail;
+build stamp. Current: `v1056`. Use `git log` for the per-version detail;
+
+**v1056 — curse-reveal star sized to FIT the screen (v1054's bump did nothing
+visible).** At `160vmin`/`215vmin` the star was ~2× the viewport, so all five
+points sat far off-screen and only a purple wash showed around the card — growing
+the box further just pushed the points further out (why the user saw "no change").
+The spin box is now `108vmin`, so the star's points graze the viewport edges and
+the WHOLE star reads as a big prominent shape (matching the reference), instead of
+an off-screen blob.
 
 **v1055 — curse-reveal: flat-cap snakes + smooth exit.** Squiggle
 `strokeLinecap` back to `butt` (flat ends, per the reference). Dismiss now

@@ -205,7 +205,7 @@ export function CurseRevealOverlay() {
                     exiting ? "scale-90" : ""
                 }`}
             >
-                <div className="relative w-[215vmin] h-[215vmin] motion-safe:animate-[curseRevealSpin_46s_linear_infinite]">
+                <div className="relative w-[108vmin] h-[108vmin] motion-safe:animate-[curseRevealSpin_46s_linear_infinite]">
                     {/* Star — grows in FAST (beat 1); big enough that its points
                         push well past the frame edges. Fills the spin box.
                         Drawn FIRST so the snakes sit ON TOP of it. */}
