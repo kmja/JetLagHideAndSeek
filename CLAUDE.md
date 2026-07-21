@@ -430,6 +430,19 @@ bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
 build stamp. Current: `v1069`. Use `git log` for the per-version detail;
 
+**v1072 — seeker shell fills the iOS standalone viewport (no empty strip below
+the nav).** The SEEKER in-game shell sized itself with a viewport unit — v947
+went `h-svh`→`h-dvh` after svh under-filled, but on iOS **standalone (Safari
+PWA)** `dvh` ALSO computes shorter than the real screen, so a big strip of page
+background showed below the bottom nav (reported on iPhone). The hider shell
+never had this because it's `fixed inset-0`. Fixed the seeker the same way: the
+in-game wrapper (`SeekerPage`) is now `fixed inset-0 overflow-hidden`, the two
+`SidebarProvider`s carry `className="h-full"` (so `min-h-svh h-full` fills the
+fixed parent), and `AppShell` is `flex-grow h-full` (was `h-dvh`). A fixed inset
+always fills the actual standalone viewport, so there's nothing below the shell
+to show through. Desktop is unaffected (a fixed inset fills the window; the
+`md:` sidebars are already fixed).
+
 **v1071 — preload settles on a terminal state (no infinite spinner when transit
 fails) + committed-zone card text sizing + remove configure-dialog house-rules
 note.**

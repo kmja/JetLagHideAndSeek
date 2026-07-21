@@ -235,13 +235,22 @@ export function SeekerPage() {
             ) : (
         <div
             className={cn(
+                // v1071: PIN the in-game shell to the visual viewport with
+                // `fixed inset-0` (matching the hider shell), then fill it
+                // with `h-full` down the chain — instead of `h-dvh`. On iOS
+                // standalone (Safari PWA) `dvh` (and `svh`) can compute SHORTER
+                // than the actual screen, leaving the page background as a big
+                // empty strip below the bottom nav (the reported gap). A fixed
+                // inset always fills the real standalone viewport, so there's
+                // nothing below the shell to show through.
+                "fixed inset-0 overflow-hidden",
                 "bg-jetlag transition-opacity duration-500 ease-out",
                 flourishActive && "pointer-events-none",
             )}
             style={{ opacity: flourishActive ? 0 : 1 }}
         >
-            <SidebarProviderL>
-                <SidebarProviderR defaultOpen={false}>
+            <SidebarProviderL className="h-full">
+                <SidebarProviderR defaultOpen={false} className="h-full">
                     <QuestionSidebar />
                     {/* v466: the seeker shell is now the shared AppShell
                         (header → map area → footer flex column). The map
@@ -253,7 +262,7 @@ export function SeekerPage() {
                         full-height map area between the sidebars. */}
                     <AppShell
                         as="main"
-                        className="flex-grow h-dvh"
+                        className="flex-grow h-full min-h-0"
                         mapAreaId="map-modal-dialog-container-leaflet"
                         header={<SeekerTopBar />}
                         footer={<BottomNav />}
