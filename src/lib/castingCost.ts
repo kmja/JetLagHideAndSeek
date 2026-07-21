@@ -109,6 +109,16 @@ export function curseCostDeliverableIsImage(
 }
 
 /**
+ * True when the CURSE requires the SEEKERS to send a verification picture BACK
+ * to the hider before it clears (Curse of the Unguided Tourist: "They must send
+ * a picture to the hider for verification"). Detected off the description.
+ */
+export function curseNeedsSeekerProof(description: string | null): boolean {
+    if (!description) return false;
+    return /send a picture to the hider/i.test(description);
+}
+
+/**
  * Unified "this curse needs the hider to attach an image" gate — true when
  * the casting cost is a proof photo OR the deliverable is a hider-sent image.
  */

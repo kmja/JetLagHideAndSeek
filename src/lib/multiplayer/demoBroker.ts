@@ -509,8 +509,9 @@ function handleClientMessage(msg: ClientMessage) {
         }
 
         case "curseCleared":
+        case "curseProof":
             // Single-device demo: the hider IS the caster, so there's no
-            // separate device to sync a clear to — no-op.
+            // separate device to sync a clear / verification photo to — no-op.
             return;
         case "loc":
         case "hiderLoc":

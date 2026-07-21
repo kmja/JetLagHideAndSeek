@@ -1,5 +1,14 @@
 import { useStore } from "@nanostores/react";
-import { Ban, BookOpen, Check, Hourglass, Train, X } from "lucide-react";
+import {
+    Ban,
+    BookOpen,
+    Camera,
+    Check,
+    Hourglass,
+    Loader2,
+    Train,
+    X,
+} from "lucide-react";
 
 import { SkullCrossbones } from "@/components/icons/gameIcons";
 import { useEffect, useRef, useState } from "react";
@@ -31,9 +40,12 @@ import {
     DialogHeader,
     DialogTitle,
 } from "@/components/ui/dialog";
+import { curseNeedsSeekerProof } from "@/lib/castingCost";
 import { playerRole } from "@/lib/hiderRole";
+import { multiplayerEnabled } from "@/lib/multiplayer/session";
+import { preparePhotoForSend } from "@/lib/photo";
 import { openRulebookAt, RULEBOOK_ANCHORS } from "@/lib/rulebook";
-import { sendCurseCleared } from "@/lib/multiplayer/store";
+import { sendCurseCleared, sendCurseProof } from "@/lib/multiplayer/store";
 import { type ReceivedCurse, receivedCurses } from "@/lib/seekerInbound";
 import { cn } from "@/lib/utils";
 import type { WritableAtom } from "nanostores";
@@ -111,6 +123,13 @@ export function CurseInbox({
     // the hider's time before clearing. Holds the seconds they've filmed in the
     // in-dialog viewfinder; the Clear button is gated on it meeting the target.
     const [birdFilmedSecs, setBirdFilmedSecs] = useState<number | null>(null);
+    // v1079: the seekers' verification-photo capture for Curse of the Unguided
+    // Tourist ("send a picture to the hider"). `proofSentAt` = the receivedAt of
+    // the curse we've sent proof for this session (the synced `seekerProofUrl`
+    // is the durable signal once the hider echo lands).
+    const proofInputRef = useRef<HTMLInputElement | null>(null);
+    const [proofBusy, setProofBusy] = useState(false);
+    const [proofSentAt, setProofSentAt] = useState<number | null>(null);
 
     const unack = $curses.filter((c) => !c.acknowledged);
     const active = $curses.filter((c) => c.acknowledged && !c.dismissed);
@@ -234,6 +253,42 @@ export function CurseInbox({
     const birdBlocksClear =
         birdTarget != null &&
         (birdFilmedSecs == null || birdFilmedSecs < birdTarget);
+
+    // v1079: Curse of the Unguided Tourist — the SEEKERS must send the hider a
+    // verification photo before clearing. Only in multiplayer (a real hider to
+    // send to) + on the seeker side.
+    const isSeekerView = playerRole.get() === "seeker";
+    const needsProof =
+        resolvedDialog != null &&
+        isSeekerView &&
+        multiplayerEnabled.get() &&
+        curseNeedsSeekerProof(resolvedDialog.description);
+    const proofSent =
+        resolvedDialog?.seekerProofUrl != null ||
+        (resolvedDialog != null && proofSentAt === resolvedDialog.receivedAt);
+    const proofBlocksClear = needsProof && !proofSent;
+
+    const handleProofFile = async (file: File) => {
+        if (!resolvedDialog) return;
+        setProofBusy(true);
+        try {
+            const prepared = await preparePhotoForSend(
+                file,
+                multiplayerEnabled.get(),
+            );
+            if (prepared.photoUrl) {
+                sendCurseProof(resolvedDialog.castId, prepared.photoUrl);
+                setProofSentAt(resolvedDialog.receivedAt);
+                toast.success("Verification photo sent to the hider.");
+            } else {
+                toast.error("Couldn't upload the photo — try again.");
+            }
+        } catch {
+            toast.error("Couldn't send the photo.");
+        } finally {
+            setProofBusy(false);
+        }
+    };
 
     return (
         <>
@@ -503,6 +558,66 @@ export function CurseInbox({
                                 rock{resolvedDialog.rockCount === 1 ? "" : "s"}{" "}
                                 high before asking your next question.
                             </p>
+                        )}
+                        {/* v1079: Curse of the Unguided Tourist — the SEEKERS
+                            find the sent spot in real life and send the hider a
+                            verification photo. The Clear button unlocks once
+                            they've sent it. */}
+                        {needsProof && (
+                            <div className="space-y-2">
+                                <p className="text-sm text-purple-300 font-semibold">
+                                    Find the spot the hider sent in real life,
+                                    then send them a photo of it to verify.
+                                </p>
+                                {proofSent ? (
+                                    <div className="flex items-center gap-1.5 text-sm font-semibold text-green-400">
+                                        <Check className="h-4 w-4" />
+                                        Verification photo sent
+                                    </div>
+                                ) : (
+                                    <Button
+                                        type="button"
+                                        variant="secondary"
+                                        size="sm"
+                                        disabled={proofBusy}
+                                        onClick={() =>
+                                            proofInputRef.current?.click()
+                                        }
+                                    >
+                                        {proofBusy ? (
+                                            <Loader2 className="h-4 w-4 animate-spin" />
+                                        ) : (
+                                            <Camera className="h-4 w-4" />
+                                        )}
+                                        Send verification photo
+                                    </Button>
+                                )}
+                                <input
+                                    ref={proofInputRef}
+                                    type="file"
+                                    accept="image/*"
+                                    capture="environment"
+                                    className="hidden"
+                                    onChange={(e) => {
+                                        const f = e.target.files?.[0];
+                                        if (f) void handleProofFile(f);
+                                        e.target.value = "";
+                                    }}
+                                />
+                            </div>
+                        )}
+                        {/* Hider side: the seekers' received verification photo. */}
+                        {resolvedDialog?.seekerProofUrl && !isSeekerView && (
+                            <div className="space-y-1">
+                                <p className="text-sm text-purple-300 font-semibold">
+                                    Seekers&apos; verification photo:
+                                </p>
+                                <img
+                                    src={resolvedDialog.seekerProofUrl}
+                                    alt="Seekers' verification photo"
+                                    className="w-full max-h-60 rounded-md object-contain bg-black/20 border border-purple-500/30"
+                                />
+                            </div>
                         )}
                         {resolvedDialog?.travelDestination && (
                             <p className="text-sm text-purple-300 font-semibold">
@@ -783,11 +898,13 @@ export function CurseInbox({
                             <Button
                                 variant="outline"
                                 className="flex-1 gap-1.5"
-                                disabled={birdBlocksClear}
+                                disabled={birdBlocksClear || proofBlocksClear}
                                 title={
                                     birdBlocksClear
                                         ? "Film a bird for at least the target time above first."
-                                        : undefined
+                                        : proofBlocksClear
+                                          ? "Send the hider a verification photo first."
+                                          : undefined
                                 }
                                 onClick={() =>
                                     dismiss(resolvedDialog!.receivedAt)

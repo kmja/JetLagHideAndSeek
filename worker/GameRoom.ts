@@ -690,6 +690,8 @@ export class GameRoom {
                 return this.handleCastCurse(socket, msg.curse);
             case "curseCleared":
                 return this.handleCurseCleared(socket, msg.castId);
+            case "curseProof":
+                return this.handleCurseProof(socket, msg.castId, msg.photoUrl);
             case "subscribePush":
                 return this.handleSubscribePush(socket, msg.subscription);
             case "ping":
@@ -2076,6 +2078,28 @@ export class GameRoom {
         for (const [pid, c] of this.conns.entries()) {
             if (pid === conn.participantId) continue;
             this.sendTo(c.socket, { t: "curseCleared", castId });
+        }
+        void this.persist();
+    }
+
+    private handleCurseProof(
+        socket: WebSocket,
+        castId: number,
+        photoUrl: string,
+    ) {
+        const conn = this.lookupConn(socket);
+        if (!conn) return;
+        // Attach the seekers' verification photo to the stored curse so a
+        // reconnecting hider still sees it (v1079).
+        const stored = this.castCurses.find((c) => c.castId === castId);
+        if (stored)
+            (stored as CursePayload & { seekerProofUrl?: string }).seekerProofUrl =
+                photoUrl;
+        // Relay to the HIDE TEAM (they verify it). Other seekers don't need it.
+        for (const [pid, c] of this.conns.entries()) {
+            const cp = this.game.participants.find((q) => q.id === pid);
+            if (cp?.role !== "hider") continue;
+            this.sendTo(c.socket, { t: "curseProof", castId, photoUrl });
         }
         void this.persist();
     }

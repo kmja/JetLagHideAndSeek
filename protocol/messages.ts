@@ -356,6 +356,19 @@ export interface CMsgCurseCleared {
     castId: number;
 }
 
+/**
+ * A seeker sends the hider their VERIFICATION photo for a curse that requires
+ * it (Curse of the Unguided Tourist — the seekers must find the sent Street
+ * View spot in real life and photograph it). The server relays it to the hide
+ * team + attaches it to the stored curse so a reconnecting hider still sees it.
+ * Keyed on the server `castId`. v1079.
+ */
+export interface CMsgCurseProof {
+    t: "curseProof";
+    castId: number;
+    photoUrl: string;
+}
+
 /** Client registers its Web Push subscription so the server can notify it offline. */
 export interface CMsgSubscribePush {
     t: "subscribePush";
@@ -388,6 +401,7 @@ export type ClientMessage =
     | CMsgPing
     | CMsgCastCurse
     | CMsgCurseCleared
+    | CMsgCurseProof
     | CMsgSubscribePush;
 
 /* ────────────────── Server → Client ────────────────── */
@@ -602,6 +616,17 @@ export interface SMsgCurseCleared {
 }
 
 /**
+ * v1079: relayed to the hide team when a seeker sends their VERIFICATION photo
+ * for a curse that requires it (Curse of the Unguided Tourist). Keyed on the
+ * server `castId`; the hider attaches `photoUrl` to their active-curse mirror.
+ */
+export interface SMsgCurseProof {
+    t: "curseProof";
+    castId: number;
+    photoUrl: string;
+}
+
+/**
  * v950: the server VALIDATED an endgame claim and found the claiming seeker is
  * NOT at the hider's committed zone. A wrong claim does NOT arm the endgame
  * (so the seekers can re-try at the right station); instead this transient
@@ -645,6 +670,7 @@ export type ServerMessage =
     | SMsgCurseReceived
     | SMsgCurseBacklog
     | SMsgCurseCleared
+    | SMsgCurseProof
     | SMsgEndgameDenied;
 
 /* ────────────────── Shared payload types ────────────────── */
@@ -708,6 +734,12 @@ export interface CursePayload {
      * -link (`?c=`) path and older clients.
      */
     castId?: number;
+    /**
+     * v1079: URL of the seekers' VERIFICATION photo, attached by the server
+     * when a `curseProof` arrives (Curse of the Unguided Tourist). Rides the
+     * curse backlog so a reconnecting hider still sees it. Absent otherwise.
+     */
+    seekerProofUrl?: string;
 }
 
 /** Push subscription stored by the client for server-side delivery. */

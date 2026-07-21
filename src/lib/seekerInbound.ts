@@ -33,6 +33,13 @@ export interface ReceivedCurse extends SharedCursePayload {
      * recovers the full active-curse set. Absent on the `?c=` share-link path.
      */
     castId?: number;
+    /**
+     * v1079: URL of the seekers' VERIFICATION photo sent back to the hider
+     * (Curse of the Unguided Tourist — the seekers must find the sent Street
+     * View spot in real life and send a picture to the hider). Set on the
+     * hider's `castCurses` entry when the seeker's `curseProof` arrives.
+     */
+    seekerProofUrl?: string;
 }
 
 const KEY = "__jlhs_receivedCurses";

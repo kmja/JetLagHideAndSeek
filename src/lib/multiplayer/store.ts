@@ -678,6 +678,17 @@ export function sendCurseCleared(castId: number | undefined) {
     getTransport().send({ t: "curseCleared", castId });
 }
 
+/**
+ * v1079: a seeker sends the hider their VERIFICATION photo for a curse that
+ * requires it (Curse of the Unguided Tourist). Relayed to the hide team, who
+ * see it on their active-curse card.
+ */
+export function sendCurseProof(castId: number | undefined, photoUrl: string) {
+    if (castId == null || !photoUrl) return;
+    if (!multiplayerEnabled.get()) return;
+    getTransport().send({ t: "curseProof", castId, photoUrl });
+}
+
 /* ────────────────── Inbound dispatch ────────────────── */
 
 /**
@@ -1600,6 +1611,28 @@ function handleServerMessage(msg: ServerMessage) {
                 );
             markCleared(receivedCurses);
             markCleared(castCurses);
+            return;
+        }
+        case "curseProof": {
+            // v1079: a seeker sent the hider their verification photo (Curse of
+            // the Unguided Tourist). Attach it to the matching cast-curse entry
+            // so the hider sees it on the active-curse card.
+            castCurses.set(
+                castCurses
+                    .get()
+                    .map((c) =>
+                        c.castId === msg.castId
+                            ? { ...c, seekerProofUrl: msg.photoUrl }
+                            : c,
+                    ),
+            );
+            if (playerRole.get() === "hider") {
+                notify({
+                    title: "Verification photo received",
+                    body: "The seekers sent proof for a curse — check the active curse card.",
+                    tag: "curse-proof",
+                });
+            }
             return;
         }
         case "endgameDenied": {

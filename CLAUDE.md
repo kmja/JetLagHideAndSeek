@@ -430,6 +430,21 @@ bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
 build stamp. Current: `v1069`. Use `git log` for the per-version detail;
 
+**v1079 — Curse of the Unguided Tourist: the seekers send a verification photo
+BACK to the hider.** The card ends "They must send a picture to the hider for
+verification" — the hider→seeker Street View image was already wired (v938), but
+the seeker→hider return photo wasn't. New end-to-end path: `curseNeedsSeekerProof`
+(`castingCost.ts`, matches "send a picture to the hider") gates a **camera
+capture in the seeker's `CurseInbox` dialog** (rear-camera file input →
+`preparePhotoForSend` → R2 URL → `sendCurseProof(castId, url)`); the **Clear
+curse button is DISABLED until the photo is sent** (like the Bird Guide film
+gate). New wire messages `CMsgCurseProof`/`SMsgCurseProof` (`castId` + `photoUrl`);
+the worker's `handleCurseProof` relays to the hide team AND attaches
+`seekerProofUrl` to the stored `castCurses` entry (so a reconnecting hider still
+sees it — added to `CursePayload` + `ReceivedCurse`); the hider's `CurseInbox`
+(`castCurses` source) renders the received photo + gets a `notify()`. Demo broker
+no-ops it (single device). Multiplayer-only (a real hider to send to).
+
 **v1078 — transit-line question hits Overpass despite a warm city (gzip-tolerant
 prewarm parse) + loading-state header.**
 - **The picker fell to LIVE Overpass for a WARM Stockholm** because
