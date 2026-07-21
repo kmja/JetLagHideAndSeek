@@ -430,6 +430,22 @@ bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
 build stamp. Current: `v1069`. Use `git log` for the per-version detail;
 
+**v1082 — configure-dialog + transit-line picker polish.**
+- **Configure dialog** (`AddQuestionDialog`): removed the header/content and
+  content/footer DIVIDER lines (`border-b`/`border-t`); the "Rules" button now
+  clears the dialog's close X (`mr-7`, it was overlapping).
+- **Transit-line picked view** (`TransitRoutePicker`) is now a clean SUBPAGE, not
+  a selected-looking card: a back-arrow button (returns to the line list, was a
+  "Change" text link) beside a plain line-identity row; the direction section is
+  a plain filter row (not a selected card) with the "Reverse" text replaced by a
+  small `ArrowUpDown` ICON button.
+- **Stop timeline**: the checkbox rows are bigger, and a connecting LINE runs
+  down the checkbox rail so the stops read as one transit line. The two
+  most-recent stops BEHIND the seeker's nearest are shown as compact, DISABLED
+  context rows (smaller checkbox, dimmed) — anything further back is hidden;
+  the nearest stop onward are the interactive answer set (replaces the v1080
+  "Show N earlier stops" collapse).
+
 **v1081 — transit-line ferry routes are prewarmed (no more Overpass in ferry
 games) + admin-division tiles deduped per country.**
 - **Transit-line question still hit LIVE Overpass in Stockholm** despite the

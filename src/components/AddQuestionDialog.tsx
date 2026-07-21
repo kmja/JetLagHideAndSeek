@@ -1441,7 +1441,7 @@ export const AddQuestionDialog = ({
                             "flex flex-col p-0 gap-0",
                         )}
                     >
-                        <div className="px-6 pt-6 pb-3 shrink-0 border-b border-border flex items-center justify-between gap-2">
+                        <div className="px-6 pt-6 pb-3 shrink-0 flex items-center justify-between gap-2">
                             <DialogTitle>Configure question</DialogTitle>
                             {pendingQuestion &&
                                 rulebookAnchorForCategory(pendingQuestion.id) && (
@@ -1454,7 +1454,7 @@ export const AddQuestionDialog = ({
                                                 ),
                                             )
                                         }
-                                        className="flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground shrink-0"
+                                        className="flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground shrink-0 mr-7"
                                         title="Read the rulebook for this question type"
                                     >
                                         <BookOpen className="w-3.5 h-3.5" />
@@ -1540,7 +1540,7 @@ export const AddQuestionDialog = ({
                             </div>
                         </div>
 
-                        <DialogFooter className="px-6 py-4 shrink-0 border-t border-border gap-2 sm:gap-2 sm:justify-end">
+                        <DialogFooter className="px-6 py-4 shrink-0 gap-2 sm:gap-2 sm:justify-end">
                             <Button variant="outline" onClick={handleCancel}>
                                 Cancel
                             </Button>

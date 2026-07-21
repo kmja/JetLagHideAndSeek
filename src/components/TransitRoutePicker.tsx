@@ -1,6 +1,8 @@
 import { useStore } from "@nanostores/react";
 import {
+    ArrowLeft,
     ArrowUp,
+    ArrowUpDown,
     Check,
     ChevronDown,
     Loader2,
@@ -214,10 +216,6 @@ export function TransitRoutePicker({
     const [loadingList, setLoadingList] = useState(false);
     const [pickingKey, setPickingKey] = useState<string | null>(null);
     const [pickedLine, setPickedLine] = useState<PickedLine | null>(null);
-    // v1080: the stops BEHIND the nearest (in the chosen travel direction) are
-    // collapsed by default — the seeker cares about the stops AHEAD. This
-    // reveals them.
-    const [showEarlier, setShowEarlier] = useState(false);
 
     const lines = useMemo(
         () => (routes ? groupLines(routes) : null),
@@ -321,7 +319,6 @@ export function TransitRoutePicker({
                 selected,
             };
             setPickedLine(line2);
-            setShowEarlier(false);
             commitSelection(line2);
         } catch {
             toast.error("Couldn't load that line's stops. Try again.");
@@ -359,7 +356,6 @@ export function TransitRoutePicker({
             commitSelection(next);
             return next;
         });
-        setShowEarlier(false);
     };
 
     const changeLine = () => {
@@ -401,8 +397,10 @@ export function TransitRoutePicker({
                 ? bearing(nearest.lat, nearest.lng, target.lat, target.lng)
                 : 0;
 
-        // v1080: order the stops in travel direction (nearest near the top,
-        // travelling downward) and COLLAPSE the ones BEHIND the nearest stop.
+        // v1081: order the stops in travel direction (nearest near the top,
+        // travelling downward). Show only the TWO most-recent stops BEHIND the
+        // nearest (as compact, disabled context) — anything further back is
+        // hidden. The nearest onward are the interactive answer set.
         const displayOrder =
             pickedLine.forward
                 ? pickedLine.stops.map((_, i) => i)
@@ -411,118 +409,143 @@ export function TransitRoutePicker({
             pickedLine.nearestIdx >= 0
                 ? displayOrder.indexOf(pickedLine.nearestIdx)
                 : 0;
-        const earlierCount = nearestPos;
-        const shown =
-            showEarlier || earlierCount <= 0
-                ? displayOrder
-                : displayOrder.slice(nearestPos);
+        const earlierStart = Math.max(0, nearestPos - 2);
+        const shown = displayOrder.slice(earlierStart);
 
         return (
-            <div className="overflow-hidden rounded-md border-2 border-primary/40">
-                <div className="flex items-center gap-2 bg-primary/10 p-2.5">
+            <div className="space-y-3">
+                {/* v1081: the picked line is a SUBPAGE — a back arrow returns to
+                    the line list; the header is a plain identity row (not a
+                    selected-looking card). */}
+                <div className="flex items-center gap-2.5">
+                    {!disabled && (
+                        <button
+                            type="button"
+                            onClick={changeLine}
+                            aria-label="Back to lines"
+                            title="Back to lines"
+                            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border bg-secondary text-foreground transition-colors hover:bg-accent"
+                        >
+                            <ArrowLeft className="h-5 w-5" />
+                        </button>
+                    )}
                     <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground">
                         <Icon className="h-5 w-5" />
                     </span>
                     <div className="min-w-0 flex-1">
-                        <div className="truncate text-sm font-semibold">
+                        <div className="truncate text-base font-semibold">
                             {pickedLine.label}
                         </div>
                         <div className="text-xs text-muted-foreground">
                             {count} of {pickedLine.stops.length} stops selected
                         </div>
                     </div>
-                    {!disabled && (
-                        <button
-                            type="button"
-                            onClick={changeLine}
-                            className="shrink-0 rounded-md px-2 py-1 text-xs font-semibold text-primary hover:bg-primary/15"
-                        >
-                            Change
-                        </button>
-                    )}
                 </div>
 
-                <div className="space-y-2 border-t border-primary/20 p-2.5">
-                    {dirLabel && (
+                {/* Direction filter — a plain header row (not selected); the
+                    reverse action is a small icon button. */}
+                {dirLabel && (
+                    <div className="flex items-center gap-2 rounded-md border border-border bg-secondary/40 px-3 py-2 text-sm">
+                        <ArrowUp
+                            className="h-4 w-4 shrink-0 text-muted-foreground"
+                            style={{ transform: `rotate(${dirBearing}deg)` }}
+                        />
+                        <span className="min-w-0 flex-1">
+                            <span className="text-muted-foreground">
+                                Heading{" "}
+                            </span>
+                            <span className="font-semibold capitalize">
+                                {dirLabel}
+                            </span>
+                        </span>
                         <button
                             type="button"
                             onClick={flipDirection}
-                            className="flex w-full items-center gap-2 rounded-md border border-primary/40 bg-primary/5 px-3 py-2 text-left text-sm hover:bg-primary/10"
+                            aria-label="Reverse direction"
+                            title="Reverse direction"
+                            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-primary transition-colors hover:bg-primary/10"
                         >
-                            <ArrowUp
-                                className="h-4 w-4 shrink-0 text-primary"
-                                style={{
-                                    transform: `rotate(${dirBearing}deg)`,
-                                }}
-                            />
-                            <span className="min-w-0 flex-1">
-                                <span className="text-muted-foreground">
-                                    Heading{" "}
-                                </span>
-                                <span className="font-semibold capitalize">
-                                    {dirLabel}
-                                </span>
-                            </span>
-                            <span className="shrink-0 text-xs font-semibold text-primary">
-                                Reverse
-                            </span>
+                            <ArrowUpDown className="h-4 w-4" />
                         </button>
-                    )}
+                    </div>
+                )}
 
-                    {earlierCount > 0 && !showEarlier && (
-                        <button
-                            type="button"
-                            onClick={() => setShowEarlier(true)}
-                            className="flex w-full items-center justify-center gap-1 rounded-md border border-dashed border-border/60 px-2 py-1.5 text-xs font-semibold text-muted-foreground hover:bg-accent"
-                        >
-                            <ChevronDown className="h-3.5 w-3.5" />
-                            Show {earlierCount} earlier stop
-                            {earlierCount === 1 ? "" : "s"}
-                        </button>
-                    )}
-
-                    <div className="max-h-72 space-y-1 overflow-y-auto pr-1">
-                        {shown.map((i) => {
-                            const s = pickedLine.stops[i];
-                            const on = pickedLine.selected.has(i);
-                            const isNearest = i === pickedLine.nearestIdx;
+                {/* Stop timeline — a connecting line down the checkbox rail so
+                    the sequence reads as one line. The two stops BEHIND the
+                    nearest are shown compact + disabled (context only); the
+                    nearest onward are the interactive answer set. */}
+                <div className="max-h-[22rem] space-y-0 overflow-y-auto pr-1">
+                    {shown.map((i, pos) => {
+                        const s = pickedLine.stops[i];
+                        const on = pickedLine.selected.has(i);
+                        const isNearest = i === pickedLine.nearestIdx;
+                        const isEarlier = earlierStart + pos < nearestPos;
+                        const isFirst = pos === 0;
+                        const isLast = pos === shown.length - 1;
+                        const label = s.name ?? `Stop ${i + 1}`;
+                        if (isEarlier) {
+                            // Compact, disabled context row (smaller checkbox).
                             return (
-                                <button
+                                <div
                                     key={`${i}-${s.name ?? ""}`}
-                                    type="button"
-                                    onClick={() => toggleStop(i)}
-                                    className={cn(
-                                        "flex w-full items-center gap-2.5 rounded-md border px-2.5 py-2 text-left transition-colors",
-                                        on
-                                            ? "border-primary/60 bg-primary/10"
-                                            : "border-border bg-secondary/40 opacity-60",
-                                    )}
+                                    className="flex w-full items-stretch gap-3 py-1 pl-1 pr-2 opacity-40"
                                 >
+                                    <span className="relative flex w-7 shrink-0 items-center justify-center self-stretch">
+                                        {!isFirst && (
+                                            <span className="absolute left-1/2 top-0 h-1/2 w-0.5 -translate-x-1/2 bg-primary/35" />
+                                        )}
+                                        <span className="absolute bottom-0 left-1/2 h-1/2 w-0.5 -translate-x-1/2 bg-primary/35" />
+                                        <span className="relative z-10 h-3.5 w-3.5 shrink-0 rounded-sm border border-muted-foreground/50 bg-background" />
+                                    </span>
+                                    <span className="min-w-0 flex-1 truncate py-0.5 text-sm">
+                                        {label}
+                                    </span>
+                                </div>
+                            );
+                        }
+                        return (
+                            <button
+                                key={`${i}-${s.name ?? ""}`}
+                                type="button"
+                                onClick={() => toggleStop(i)}
+                                className={cn(
+                                    "flex w-full items-stretch gap-3 rounded-md py-2 pl-1 pr-2 text-left transition-colors hover:bg-accent/60",
+                                    !on && "opacity-55",
+                                )}
+                            >
+                                {/* rail column: connecting line + node */}
+                                <span className="relative flex w-7 shrink-0 items-center justify-center self-stretch">
+                                    {!isFirst && (
+                                        <span className="absolute left-1/2 top-0 h-1/2 w-0.5 -translate-x-1/2 bg-primary/35" />
+                                    )}
+                                    {!isLast && (
+                                        <span className="absolute bottom-0 left-1/2 h-1/2 w-0.5 -translate-x-1/2 bg-primary/35" />
+                                    )}
                                     <span
                                         className={cn(
-                                            "flex h-5 w-5 shrink-0 items-center justify-center rounded border",
+                                            "relative z-10 flex h-6 w-6 shrink-0 items-center justify-center rounded-md border-2",
                                             on
                                                 ? "border-primary bg-primary text-primary-foreground"
-                                                : "border-muted-foreground/40",
+                                                : "border-muted-foreground/50 bg-background",
                                         )}
                                     >
-                                        {on && (
-                                            <Check className="h-3.5 w-3.5" />
-                                        )}
+                                        {on && <Check className="h-4 w-4" />}
                                     </span>
-                                    <span className="min-w-0 flex-1 truncate text-sm">
-                                        {s.name ?? `Stop ${i + 1}`}
+                                </span>
+                                <span className="flex min-w-0 flex-1 items-center gap-2 py-0.5">
+                                    <span className="min-w-0 flex-1 truncate text-base">
+                                        {label}
                                     </span>
                                     {isNearest && (
-                                        <span className="flex shrink-0 items-center gap-1 rounded-full bg-primary/15 px-1.5 py-0.5 text-[10px] font-semibold text-primary">
-                                            <MapPin className="h-3 w-3" />
+                                        <span className="flex shrink-0 items-center gap-1 rounded-full bg-primary/15 px-2 py-0.5 text-xs font-semibold text-primary">
+                                            <MapPin className="h-3.5 w-3.5" />
                                             You
                                         </span>
                                     )}
-                                </button>
-                            );
-                        })}
-                    </div>
+                                </span>
+                            </button>
+                        );
+                    })}
                 </div>
             </div>
         );
