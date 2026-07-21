@@ -80,7 +80,7 @@ export interface AdjacentAreaCandidate {
 export async function findExtensionCandidates(
     primary: OpenStreetMap,
     allowedTransit: TransitMode[],
-    options: { radiusKm?: number; limit?: number } = {},
+    options: { radiusKm?: number; limit?: number; bakedOnly?: boolean } = {},
 ): Promise<AdjacentAreaCandidate[]> {
     const radiusKm = options.radiusKm ?? 25;
     const limit = options.limit ?? 12;
@@ -114,6 +114,11 @@ export async function findExtensionCandidates(
         baked.sort((a, b) => a.distanceKm - b.distanceKm);
         return baked.slice(0, limit);
     }
+
+    // v1061: `bakedOnly` callers (the wizard's per-adjacent warm-filter path)
+    // want ZERO live Overpass — a non-baked / warm-gap primary yields no
+    // picker rather than firing the heavy admin-adjacency sweeps below.
+    if (options.bakedOnly) return [];
 
     // Cache-key alignment (v640 — relation-ID pattern, mirroring the v359
     // /api/refs fix). The worker cron builds the `around:` adjacency

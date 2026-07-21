@@ -299,11 +299,16 @@ export function DrawPickerDialog() {
                                         <div
                                             className={cn(
                                                 "w-full transition-all duration-300 ease-out",
-                                                isFading
-                                                    ? ""
-                                                    : isActive
-                                                      ? "scale-100 opacity-100"
-                                                      : "scale-[0.86] opacity-45",
+                                                // v1061: KEEP the peek/active
+                                                // scale while fading so the inner
+                                                // shrink composes from the card's
+                                                // CURRENT position (it recedes in
+                                                // place). Resetting to scale-100
+                                                // here made peek cards jump to
+                                                // centre/full-size first.
+                                                isActive
+                                                    ? "scale-100 opacity-100"
+                                                    : "scale-[0.86] opacity-45",
                                             )}
                                         >
                                             <CardCell

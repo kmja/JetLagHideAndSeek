@@ -166,7 +166,7 @@ export function CurseRevealOverlay() {
             onClick={dismiss}
             className={`fixed inset-0 z-[1190] flex items-center justify-center overflow-hidden cursor-pointer ${
                 exiting
-                    ? "opacity-0 transition-opacity duration-[600ms] ease-in pointer-events-none"
+                    ? "animate-[curseRevealBackdropOut_600ms_ease-in_forwards] pointer-events-none"
                     : "animate-[curseRevealBackdrop_320ms_ease-out]"
             }`}
             style={{
@@ -203,61 +203,65 @@ export function CurseRevealOverlay() {
                 `inset-0 m-auto w-full h-full` percentage chain didn't resolve on
                 some devices, so the star rendered invisibly small / absent. */}
             <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                {/* The spin wrapper keeps spinning throughout — including during
-                    the exit, so the star shrinks WHILE it spins. Its size is set
-                    EXPLICITLY (inline `vmin`, so no Tailwind/cache dependency and
-                    no flex-item content-collapse) — an unsized wrapper collapsed
-                    on some devices and the star overflowed out of a zero box,
-                    pushing it off-centre (points only showing at one edge). */}
+                {/* An explicitly-sized box (inline `vmin`, so no Tailwind/cache
+                    dependency and no flex-item content-collapse — an unsized box
+                    collapsed on some devices and the star overflowed off-centre).
+                    Inside it, the star and the squiggles get their OWN spin
+                    wrappers so the snakes can rotate SLOWER than the star. */}
                 <div
-                    className="relative motion-safe:animate-[curseRevealSpin_46s_linear_infinite]"
+                    className="relative"
                     style={{ width: "100vmin", height: "100vmin" }}
                 >
-                    {/* Star — grows in FAST (beat 1); its points graze the frame
-                        edges. Drawn FIRST so the snakes sit ON TOP of it. On EXIT
-                        it shrinks to nothing in the centre (the parent keeps
-                        spinning). Fills the wrapper via inline size. */}
-                    <svg
-                        viewBox="0 0 200 200"
-                        style={{
-                            position: "absolute",
-                            inset: 0,
-                            width: "100vmin",
-                            height: "100vmin",
-                        }}
-                        className={
-                            exiting
-                                ? "scale-0 opacity-90 transition-all duration-[600ms] ease-in"
-                                : "motion-safe:animate-[curseRevealStarIn_360ms_cubic-bezier(0.2,0.9,0.3,1)_both]"
-                        }
-                        aria-hidden="true"
-                    >
-                        <path
-                            d={starPath}
-                            fill={STAR_PURPLE}
-                            stroke={STAR_EDGE}
-                            strokeWidth={5}
-                            strokeLinejoin="round"
-                        />
-                    </svg>
-                    {/* Squiggles — smooth navy snakes that grow OUT ON TOP of the
-                        star, delayed + ease-out (beat 3). Same explicit size,
-                        overlaid on the star. On EXIT they fade away. */}
-                    <svg
-                        viewBox="0 0 200 200"
-                        style={{
-                            position: "absolute",
-                            inset: 0,
-                            width: "100vmin",
-                            height: "100vmin",
-                        }}
-                        className={
-                            exiting
-                                ? "opacity-0 transition-opacity duration-[320ms] ease-out"
-                                : "motion-safe:animate-[curseRevealSquiggleIn_620ms_520ms_cubic-bezier(0.22,1,0.36,1)_both]"
-                        }
-                        aria-hidden="true"
-                    >
+                    {/* Star spin wrapper — keeps spinning throughout (incl. the
+                        exit, so the star shrinks WHILE it spins). */}
+                    <div className="absolute inset-0 motion-safe:animate-[curseRevealSpin_46s_linear_infinite]">
+                        {/* Star — grows in FAST (beat 1); its points graze the
+                            frame edges. On EXIT it shrinks to nothing (keyframe,
+                            so it reliably animates instead of snapping). */}
+                        <svg
+                            viewBox="0 0 200 200"
+                            style={{
+                                position: "absolute",
+                                inset: 0,
+                                width: "100vmin",
+                                height: "100vmin",
+                            }}
+                            className={
+                                exiting
+                                    ? "motion-safe:animate-[curseRevealStarOut_600ms_ease-in_forwards]"
+                                    : "motion-safe:animate-[curseRevealStarIn_360ms_cubic-bezier(0.2,0.9,0.3,1)_both]"
+                            }
+                            aria-hidden="true"
+                        >
+                            <path
+                                d={starPath}
+                                fill={STAR_PURPLE}
+                                stroke={STAR_EDGE}
+                                strokeWidth={5}
+                                strokeLinejoin="round"
+                            />
+                        </svg>
+                    </div>
+                    {/* Squiggle spin wrapper — SLOWER spin (96s vs the star's
+                        46s), so the snakes drift gently over the star. */}
+                    <div className="absolute inset-0 motion-safe:animate-[curseRevealSpin_96s_linear_infinite]">
+                        {/* Squiggles — smooth navy snakes ON TOP of the star. On
+                            EXIT they fade away (keyframe). */}
+                        <svg
+                            viewBox="0 0 200 200"
+                            style={{
+                                position: "absolute",
+                                inset: 0,
+                                width: "100vmin",
+                                height: "100vmin",
+                            }}
+                            className={
+                                exiting
+                                    ? "motion-safe:animate-[curseRevealSquiggleOut_360ms_ease-out_forwards]"
+                                    : "motion-safe:animate-[curseRevealSquiggleIn_620ms_520ms_cubic-bezier(0.22,1,0.36,1)_both]"
+                            }
+                            aria-hidden="true"
+                        >
                         {squiggles.map((d, i) => (
                             <path
                                 key={i}
@@ -270,7 +274,8 @@ export function CurseRevealOverlay() {
                                 opacity={0.95}
                             />
                         ))}
-                    </svg>
+                        </svg>
+                    </div>
                 </div>
             </div>
 
@@ -284,7 +289,7 @@ export function CurseRevealOverlay() {
                 <div
                     className={`relative w-[min(78vw,300px)] drop-shadow-2xl [transform-style:preserve-3d] ${
                         exiting
-                            ? "translate-y-[130vh] rotate-[8deg] transition-transform duration-[600ms] ease-in"
+                            ? "animate-[curseRevealCardOut_600ms_cubic-bezier(0.4,0,0.7,1)_forwards]"
                             : "motion-safe:animate-[curseRevealCardTumble_1500ms_180ms_cubic-bezier(0.3,0.9,0.4,1)_both]"
                     }`}
                 >

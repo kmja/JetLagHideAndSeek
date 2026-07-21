@@ -3,10 +3,10 @@ import { MapPin, X } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import {
-    adjacentReadyIds,
-    ensureAdjacentReadyLoaded,
-    isAdjacentReady,
-} from "@/maps/api/adjacentReadyCities";
+    ensureWarmCitiesLoaded,
+    isWarmCity,
+    warmCityIds,
+} from "@/maps/api/warmCities";
 import {
     additionalMapGeoLocations,
     adjacentCandidatePreview,
@@ -52,21 +52,21 @@ const candidateCache = new Map<string, AdjacentAreaCandidate[]>();
 export function PlayAreaExtensions({ primary }: { primary: OpenStreetMap }) {
     const $allowedTransit = useStore(allowedTransit);
     const $additional = useStore(additionalMapGeoLocations);
-    const $adjacentReady = useStore(adjacentReadyIds);
+    const $warm = useStore(warmCityIds);
 
-    // v699.1: only OFFER adjacent-adding for a primary whose neighbours are
-    // fully prewarmed (`/api/adjacent-ready-cities`). Otherwise a tapped
-    // neighbour would drop the player to live Overpass mid-game — the "broken
-    // promise" the star gate used to (over-)guard against. While the set is
-    // still loading (null) `isAdjacentReady` is false, so we default to hiding
-    // the picker rather than flashing a possibly-cold offer.
+    // v1061: offer adjacent-adding for any STARRED (warm) primary, and — the
+    // key change — show only the adjacents that are THEMSELVES starred/warm
+    // (filtered per-candidate below), not require EVERY neighbour to be warm.
+    // The old all-or-nothing `/api/adjacent-ready-cities` gate hid the whole
+    // picker if even one neighbour failed to warm; now a failed neighbour just
+    // drops itself while the warm ones still show. Each offered adjacent is in
+    // `warmCityIds` (its own boundary+refs+stations+pack cached), so it still
+    // loads Overpass-free — the "no live Overpass mid-game" guarantee holds
+    // per-adjacent instead of per-city.
     useEffect(() => {
-        void ensureAdjacentReadyLoaded();
+        void ensureWarmCitiesLoaded();
     }, []);
-    const extendable = isAdjacentReady(
-        primary.properties.osm_id,
-        $adjacentReady,
-    );
+    const extendable = isWarmCity(primary.properties.osm_id, $warm);
 
     const cacheKey = `${primary.properties.osm_id}:${[...$allowedTransit].sort().join(",")}`;
     const [candidates, setCandidates] = useState<AdjacentAreaCandidate[]>(
@@ -108,6 +108,9 @@ export function PlayAreaExtensions({ primary }: { primary: OpenStreetMap }) {
         findExtensionCandidates(primary, $allowedTransit, {
             radiusKm: 25,
             limit: 14,
+            // v1061: Overpass-free only — a non-baked / warm-gap primary just
+            // yields no picker instead of a live admin-adjacency sweep.
+            bakedOnly: true,
         })
             .then((c) => {
                 if (cancelled) return;
@@ -127,6 +130,20 @@ export function PlayAreaExtensions({ primary }: { primary: OpenStreetMap }) {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [cacheKey, extendable]);
 
+    // v1061: only OFFER the adjacents that are THEMSELVES starred/warm — a
+    // neighbour that failed to prewarm drops itself instead of blocking the
+    // whole picker. Each survivor is in `warmCityIds`, so folding it in stays
+    // Overpass-free. Filtering here (reactive on `$warm`) means the offered set
+    // fills in as the warm-city data lands.
+    const warmCandidates = candidates.filter((c) =>
+        isWarmCity(c.feature.properties.osm_id, $warm),
+    );
+    // A stable key so the publish effect only re-runs when the offered set (or
+    // status) actually changes, not on every render.
+    const warmKey = warmCandidates
+        .map((c) => c.feature.properties.osm_id)
+        .join(",");
+
     // Publish candidates + status for the preview map's tappable-boundary
     // overlay AND its reveal gate. We always publish a non-null value
     // (even with zero candidates) so the preview can distinguish "still
@@ -134,7 +151,7 @@ export function PlayAreaExtensions({ primary }: { primary: OpenStreetMap }) {
     useEffect(() => {
         adjacentCandidatePreview.set({
             status,
-            candidates: candidates.map((c) => ({
+            candidates: warmCandidates.map((c) => ({
                 osmId: c.feature.properties.osm_id,
                 name: c.feature.properties.name as string,
                 bbox: c.feature.properties.extent as [
@@ -150,15 +167,16 @@ export function PlayAreaExtensions({ primary }: { primary: OpenStreetMap }) {
         return () => {
             adjacentCandidatePreview.set(null);
         };
-    }, [candidates, status]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [warmKey, status]);
 
     const added = $additional.filter((e) => e.location);
 
     if (added.length === 0) {
         // Nothing added yet — surface a one-line hint, but only when
-        // there ARE neighbours to add, so the tap-the-map gesture is
+        // there ARE (warm) neighbours to add, so the tap-the-map gesture is
         // discoverable. Otherwise render nothing.
-        if (candidates.length === 0) return null;
+        if (warmCandidates.length === 0) return null;
         return (
             <p className="text-[11px] text-muted-foreground leading-snug px-0.5">
                 Tap a neighbouring area on the map to fold it into your play

@@ -410,6 +410,26 @@ div.leaflet-control-attribution.leaflet-control {
     30%  { opacity: 1; }
     100% { transform: scale(1) rotateX(0deg);      opacity: 1; }
 }
+/* Exit (v1061): choreographed dismiss — the card falls off the bottom, the
+ * squiggles fade, and the star shrinks to nothing while still spinning. Each is
+ * a dedicated keyframe (with its own start/end) so it animates reliably instead
+ * of snapping when swapped in for the entrance animation. */
+@keyframes curseRevealCardOut {
+    0%   { transform: translateY(0) rotate(0deg);   opacity: 1; }
+    100% { transform: translateY(130vh) rotate(8deg); opacity: 1; }
+}
+@keyframes curseRevealStarOut {
+    0%   { transform: scale(1) rotate(0deg);   opacity: 1; }
+    100% { transform: scale(0) rotate(40deg); opacity: 0.85; }
+}
+@keyframes curseRevealSquiggleOut {
+    0%   { opacity: 0.95; }
+    100% { opacity: 0; }
+}
+@keyframes curseRevealBackdropOut {
+    0%   { opacity: 1; }
+    100% { opacity: 0; }
+}
 
 /* Reference-point marker + label used on the configure-dialog inline
  * map for matching/measuring questions. The marker itself is rendered

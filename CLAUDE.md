@@ -428,7 +428,27 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v1060`. Use `git log` for the per-version detail;
+build stamp. Current: `v1061`. Use `git log` for the per-version detail;
+
+**v1061 — adjacents show per-warmth + curse squiggles/exit + discard no-jump.**
+- **Show any STARRED adjacent, not all-or-nothing** (`PlayAreaExtensions`): the
+  wizard's adjacent picker was gated on `/api/adjacent-ready-cities` (the parent's
+  `adjacentsCuratedAt` — EVERY neighbour warm), so one neighbour failing to prewarm
+  hid the whole picker. Now it offers adjacent-adding for any STARRED (warm) primary
+  and filters the candidates to the ones that are THEMSELVES in `warmCityIds` (their
+  own boundary+refs+stations+pack cached), so a failed neighbour drops itself while
+  the warm ones still show — still Overpass-free per-adjacent. `findExtensionCandidates`
+  gained `bakedOnly` so this path never triggers a live admin-adjacency sweep.
+- **Curse squiggles rotate SLOWER** (`CurseRevealOverlay`): the star and squiggles
+  now have SEPARATE spin wrappers (star 46s, squiggles 96s), so the snakes drift
+  gently over the star.
+- **Curse exit reliably animates**: the dismiss motion was a transition swapped in
+  for the entrance KEYFRAME in one render, which the browser SNAPPED. Replaced with
+  dedicated exit keyframes (`curseRevealCardOut`/`StarOut`/`SquiggleOut`/`BackdropOut`)
+  so the card falls, squiggles fade, and star shrinks-while-spinning every time.
+- **Discard-to-ocean no longer jumps** (`DrawPickerDialog`): the peek cards reset to
+  full scale when the fall began (a jump to centre); they now KEEP their peek scale
+  so the shrink composes from the card's current position.
 
 **v1060 — curse-reveal star REAL root cause (unsized spin wrapper) + discard
 recedes into the screen.**
