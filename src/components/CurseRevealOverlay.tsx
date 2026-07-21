@@ -131,9 +131,11 @@ export function CurseRevealOverlay() {
     const dismiss = () => {
         if (exiting) return;
         setExiting(true);
+        // Hold until the choreographed exit finishes: card falls off the bottom,
+        // squiggles fade, star shrinks to nothing while still spinning (~600ms).
         dismissTimer.current = window.setTimeout(
             () => curseReveal.set(null),
-            320,
+            640,
         );
     };
 
@@ -164,7 +166,7 @@ export function CurseRevealOverlay() {
             onClick={dismiss}
             className={`fixed inset-0 z-[1190] flex items-center justify-center overflow-hidden cursor-pointer ${
                 exiting
-                    ? "opacity-0 transition-opacity duration-300 ease-in pointer-events-none"
+                    ? "opacity-0 transition-opacity duration-[600ms] ease-in pointer-events-none"
                     : "animate-[curseRevealBackdrop_320ms_ease-out]"
             }`}
             style={{
@@ -200,18 +202,22 @@ export function CurseRevealOverlay() {
                 centred WITHIN it via `inset-0 m-auto` (NOT a translate — the
                 grow-in animations overwrite `transform`, which is exactly what
                 made the star orbit instead of spinning in place). */}
-            <div
-                className={`absolute inset-0 flex items-center justify-center pointer-events-none transition-transform duration-300 ease-in ${
-                    exiting ? "scale-90" : ""
-                }`}
-            >
+            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                {/* The spin box keeps spinning throughout — including during the
+                    exit, so the star shrinks WHILE it spins. */}
                 <div className="relative w-[108vmin] h-[108vmin] motion-safe:animate-[curseRevealSpin_46s_linear_infinite]">
                     {/* Star — grows in FAST (beat 1); big enough that its points
                         push well past the frame edges. Fills the spin box.
-                        Drawn FIRST so the snakes sit ON TOP of it. */}
+                        Drawn FIRST so the snakes sit ON TOP of it. On EXIT it
+                        shrinks to nothing in the centre (the parent keeps
+                        spinning). */}
                     <svg
                         viewBox="0 0 200 200"
-                        className="absolute inset-0 m-auto w-full h-full motion-safe:animate-[curseRevealStarIn_360ms_cubic-bezier(0.2,0.9,0.3,1)_both]"
+                        className={`absolute inset-0 m-auto w-full h-full ${
+                            exiting
+                                ? "scale-0 opacity-90 transition-all duration-[600ms] ease-in"
+                                : "motion-safe:animate-[curseRevealStarIn_360ms_cubic-bezier(0.2,0.9,0.3,1)_both]"
+                        }`}
                         aria-hidden="true"
                     >
                         <path
@@ -223,10 +229,15 @@ export function CurseRevealOverlay() {
                         />
                     </svg>
                     {/* Squiggles — smooth navy snakes that grow OUT ON TOP of the
-                        star, delayed + ease-out (beat 3). Fill the spin box. */}
+                        star, delayed + ease-out (beat 3). Fill the spin box. On
+                        EXIT they fade away. */}
                     <svg
                         viewBox="0 0 200 200"
-                        className="absolute inset-0 w-full h-full motion-safe:animate-[curseRevealSquiggleIn_620ms_520ms_cubic-bezier(0.22,1,0.36,1)_both]"
+                        className={`absolute inset-0 w-full h-full ${
+                            exiting
+                                ? "opacity-0 transition-opacity duration-[320ms] ease-out"
+                                : "motion-safe:animate-[curseRevealSquiggleIn_620ms_520ms_cubic-bezier(0.22,1,0.36,1)_both]"
+                        }`}
                         aria-hidden="true"
                     >
                         {squiggles.map((d, i) => (
@@ -249,12 +260,16 @@ export function CurseRevealOverlay() {
                 `perspective` on the wrapper makes the rotateX read as a real
                 3-D tumble. */}
             <div
-                className={`relative z-[1] flex flex-col items-center transition-transform duration-300 ease-in ${
-                    exiting ? "scale-90" : ""
-                }`}
+                className="relative z-[1] flex flex-col items-center"
                 style={{ perspective: "1400px" }}
             >
-                <div className="relative w-[min(78vw,300px)] drop-shadow-2xl motion-safe:animate-[curseRevealCardTumble_1500ms_180ms_cubic-bezier(0.3,0.9,0.4,1)_both] [transform-style:preserve-3d]">
+                <div
+                    className={`relative w-[min(78vw,300px)] drop-shadow-2xl [transform-style:preserve-3d] ${
+                        exiting
+                            ? "translate-y-[130vh] rotate-[8deg] transition-transform duration-[600ms] ease-in"
+                            : "motion-safe:animate-[curseRevealCardTumble_1500ms_180ms_cubic-bezier(0.3,0.9,0.4,1)_both]"
+                    }`}
+                >
                     {/* Torn-paper backing: a slightly-larger card-white
                         rectangle with the rough filter, so its EDGES look torn.
                         The card on top drops its OWN border + shadow so its white
@@ -276,7 +291,13 @@ export function CurseRevealOverlay() {
                     </div>
                 </div>
                 {payloadItems.length > 0 && (
-                    <div className="mt-3 flex flex-col items-center gap-1.5">
+                    <div
+                        className={`mt-3 flex flex-col items-center gap-1.5 ${
+                            exiting
+                                ? "opacity-0 transition-opacity duration-200"
+                                : ""
+                        }`}
+                    >
                         {received.photoUrl && (
                             <img
                                 src={received.photoUrl}
@@ -294,7 +315,13 @@ export function CurseRevealOverlay() {
                         ))}
                     </div>
                 )}
-                <p className="mt-4 text-center text-xs font-poppins font-semibold uppercase tracking-[0.14em] text-white/70">
+                <p
+                    className={`mt-4 text-center text-xs font-poppins font-semibold uppercase tracking-[0.14em] text-white/70 ${
+                        exiting
+                            ? "opacity-0 transition-opacity duration-200"
+                            : ""
+                    }`}
+                >
                     Tap to dismiss
                 </p>
             </div>

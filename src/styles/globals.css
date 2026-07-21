@@ -1124,7 +1124,7 @@ div.leaflet-control-attribution.leaflet-control {
 .Toastify__toast {
     width: min(92vw, 420px) !important;
     min-height: 0 !important;
-    padding: 0.625rem 0.75rem !important;
+    padding: 0.625rem 0.85rem !important;
     margin-bottom: 0 !important;
     border-radius: 0.5rem !important;
     border: 2px solid hsl(var(--border)) !important;
@@ -1140,6 +1140,12 @@ div.leaflet-control-attribution.leaflet-control {
     overflow: hidden !important;
     /* Progress bar sits underneath the body, so leave room. */
     position: relative;
+    /* Lay the toast out as an explicit flex row [body | close] with a gap, so
+     * the close X sits IN-FLOW to the right of the text (react-toastify's
+     * default absolutely-positions it top-right, overlapping the message). */
+    display: flex !important;
+    align-items: center !important;
+    gap: 0.75rem !important;
 }
 .Toastify__toast--success {
     border-color: hsl(142 65% 45% / 0.7) !important;
@@ -1157,10 +1163,12 @@ div.leaflet-control-attribution.leaflet-control {
 .Toastify__toast-body {
     padding: 0 !important;
     margin: 0 !important;
+    flex: 1 1 auto !important;
+    min-width: 0 !important;
     display: flex !important;
     align-items: center !important;
-    /* v1048: more breathing room between the severity icon and the text. */
-    gap: 0.9rem !important;
+    /* v1057: more breathing room between the severity icon and the text. */
+    gap: 1rem !important;
     color: inherit !important;
 }
 /* v304: backplate removed. The icon SVG itself carries the
@@ -1201,8 +1209,12 @@ div.leaflet-control-attribution.leaflet-control {
 /* v304: close X is the full height of the card. Tap target was
  * tiny before — now matches the size of the icon. */
 .Toastify__close-button {
+    /* v1057: in-flow (not react-toastify's default absolute top-right, which
+     * overlapped the message). The parent toast's `gap` spaces it from the
+     * text. */
+    position: static !important;
     align-self: center !important;
-    margin-left: 0.5rem !important;
+    margin: 0 !important;
     color: hsl(var(--muted-foreground)) !important;
     opacity: 0.7 !important;
     width: 28px !important;

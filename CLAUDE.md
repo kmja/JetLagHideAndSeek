@@ -428,7 +428,19 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v1056`. Use `git log` for the per-version detail;
+build stamp. Current: `v1057`. Use `git log` for the per-version detail;
+
+**v1057 — choreographed curse-reveal exit + toaster spacing.**
+- **Curse-reveal exit** (`CurseRevealOverlay`): dismiss now plays a 3-part exit
+  over ~600 ms — the CARD falls off the bottom (`translate-y-[130vh]` + slight
+  rotate), the SQUIGGLES fade out, and the STAR shrinks to nothing in the centre
+  (`scale-0`) while the spin box keeps spinning. Each element removes its entrance
+  animation class on exit so the transition can take over; the atom clears at
+  640 ms.
+- **Toaster spacing** (`globals.css`): the toast is now an explicit flex row
+  `[body | close]` with a `gap`, so the close X sits IN-FLOW to the right of the
+  text instead of react-toastify's default absolute top-right (which overlapped
+  the message). Icon→text gap widened to `1rem`.
 
 **v1056 — curse-reveal star sized to FIT the screen (v1054's bump did nothing
 visible).** At `160vmin`/`215vmin` the star was ~2× the viewport, so all five
