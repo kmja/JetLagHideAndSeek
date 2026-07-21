@@ -554,9 +554,24 @@ export const cacheFetch = async (
         // Abort-signal callers bypass coalescing (see the `signal` param
         // doc): each racer owns an isolated fetch so cancelling a loser
         // can't take down a coalesced sibling.
+        // v1062: dedupe the "pending" toast by a stable id derived from the
+        // loading text. getOverpassData races 4 mirrors, each an
+        // abort-signalled cacheFetch, so WITHOUT this every query fired FOUR
+        // identical "Determining tentacle locations…" toasts (and a concurrent
+        // grade+preview doubled that) — the stacked toaster pile the user saw.
+        // A shared toastId collapses them to ONE (react-toastify ignores a
+        // duplicate id); the first mirror to settle dismisses it.
+        const pendingToastId = loadingText
+            ? `ovp-pending:${loadingText}`
+            : undefined;
+
         if (signal) {
             const response = await (loadingText
-                ? toast.promise(fetchAndMaybeCache(), { pending: loadingText })
+                ? toast.promise(
+                      fetchAndMaybeCache(),
+                      { pending: loadingText },
+                      { toastId: pendingToastId },
+                  )
                 : fetchAndMaybeCache());
             return response.clone();
         }
@@ -566,9 +581,11 @@ export const cacheFetch = async (
 
         try {
             const response = await (loadingText
-                ? toast.promise(fetchPromise, {
-                      pending: loadingText,
-                  })
+                ? toast.promise(
+                      fetchPromise,
+                      { pending: loadingText },
+                      { toastId: pendingToastId },
+                  )
                 : fetchPromise);
 
             return response.clone();

@@ -1,6 +1,12 @@
 import { useStore } from "@nanostores/react";
 import { Check, ChevronLeft, ChevronRight } from "lucide-react";
-import { type CSSProperties, useEffect, useRef, useState } from "react";
+import {
+    type CSSProperties,
+    useEffect,
+    useLayoutEffect,
+    useRef,
+    useState,
+} from "react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -81,6 +87,36 @@ export function DrawPickerDialog() {
     const dragRef = useRef<{ x: number; y: number; moved: boolean } | null>(
         null,
     );
+    // v1062: FLIP so the remaining cards SLIDE to fill the gap when a picked
+    // card leaves the carousel (instead of a new card snapping into its slot).
+    // Each cell registers itself; after any render that moved a cell, we apply
+    // the inverse offset then transition it to 0.
+    const cellRefs = useRef(new Map<string, HTMLDivElement>());
+    const prevLefts = useRef(new Map<string, number>());
+    useLayoutEffect(() => {
+        // Use offsetLeft (LAYOUT position within the track), NOT
+        // getBoundingClientRect — the latter includes the track's own
+        // translateX, so a swipe (viewIndex change) would fire a spurious FLIP
+        // fighting the track's transition. offsetLeft only changes on a REFLOW
+        // (a card leaving the list), which is exactly when we want the slide.
+        cellRefs.current.forEach((el, id) => {
+            const now = el.offsetLeft;
+            const prev = prevLefts.current.get(id);
+            if (prev != null && Math.abs(prev - now) > 1) {
+                el.style.transition = "none";
+                el.style.transform = `translateX(${prev - now}px)`;
+                requestAnimationFrame(() => {
+                    el.style.transition = "transform 300ms ease-out";
+                    el.style.transform = "";
+                });
+            }
+        });
+        // Re-baseline to the settled positions for the next change.
+        prevLefts.current.clear();
+        cellRefs.current.forEach((el, id) => {
+            prevLefts.current.set(id, el.offsetLeft);
+        });
+    });
 
     // Reset local picker state whenever a NEW draw session starts. Keyed on the
     // source question key only — NOT the card list, which now SHRINKS as each
@@ -293,6 +329,17 @@ export function DrawPickerDialog() {
                                 return (
                                     <div
                                         key={card.id}
+                                        ref={(el) => {
+                                            if (el)
+                                                cellRefs.current.set(
+                                                    card.id,
+                                                    el,
+                                                );
+                                            else
+                                                cellRefs.current.delete(
+                                                    card.id,
+                                                );
+                                        }}
                                         className="shrink-0 flex justify-center px-1.5"
                                         style={{ flexBasis: `${CARD_BASIS_PCT}%` }}
                                     >

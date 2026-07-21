@@ -428,7 +428,23 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v1061`. Use `git log` for the per-version detail;
+build stamp. Current: `v1062`. Use `git log` for the per-version detail;
+
+**v1062 — station overlay slides from top-CENTRE + Overpass toast de-stacking +
+draw-picker slide-to-fill.**
+- **Station card flew in from the top-RIGHT** (`StationTransitCard`): it centred
+  with `left-1/2 -translate-x-1/2`, but the `slide-in-from-top` enter animation
+  OVERRIDES the transform, dropping the -50% centring during the animation. Centred
+  with `left-0 right-0 mx-auto` instead so the transform is free for the vertical
+  slide — it now drops straight down from top-centre.
+- **Stacked "Determining tentacle locations…" toasts** (`cache.ts`): getOverpassData
+  races 4 mirrors, each an abort-signalled `cacheFetch` firing its OWN `toast.promise`
+  — so one query showed FOUR identical loading toasts (and a concurrent grade+preview
+  doubled it). A stable `toastId` per loading text collapses them to ONE.
+- **Draw-picker: remaining cards SLIDE to fill the gap** (`DrawPickerDialog`): when a
+  picked card leaves the carousel a new card used to snap into its slot. A FLIP
+  (measuring each cell's `offsetLeft` — layout position, so a swipe's track-translate
+  doesn't trip it) now slides the remaining cards over to close the gap.
 
 **v1061 — adjacents show per-warmth + curse squiggles/exit + discard no-jump.**
 - **Show any STARRED adjacent, not all-or-nothing** (`PlayAreaExtensions`): the

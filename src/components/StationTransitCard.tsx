@@ -428,7 +428,14 @@ export function StationTransitCard({
             aria-label={station.name ?? "Selected station"}
             onTouchStart={onCardTouchStart}
             onTouchEnd={onCardTouchEnd}
-            className="fixed top-[calc(env(safe-area-inset-top,0px)+4.25rem)] left-1/2 z-[1045] flex max-h-[70vh] w-[min(94vw,460px)] -translate-x-1/2 flex-col overflow-hidden rounded-2xl border border-border bg-background text-foreground shadow-2xl animate-in fade-in slide-in-from-top-4 duration-200"
+            // v1062: centre with mx-auto (left-0 right-0), NOT `left-1/2
+            // -translate-x-1/2` — the `slide-in-from-top` enter animation
+            // OVERRIDES the transform, so the -translate-x-1/2 centering was
+            // dropped DURING the animation, making the card fly in from the
+            // top-RIGHT (shifted half its width) before snapping centre. With
+            // margin-auto centering the transform is free for the vertical
+            // slide, so it comes straight down from top-CENTRE.
+            className="fixed top-[calc(env(safe-area-inset-top,0px)+4.25rem)] left-0 right-0 mx-auto z-[1045] flex max-h-[70vh] w-[min(94vw,460px)] flex-col overflow-hidden rounded-2xl border border-border bg-background text-foreground shadow-2xl animate-in fade-in slide-in-from-top-4 duration-200"
         >
             <div className="overflow-y-auto px-5 pt-4 pb-5">
                         <div className="flex items-start gap-2.5">
