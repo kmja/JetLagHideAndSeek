@@ -428,7 +428,13 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v1067`. Use `git log` for the per-version detail;
+build stamp. Current: `v1068`. Use `git log` for the per-version detail;
+
+**v1068 — an unpayable curse casting cost is disabled in the HAND.** A curse whose
+casting cost (`Discard N cards`) can't be met with the current hand now disables
+its Play/Cast button in the hand fan (`HiderHandFan`) + panel (`HiderHandPanel`)
+with a note, using the same `parseDiscardCost` + `canPayDiscardCost` the cast
+dialog already used — instead of only being caught after opening the dialog.
 
 **v1067 — rulebook deep links land reliably + quick-ref tiles match the in-game
 cards.**

@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { appConfirm } from "@/lib/confirm";
+import { canPayDiscardCost, parseDiscardCost } from "@/lib/castingCost";
 import {
     activeBlockingCurse,
     activeBlockingCurseCastAt,
@@ -1050,6 +1051,15 @@ function CardActions({
             $gameSize,
             Date.now(),
         );
+    // v1068: surface an UNPAYABLE casting cost (e.g. "Discard 2 cards" with too
+    // few eligible cards) up-front in the hand — disable Play — instead of only
+    // catching it inside the cast dialog.
+    const $handForCost = useStore(hiderHand);
+    const discardCost =
+        card.kind === "curse" ? parseDiscardCost(card.castingCost) : null;
+    const cantAffordCost =
+        discardCost !== null &&
+        !canPayDiscardCost($handForCost, discardCost, card.id);
     const rulesAnchor =
         card.kind === "curse"
             ? RULEBOOK_ANCHORS.curses
@@ -1074,7 +1084,7 @@ function CardActions({
                 {playable && (
                     <Button
                         type="button"
-                        disabled={moveBlocked || curseBlocked}
+                        disabled={moveBlocked || curseBlocked || cantAffordCost}
                         onClick={() => {
                             if (card.kind === "powerup") {
                                 onPlayPowerup(card);
@@ -1089,6 +1099,12 @@ function CardActions({
                     </Button>
                 )}
             </div>
+            {cantAffordCost && !curseBlocked && (
+                <p className="mt-2 rounded-md border border-border bg-background px-3 py-2 text-xs text-foreground leading-snug text-center shadow-sm">
+                    You don&apos;t have enough eligible cards to pay this curse&apos;s
+                    casting cost ({card.kind === "curse" ? card.castingCost : ""}).
+                </p>
+            )}
             {moveBlocked && (
                 <p className="mt-2 rounded-md border border-border bg-background px-3 py-2 text-xs text-foreground leading-snug text-center shadow-sm">
                     Move can't be played during the endgame — you're locked to

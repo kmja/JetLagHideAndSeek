@@ -25,6 +25,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { appConfirm } from "@/lib/confirm";
+import { canPayDiscardCost, parseDiscardCost } from "@/lib/castingCost";
 import {
     activeBlockingCurse,
     activeBlockingCurseCastAt,
@@ -306,16 +307,30 @@ export function HiderHandPanel() {
                                             $gameSize,
                                             Date.now(),
                                         );
+                                        // v1068: unpayable casting cost → disable
+                                        // Cast up-front (not only in the dialog).
+                                        const cost = parseDiscardCost(
+                                            card.castingCost,
+                                        );
+                                        const cantAfford =
+                                            cost !== null &&
+                                            !canPayDiscardCost(
+                                                $hand,
+                                                cost,
+                                                card.id,
+                                            );
                                         return (
                                             <Button
                                                 type="button"
                                                 variant="default"
                                                 size="sm"
-                                                disabled={blocked}
+                                                disabled={blocked || cantAfford}
                                                 title={
                                                     blocked
                                                         ? `${$activeBlocker} is still blocking the seekers — only one such curse at a time (rulebook p44).`
-                                                        : undefined
+                                                        : cantAfford
+                                                          ? `Not enough eligible cards to pay the casting cost (${card.castingCost}).`
+                                                          : undefined
                                                 }
                                                 onClick={() =>
                                                     setCastCurse(card)
