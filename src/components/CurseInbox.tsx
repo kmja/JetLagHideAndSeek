@@ -569,6 +569,7 @@ export function CurseInbox({
                     {resolvedDialog?.name === CURSE_SPOTTY_MEMORY ? (
                         <div className="space-y-2">
                             <DiceRoller
+                                size="lg"
                                 onSettle={(v) => {
                                     // v969 (rulebook audit A7): Small games
                                     // have five categories — a 6 is a reroll
@@ -710,6 +711,7 @@ export function CurseInbox({
                             return (
                                 <div className="space-y-2">
                                     <DiceRoller
+                                        size="lg"
                                         count={curseDiceCount(resolvedDialog)}
                                         successFrom={isJammed ? 7 : undefined}
                                         disabled={onCooldown}

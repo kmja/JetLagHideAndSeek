@@ -428,7 +428,27 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v1050`. Use `git log` for the per-version detail;
+build stamp. Current: `v1051`. Use `git log` for the per-version detail;
+
+**v1051 — curse-reveal polish + Gambler's Feet fixes.**
+- **Curse reveal (`CurseRevealOverlay`):** the star is bigger (87%→96% of the
+  spin box), the card TUMBLES in slower (980ms→1500ms), and it no longer
+  auto-dismisses on a timer — it stays until the seeker taps. Torn-paper edge
+  fixed: the card's own crisp border/shadow showed inside the torn frame (ugly),
+  so the `CardTile` now drops its border + shadow (`!border-0 !shadow-none`) so
+  its white surface MERGES into the torn white paper backing (only the torn
+  outer edge shows; content stays sharp). Squiggly lines much thicker
+  (strokeWidth 3.2→7).
+- **Gambler's Feet seeker description was WRONG** — it came from the debug
+  panel's hardcoded test curses (invented names + text like "roll a die … travel
+  that many blocks"). `DebugPhaseControls` now pulls the REAL curse cards from
+  the deck (`uniqueCardTemplates()` → Unguided Tourist / Gambler's Feet / Spotty
+  Memory) so the test curses match production exactly.
+- **Seeker dice roller gained a `size="lg"`** (big centred die + prompt); the
+  `CurseInbox` dice curses (Gambler's Feet, Jammed Door, Spotty Memory) use it so
+  the dice read as a real action, like the hider's casting dice. Gambler's Feet
+  needs no pass/fail animation (you roll constantly while walking) — the generic
+  roller already has none; only Jammed Door keeps its `successFrom` pass/fail.
 
 **v1050 — draw-picker fly-to-hand unified with the shared FLIP (smooth
 handover).** The draw picker's OWN fly animation flew the kept card straight

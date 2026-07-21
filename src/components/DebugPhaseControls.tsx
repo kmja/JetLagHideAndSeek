@@ -26,7 +26,12 @@ import {
     stationLabelMaxChars,
 } from "@/lib/debugState";
 import { clearAllLocalDataAndReload } from "@/lib/debugTools";
-import { type Card, shuffledDeck } from "@/lib/hiderDeck";
+import {
+    type Card,
+    type CurseCard,
+    shuffledDeck,
+    uniqueCardTemplates,
+} from "@/lib/hiderDeck";
 import { hiddenCreditMs } from "@/lib/gameSetup";
 import {
     hiderHand,
@@ -57,30 +62,32 @@ import { DICE_FIZZLE } from "./CastCurseDialog";
  *  Covers the distinct CurseInbox paths: an untimed manual-clear curse, a
  *  timed countdown curse ("for the next N minutes" is parsed by curseMeta),
  *  and a dice-roll curse. Replaces the demo bot's removed auto-cast loop. */
+// Pull the REAL curse cards from the deck so the test curses match production
+// exactly (name / description / casting cost) — the old hardcoded list had
+// invented names + wrong text (e.g. a bogus "roll a die … travel that many
+// blocks" Gambler's Feet). Cycles through a few that exercise different UI
+// states: an untimed task curse, a dice curse, a category-disable dice curse.
+const DEBUG_TEST_CURSE_NAMES = [
+    "Curse of the Unguided Tourist",
+    "Curse of the Gambler's Feet",
+    "Curse of Spotty Memory",
+];
+const ALL_CURSE_TEMPLATES = uniqueCardTemplates().filter(
+    (c): c is CurseCard => c.kind === "curse",
+);
 const DEBUG_TEST_CURSES: {
     name: string;
     description: string;
     castingCost: string | null;
-}[] = [
-    {
-        name: "Curse of the Tourist",
-        description:
-            "Each seeker must take a selfie at the nearest tourist landmark before they may continue.",
-        castingCost: "Discard 1 card",
-    },
-    {
-        name: "Curse of the Polyglot",
-        description:
-            "For the next 10 minutes, every seeker must speak only in a language they don't fluently know.",
-        castingCost: "Discard 2 cards",
-    },
-    {
-        name: "Curse of the Gambler's Feet",
-        description:
-            "Before your next question, roll a die. You may only travel that many blocks.",
-        castingCost: "Discard 1 card",
-    },
-];
+}[] = DEBUG_TEST_CURSE_NAMES.map((name) =>
+    ALL_CURSE_TEMPLATES.find((c) => c.name === name),
+)
+    .filter((c): c is CurseCard => Boolean(c))
+    .map((c) => ({
+        name: c.name,
+        description: c.description,
+        castingCost: c.castingCost ?? null,
+    }));
 
 /**
  * Temporary developer panel for jumping the latest question between any

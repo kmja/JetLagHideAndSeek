@@ -20,6 +20,7 @@ export function DiceRoller({
     onSettle,
     successFrom,
     disabled = false,
+    size = "sm",
 }: {
     /** How many d6 to roll together (default 1). */
     count?: number;
@@ -34,7 +35,13 @@ export function DiceRoller({
     successFrom?: number;
     /** Disable rolling (e.g. Jammed Door doorway on cooldown after a fail). */
     disabled?: boolean;
+    /** v1051: `"lg"` is a prominent, vertically-centred version (big die +
+     *  centred prompt) — used for curses the seekers roll for often (e.g.
+     *  Gambler's Feet), so the dice read as a real action, not a footnote.
+     *  `"sm"` is the original compact horizontal chip. */
+    size?: "sm" | "lg";
 } = {}) {
+    const lg = size === "lg";
     const dice = Math.max(1, Math.floor(count));
     const [values, setValues] = useState<number[] | null>(null);
     const [rolling, setRolling] = useState(false);
@@ -88,8 +95,10 @@ export function DiceRoller({
     return (
         <div
             className={cn(
-                "rounded-sm border border-border bg-secondary/40 p-3",
-                "flex items-center gap-3",
+                "rounded-md border border-border bg-secondary/40",
+                lg
+                    ? "p-4 flex flex-col items-center gap-3 text-center"
+                    : "p-3 flex items-center gap-3",
             )}
             data-testid="dice-roller"
         >
@@ -99,7 +108,8 @@ export function DiceRoller({
                 disabled={rolling || disabled}
                 aria-label={dice > 1 ? `Roll ${dice} d6` : "Roll d6"}
                 className={cn(
-                    "shrink-0 flex items-center gap-1.5",
+                    "shrink-0 flex items-center",
+                    lg ? "gap-2.5" : "gap-1.5",
                     "disabled:cursor-not-allowed",
                     "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-md",
                     // v1032: on a settled pass/fail, pop (success) or shake
@@ -115,9 +125,12 @@ export function DiceRoller({
                         <span
                             key={i}
                             className={cn(
-                                "w-12 h-12 rounded-md",
-                                "bg-background border-2 flex items-center justify-center",
-                                "font-inter-tight italic font-black text-2xl tabular-nums",
+                                "rounded-md",
+                                lg
+                                    ? "w-20 h-20 text-4xl border-[3px]"
+                                    : "w-12 h-12 text-2xl border-2",
+                                "bg-background flex items-center justify-center",
+                                "font-inter-tight italic font-black tabular-nums",
                                 "transition-transform",
                                 // Border + text follow the pass/fail outcome
                                 // (green / red), else the neutral primary.
@@ -133,16 +146,23 @@ export function DiceRoller({
                                     "hover:scale-[1.05] active:scale-95",
                             )}
                         >
-                            {v ?? <Dice5 className="w-6 h-6" />}
+                            {v ?? (
+                                <Dice5 className={lg ? "w-9 h-9" : "w-6 h-6"} />
+                            )}
                         </span>
                     ),
                 )}
             </button>
-            <div className="min-w-0 flex-1">
+            <div className={cn(lg ? "w-full" : "min-w-0 flex-1")}>
                 <div className="text-[10px] uppercase tracking-[0.16em] font-poppins font-bold text-muted-foreground">
                     {dice > 1 ? `Dice ×${dice}` : "Dice"}
                 </div>
-                <div className="text-xs text-foreground leading-snug mt-0.5">
+                <div
+                    className={cn(
+                        "text-foreground leading-snug mt-0.5",
+                        lg ? "text-sm" : "text-xs",
+                    )}
+                >
                     {settledText}
                 </div>
             </div>

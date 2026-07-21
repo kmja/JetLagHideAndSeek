@@ -1,5 +1,5 @@
 import { useStore } from "@nanostores/react";
-import { useEffect, useMemo, useRef } from "react";
+import { useMemo } from "react";
 import { createPortal } from "react-dom";
 
 import { CardTile } from "@/components/CardTile";
@@ -16,7 +16,8 @@ import { gameSize } from "@/lib/gameSetup";
  *   3. dark-navy squiggly lines grow OUT from behind the card (ease-out, a beat
  *      later), then the whole star + squiggles rotate slowly behind the settled
  *      card.
- * A full-screen portal overlay; tap anywhere (or wait ~9 s) to dismiss.
+ * A full-screen portal overlay; tap anywhere to dismiss (no auto-timeout —
+ * it stays until the seeker acknowledges it).
  *
  * All motion is CSS keyframes (see `globals.css` `curseReveal*`), so it's cheap
  * and `prefers-reduced-motion`-gated there. Mounted seeker-side only.
@@ -82,15 +83,6 @@ function formatFilmTarget(secs: number): string {
 export function CurseRevealOverlay() {
     const received = useStore(curseReveal);
     const $gameSize = useStore(gameSize);
-    const timerRef = useRef<number | null>(null);
-
-    useEffect(() => {
-        if (!received) return;
-        timerRef.current = window.setTimeout(() => curseReveal.set(null), 9000);
-        return () => {
-            if (timerRef.current) window.clearTimeout(timerRef.current);
-        };
-    }, [received]);
 
     const starPath = useStarPath();
     const squiggles = useMemo(
@@ -180,17 +172,17 @@ export function CurseRevealOverlay() {
                                 d={d}
                                 fill="none"
                                 stroke={SQUIGGLE}
-                                strokeWidth={3.2}
+                                strokeWidth={7}
                                 strokeLinecap="round"
-                                opacity={0.9}
+                                opacity={0.92}
                             />
                         ))}
                     </svg>
                     {/* Star — grows in FAST (beat 1); points just barely leave
-                        the frame. Centred in the box (87% of it ≈ 118vmin). */}
+                        the frame. Centred in the box (96% of it ≈ 130vmin). */}
                     <svg
                         viewBox="0 0 200 200"
-                        className="absolute inset-0 m-auto w-[87%] h-[87%] motion-safe:animate-[curseRevealStarIn_360ms_cubic-bezier(0.2,0.9,0.3,1)_both]"
+                        className="absolute inset-0 m-auto w-[96%] h-[96%] motion-safe:animate-[curseRevealStarIn_360ms_cubic-bezier(0.2,0.9,0.3,1)_both]"
                         aria-hidden="true"
                     >
                         <path
@@ -211,18 +203,25 @@ export function CurseRevealOverlay() {
                 className="relative z-[1] flex flex-col items-center"
                 style={{ perspective: "1400px" }}
             >
-                <div className="relative w-[min(78vw,300px)] drop-shadow-2xl motion-safe:animate-[curseRevealCardTumble_980ms_180ms_cubic-bezier(0.3,0.9,0.4,1)_both] [transform-style:preserve-3d]">
+                <div className="relative w-[min(78vw,300px)] drop-shadow-2xl motion-safe:animate-[curseRevealCardTumble_1500ms_180ms_cubic-bezier(0.3,0.9,0.4,1)_both] [transform-style:preserve-3d]">
                     {/* Torn-paper backing: a slightly-larger card-white
-                        rectangle with the rough filter, so only its EDGES look
-                        torn (peeking ~6px around the crisp card). The card
-                        itself is NOT filtered, so its text/art stay sharp. */}
+                        rectangle with the rough filter, so its EDGES look torn.
+                        The card on top drops its OWN border + shadow so its white
+                        surface MERGES into this white paper — otherwise the
+                        card's crisp straight edge showed inside the torn frame
+                        (the reported ugliness). The card content stays sharp
+                        (only the paper is filtered). */}
                     <div
                         aria-hidden="true"
-                        className="absolute -inset-[6px] rounded-[6%] bg-white"
+                        className="absolute -inset-[9px] rounded-[7%] bg-white"
                         style={{ filter: "url(#curseCardRough)" }}
                     />
                     <div className="relative">
-                        <CardTile card={card} gameSize={$gameSize} />
+                        <CardTile
+                            card={card}
+                            gameSize={$gameSize}
+                            className="!border-0 !shadow-none"
+                        />
                     </div>
                 </div>
                 {payloadItems.length > 0 && (
