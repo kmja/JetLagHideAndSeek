@@ -428,7 +428,13 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v1054`. Use `git log` for the per-version detail;
+build stamp. Current: `v1055`. Use `git log` for the per-version detail;
+
+**v1055 — curse-reveal: flat-cap snakes + smooth exit.** Squiggle
+`strokeLinecap` back to `butt` (flat ends, per the reference). Dismiss now
+animates OUT — an `exiting` state fades the backdrop to 0 (`transition-opacity`)
+and shrinks the star + card (`scale-90`) over ~300 ms before the atom clears and
+the overlay unmounts, instead of snapping away.
 
 **v1054 — curse-reveal star bigger + thicker round-cap snakes.** The star spin
 box grew `160vmin`→`215vmin` (star points push further past the frame edges, per

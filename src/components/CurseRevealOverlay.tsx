@@ -1,5 +1,5 @@
 import { useStore } from "@nanostores/react";
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { CardTile } from "@/components/CardTile";
@@ -109,10 +109,33 @@ export function CurseRevealOverlay() {
         return out;
     }, []);
 
+    // Exit animation: on dismiss, fade + shrink out over ~320ms before clearing
+    // the atom (which unmounts), instead of snapping away instantly.
+    const [exiting, setExiting] = useState(false);
+    const dismissTimer = useRef<number | null>(null);
+    useEffect(() => {
+        // A fresh curse resets the exit state (the component stays mounted and
+        // just returns null between curses).
+        if (received) setExiting(false);
+    }, [received]);
+    useEffect(
+        () => () => {
+            if (dismissTimer.current) clearTimeout(dismissTimer.current);
+        },
+        [],
+    );
+
     if (!received) return null;
 
     const card = curseCardFromReceived(received);
-    const dismiss = () => curseReveal.set(null);
+    const dismiss = () => {
+        if (exiting) return;
+        setExiting(true);
+        dismissTimer.current = window.setTimeout(
+            () => curseReveal.set(null),
+            320,
+        );
+    };
 
     // Payload delivered with the curse (v1031) — shown as it arrives so the
     // seekers immediately see what the hider sent (photo / destination / rock
@@ -139,7 +162,11 @@ export function CurseRevealOverlay() {
             role="dialog"
             aria-label={`Curse cast: ${card.name}`}
             onClick={dismiss}
-            className="fixed inset-0 z-[1190] flex items-center justify-center overflow-hidden cursor-pointer animate-[curseRevealBackdrop_320ms_ease-out]"
+            className={`fixed inset-0 z-[1190] flex items-center justify-center overflow-hidden cursor-pointer ${
+                exiting
+                    ? "opacity-0 transition-opacity duration-300 ease-in pointer-events-none"
+                    : "animate-[curseRevealBackdrop_320ms_ease-out]"
+            }`}
             style={{
                 // A dark, mostly-neutral scrim (not a full-screen purple wash) —
                 // the purple STAR is the colour, the backdrop just dims the game.
@@ -173,7 +200,11 @@ export function CurseRevealOverlay() {
                 centred WITHIN it via `inset-0 m-auto` (NOT a translate — the
                 grow-in animations overwrite `transform`, which is exactly what
                 made the star orbit instead of spinning in place). */}
-            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+            <div
+                className={`absolute inset-0 flex items-center justify-center pointer-events-none transition-transform duration-300 ease-in ${
+                    exiting ? "scale-90" : ""
+                }`}
+            >
                 <div className="relative w-[215vmin] h-[215vmin] motion-safe:animate-[curseRevealSpin_46s_linear_infinite]">
                     {/* Star — grows in FAST (beat 1); big enough that its points
                         push well past the frame edges. Fills the spin box.
@@ -205,7 +236,7 @@ export function CurseRevealOverlay() {
                                 fill="none"
                                 stroke={SQUIGGLE}
                                 strokeWidth={8}
-                                strokeLinecap="round"
+                                strokeLinecap="butt"
                                 strokeLinejoin="round"
                                 opacity={0.95}
                             />
@@ -218,7 +249,9 @@ export function CurseRevealOverlay() {
                 `perspective` on the wrapper makes the rotateX read as a real
                 3-D tumble. */}
             <div
-                className="relative z-[1] flex flex-col items-center"
+                className={`relative z-[1] flex flex-col items-center transition-transform duration-300 ease-in ${
+                    exiting ? "scale-90" : ""
+                }`}
                 style={{ perspective: "1400px" }}
             >
                 <div className="relative w-[min(78vw,300px)] drop-shadow-2xl motion-safe:animate-[curseRevealCardTumble_1500ms_180ms_cubic-bezier(0.3,0.9,0.4,1)_both] [transform-style:preserve-3d]">
