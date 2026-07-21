@@ -428,7 +428,16 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v1068`. Use `git log` for the per-version detail;
+build stamp. Current: `v1069`. Use `git log` for the per-version detail;
+
+**v1069 — configure-map pin is the seeker's GPS marker on every question.** The
+`InlineLocationPicker` pin rendered as the canonical `SelfPositionMarker` (blue
+GPS dot) only in lock-to-GPS mode; otherwise it was an orange teardrop. Since the
+pin always represents the seeker's own position (radar centre / thermometer start
+/ the point whose nearest reference is compared), it now ALWAYS renders as the
+`SelfPositionMarker` (center-anchored, still draggable where the question allows),
+so "you are here" reads consistently across all question types. The separate
+nearest-reference teardrop is unchanged.
 
 **v1068 — an unpayable curse casting cost is disabled in the HAND.** A curse whose
 casting cost (`Discard N cards`) can't be met with the current hand now disables

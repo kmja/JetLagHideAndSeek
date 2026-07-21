@@ -1457,21 +1457,15 @@ export function InlineLocationPicker({
                         <Marker
                             longitude={safeLng}
                             latitude={safeLat}
-                            // v347: when the pin represents the user's
-                            // own LIVE GPS position (lock-to-GPS mode +
-                            // a real fix), render it as the canonical
-                            // SelfPositionMarker — anchored center —
-                            // for visual consistency with every other
-                            // "my position" rendering. When the pin is
-                            // a freely-pickable location (free mode, or
-                            // locked-mode fallback before GPS arrives),
-                            // keep the teardrop — that's "the point
-                            // you're placing", not "you are here".
-                            anchor={
-                                lockToGps && !interactionsAllowed
-                                    ? "center"
-                                    : "bottom"
-                            }
+                            // v1069: the pin ALWAYS renders as the canonical
+                            // "you are here" SelfPositionMarker (the seeker's GPS
+                            // dot) for every question — the pin represents the
+                            // seeker's position (radar centre / thermometer start
+                            // / the point whose nearest reference is compared), so
+                            // the blue GPS dot reads correctly everywhere instead
+                            // of an orange teardrop. Still draggable where the
+                            // question allows moving it.
+                            anchor="center"
                             draggable={interactionsAllowed}
                             onDragEnd={
                                 interactionsAllowed
@@ -1482,24 +1476,11 @@ export function InlineLocationPicker({
                                           )
                                     : undefined
                             }
+                            style={{
+                                cursor: interactionsAllowed ? "grab" : "default",
+                            }}
                         >
-                            {lockToGps && !interactionsAllowed ? (
-                                <SelfPositionMarker />
-                            ) : (
-                                <div
-                                    className="jl-picker-pin"
-                                    style={{
-                                        width: 28,
-                                        height: 38,
-                                        cursor: interactionsAllowed
-                                            ? "grab"
-                                            : "default",
-                                    }}
-                                    dangerouslySetInnerHTML={{
-                                        __html: PIN_SVG,
-                                    }}
-                                />
-                            )}
+                            <SelfPositionMarker />
                         </Marker>
                     )}
                     {/* Reference marker + permanent popup label. Suppressed for
