@@ -430,6 +430,15 @@ bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
 build stamp. Current: `v1069`. Use `git log` for the per-version detail;
 
+**v1077 — underlined link-style action buttons → standard secondary buttons.** The
+persistently-underlined "link button with underlined text" style was replaced by
+the shared `Button variant="secondary" size="sm"` on the standalone actions that
+used it: the `LocationPauseBanner` "We're tracking GPS another way — stop these
+warnings" dismiss, `HiderView`'s "Not right? Change your answer" (the auto-graded
+override), and the photo/film **Retake**/**Redo** actions in `CastCurseDialog` +
+`FilmViewfinder`. (Subtle `hover:underline`-only inline text links — e.g. the
+Welcome store link — were left as inline links, not action buttons.)
+
 **v1076 — radar sweep banding + thermometer preview elimination mask + draw-picker
 backdrop fade.**
 - **Radar trail banding** (`Map.tsx` `SWEEP_SEGMENTS` 24 → 96): the sweep trail

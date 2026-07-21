@@ -1175,13 +1175,15 @@ function AutoGradedBinaryAnswer({
                             Auto-computed from your location.
                         </div>
                     </div>
-                    <button
+                    <Button
                         type="button"
+                        variant="secondary"
+                        size="sm"
                         onClick={() => setShowOverride(true)}
-                        className="mx-auto block text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground"
+                        className="mx-auto h-auto py-1 text-xs"
                     >
                         Not right? Change your answer
-                    </button>
+                    </Button>
                 </>
             ) : (
                 <>

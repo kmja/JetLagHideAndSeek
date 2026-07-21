@@ -1,6 +1,7 @@
 import { useStore } from "@nanostores/react";
 import { MapPinOff, PauseCircle } from "lucide-react";
 
+import { Button } from "@/components/ui/button";
 import { useNow } from "@/hooks/useNow";
 import {
     gamePausedForLocationAt,
@@ -106,13 +107,15 @@ export function LocationPauseBanner({
  */
 function TrackingElsewhereButton() {
     return (
-        <button
+        <Button
             type="button"
+            variant="secondary"
+            size="sm"
             onClick={() => setLocationTrackingExternal(true)}
-            className="mt-1 text-[11px] font-semibold underline underline-offset-2 opacity-80 hover:opacity-100"
+            className="mt-1.5 h-auto py-1 text-[11px]"
         >
             We&apos;re tracking GPS another way — stop these warnings
-        </button>
+        </Button>
     );
 }
 

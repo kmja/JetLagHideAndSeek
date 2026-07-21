@@ -1277,17 +1277,19 @@ export function CastCurseDialog({
                                                     Photo attached — the
                                                     seekers will see it.
                                                 </p>
-                                                <button
+                                                <Button
                                                     type="button"
                                                     onClick={() => {
                                                         setPreparedPhoto(null);
                                                         photoInputRef.current?.click();
                                                     }}
                                                     disabled={photoBusy}
-                                                    className="mt-1 text-[11px] text-muted-foreground underline underline-offset-2 hover:text-foreground"
+                                                    variant="secondary"
+                                                    size="sm"
+                                                    className="mt-1 h-auto py-1 text-[11px]"
                                                 >
                                                     Retake
-                                                </button>
+                                                </Button>
                                             </div>
                                         </div>
                                     ) : (
@@ -1387,13 +1389,15 @@ export function CastCurseDialog({
                                                 Filmed {formatClock(filmSeconds)}{" "}
                                                 — the seekers must beat it.
                                             </p>
-                                            <button
+                                            <Button
                                                 type="button"
+                                                variant="secondary"
+                                                size="sm"
                                                 onClick={resetFilm}
-                                                className="text-[11px] text-muted-foreground underline underline-offset-2 hover:text-foreground"
+                                                className="h-auto py-1 text-[11px]"
                                             >
                                                 Redo
-                                            </button>
+                                            </Button>
                                         </div>
                                     ) : (
                                         <>

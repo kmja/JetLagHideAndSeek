@@ -166,13 +166,15 @@ export function FilmViewfinder({
                                 ? " — long enough."
                                 : ` — need ${formatClock(targetSeconds)}.`)}
                     </p>
-                    <button
+                    <Button
                         type="button"
+                        variant="secondary"
+                        size="sm"
                         onClick={reset}
-                        className="text-[11px] text-muted-foreground underline underline-offset-2 hover:text-foreground"
+                        className="h-auto py-1 text-[11px]"
                     >
                         Redo
-                    </button>
+                    </Button>
                 </div>
             ) : (
                 <>
