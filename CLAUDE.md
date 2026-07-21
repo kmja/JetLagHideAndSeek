@@ -428,7 +428,16 @@ Shipped features include **live seeker→hider location sharing** (`loc` message
 shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
-build stamp. Current: `v1065`. Use `git log` for the per-version detail;
+build stamp. Current: `v1066`. Use `git log` for the per-version detail;
+
+**v1066 — hider can re-toggle the hiding-zones overlay after committing.** The
+`HiderReachOverlay` render effect FORCE-turned the toggle off whenever a zone was
+committed or the whistle had blown, so a manual toggle-on flipped straight back
+off ("clicked, nothing happens, no error"). The one-shot auto-HIDE-on-commit
+moved into the auto effect (keyed on the committed zone's `committedAt`, fires
+once), and the render effect now draws the candidate zones whenever enabled +
+a clock exists — so the hider can re-enable the overlay whenever they want. The
+genuinely-can't-draw paths (fetch-failed / empty) still turn off + toast.
 
 **v1065 — adjacents show for non-baked warm cities (Stockholm fix).** v1061's
 `bakedOnly:true` was too strict: a city whose adjacency isn't baked into

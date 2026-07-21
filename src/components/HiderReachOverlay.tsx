@@ -62,6 +62,11 @@ export function HiderReachOverlay() {
     // new round re-enables. Cleared once a zone is committed (the main effect
     // below turns the overlay off then).
     const autoShownForRef = useRef<number | null>(null);
+    // v1066: one-shot auto-HIDE when a zone is first committed (the survey view
+    // becomes clutter, the trip-plan card takes over) — but only ONCE, so the
+    // hider can manually re-toggle it back on afterwards. Keyed on the committed
+    // zone identity so a fresh commit re-fires but a manual re-enable sticks.
+    const autoHiddenForRef = useRef<string | null>(null);
     useEffect(() => {
         if (
             $hidingEndsAt !== null &&
@@ -71,6 +76,16 @@ export function HiderReachOverlay() {
         ) {
             autoShownForRef.current = $hidingEndsAt;
             showHiderReach.set(true);
+        }
+        // Auto-hide once, the first time this specific zone is committed.
+        if ($zone) {
+            const key = String($zone.committedAt);
+            if (autoHiddenForRef.current !== key) {
+                autoHiddenForRef.current = key;
+                showHiderReach.set(false);
+            }
+        } else {
+            autoHiddenForRef.current = null;
         }
     }, [$hidingEndsAt, $zone]);
 
@@ -99,19 +114,12 @@ export function HiderReachOverlay() {
             turnOff();
             return;
         }
-        // Auto-disable once the hider has locked their zone — at
-        // that point the survey view is no longer guidance, it's
-        // clutter. The trip-plan card takes over.
-        if ($zone) {
-            turnOff();
-            return;
-        }
-        if (Date.now() >= $hidingEndsAt) {
-            // Past the whistle — the overlay can't help and the
-            // grace-window picker is taking the screen anyway.
-            turnOff();
-            return;
-        }
+        // v1066: committing a zone / passing the whistle no longer FORCE the
+        // overlay off from here — that made a MANUAL toggle-on immediately flip
+        // back off ("clicked, nothing happens"). The one-shot auto-HIDE on
+        // commit lives in the auto effect above, so it still declutters
+        // automatically but the hider can re-enable it whenever they want (the
+        // candidate zones are still computable after commit / past the whistle).
 
         let cancelled = false;
         const controller = new AbortController();
