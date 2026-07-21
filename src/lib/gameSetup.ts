@@ -243,6 +243,23 @@ export const preloadBucketInFlight = atom<{
 }>({ map: false, references: false, transit: false });
 
 /**
+ * Per-bucket "attempted this session" flag (v1071). Distinct from
+ * `preloadBucketInFlight` (running now) and `preloadBucketTimestamps`
+ * (SUCCEEDED — cached data). A bucket that RAN but FAILED (e.g. transit warm
+ * fell to live Overpass and got rate-limited / timed out) has no timestamp,
+ * so the UI can't tell "hasn't started" from "finished but failed" — which
+ * left the preload bar spinning forever at ~98% with nothing actually
+ * running. Set true in each bucket run's `finally` (success OR failure),
+ * reset on a play-area change alongside the timestamps, so the UI can settle
+ * to a terminal state once every enabled bucket has been attempted.
+ */
+export const preloadBucketSettled = atom<{
+    map: boolean;
+    references: boolean;
+    transit: boolean;
+}>({ map: false, references: false, transit: false });
+
+/**
  * User-facing STOP for the preload (v931). Persisted so a stop survives a
  * reload. While true the orchestrator refuses to (re)start any bucket and
  * `stopPreload()` aborts the in-flight map download; `resumePreload()`

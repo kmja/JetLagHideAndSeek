@@ -430,6 +430,37 @@ bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
 build stamp. Current: `v1069`. Use `git log` for the per-version detail;
 
+**v1071 — preload settles on a terminal state (no infinite spinner when transit
+fails) + committed-zone card text sizing + remove configure-dialog house-rules
+note.**
+- **The lobby "Preloading the map…" bar no longer spins forever when a bucket
+  runs but fails.** The compact bar's completion keyed on `allDone` = every
+  enabled bucket has a SUCCESS timestamp (`preloadBucketTimestamps`). A bucket
+  that RAN but FAILED — e.g. transit routes that aren't prewarmed for a city fall
+  through to a LIVE Overpass query that gets rate-limited/timed out — never gets
+  a timestamp, so `allDone` stayed false and the spinner spun at ~98% with
+  nothing actually running (the reported Stockholm "stuck at 98%, then 100% but
+  still in progress"). NB the diagnostic's "RATE-LIMITED" is NOT R2 rate-limiting
+  — it's the live-Overpass fallback failing when a mode isn't in R2. New
+  `preloadBucketSettled` atom (`gameSetup.ts`) marks each bucket ATTEMPTED
+  (success OR failure) in its run's `finally` (a user STOP/abort stays
+  unsettled → resumable), reset on a play-area change alongside the timestamps.
+  `CompactPreloadBar` now settles to a TERMINAL state once every enabled bucket
+  is settled + nothing is loading: the map pack is the critical offline asset, so
+  it reads "Map ready" (green check) whenever the map bucket succeeded, with a
+  muted note ("Transit overlays couldn't preload — they'll load live in-game.")
+  if a non-map bucket failed; a failed map bucket reads "Preload incomplete"
+  (`AlertTriangle`). No more infinite spinner.
+- **Committed-zone card text sizing** (`HiderHome`): the map thumbnail was too
+  big relative to the "YOUR ZONE / <name> / radius" column, leaving empty space
+  beside its lower half. Map shrunk (`w-32 sm:w-40` → `w-28 sm:w-32`) and the
+  text enlarged (eyebrow `text-[10px]`→`text-xs`, name `text-2xl`→`text-3xl`,
+  modes/radius `text-xs`→`text-sm`, mode glyphs `w-4`→`w-5`) so the two columns
+  roughly match height.
+- **Removed the configure-dialog house-rules reminder** (`AddQuestionDialog`) —
+  the "No Google Street View … / One question at a time …" note under the
+  category picker was redundant clutter (both are in the rulebook).
+
 **v1070 — no lobby reload when switching teams + committed-zone card = square
 map + side content.**
 - **Switching teams in the lobby no longer reloads/remounts the shell.** Picking

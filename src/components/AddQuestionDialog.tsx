@@ -1145,22 +1145,6 @@ export const AddQuestionDialog = ({
                                 );
                             })()}
                         </div>
-
-                        {/* House rules reminders — rulebook p13. Google Street View
-                    is banned (too powerful for photo matches and station
-                    verification); questions must be asked one at a time. */}
-                        <div className="mt-3 pt-3 border-t border-border text-[11px] leading-snug text-muted-foreground space-y-0.5">
-                            <div>
-                                <span className="font-semibold text-foreground">
-                                    No Google Street View
-                                </span>{" "}
-                                — the only banned research tool.
-                            </div>
-                            <div>
-                                One question at a time — wait for the hider's
-                                answer before asking the next.
-                            </div>
-                        </div>
                     </div>
                 </DrawerContent>
             </Drawer>

@@ -18,6 +18,7 @@ import {
     playArea,
     preloadBucketBytes,
     preloadBucketInFlight,
+    preloadBucketSettled,
     preloadBucketTimestamps,
     preloadChoices,
     preloadMapProgress,
@@ -88,6 +89,12 @@ if (typeof window !== "undefined") {
                     map: null,
                     references: null,
                     transit: null,
+                });
+                // v1071: a new area hasn't been attempted yet.
+                preloadBucketSettled.set({
+                    map: false,
+                    references: false,
+                    transit: false,
                 });
             }
             if (id !== null) lastIdentity = id;
@@ -327,6 +334,15 @@ function runMapPreload(): void {
                 ...preloadBucketInFlight.get(),
                 map: false,
             });
+            // v1071: mark attempted (success OR failure) so the UI can settle
+            // to a terminal state. A user STOP (aborted) is resumable, not a
+            // finished attempt — leave settled false so it doesn't read "done".
+            if (!signal.aborted) {
+                preloadBucketSettled.set({
+                    ...preloadBucketSettled.get(),
+                    map: true,
+                });
+            }
         }
     })();
 }
@@ -403,6 +419,11 @@ function runReferencesPreload(): void {
             preloadBucketInFlight.set({
                 ...preloadBucketInFlight.get(),
                 references: false,
+            });
+            // v1071: attempted (success or failure) → the UI can settle.
+            preloadBucketSettled.set({
+                ...preloadBucketSettled.get(),
+                references: true,
             });
         });
 }
@@ -576,6 +597,12 @@ function runTransitPreload(): void {
         preloadBucketInFlight.set({
             ...preloadBucketInFlight.get(),
             transit: false,
+        });
+        // v1071: attempted (success OR rate-limited/failed) → the UI can
+        // settle to a terminal state instead of spinning forever.
+        preloadBucketSettled.set({
+            ...preloadBucketSettled.get(),
+            transit: true,
         });
         preloadTransitProgress.set(null);
     })();

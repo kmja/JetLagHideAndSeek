@@ -16,6 +16,7 @@
 
 import { useStore } from "@nanostores/react";
 import {
+    AlertTriangle,
     BookOpen,
     CheckCircle2,
     Loader2,
@@ -31,6 +32,7 @@ import {
     hidingPeriodEndsAt,
     preloadBucketBytes,
     preloadBucketInFlight,
+    preloadBucketSettled,
     preloadBucketTimestamps,
     preloadChoices,
     preloadMapProgress,
@@ -465,6 +467,7 @@ function CompactPreloadBar({
     const choices = useStore(preloadChoices);
     const timestamps = useStore(preloadBucketTimestamps);
     const inFlight = useStore(preloadBucketInFlight);
+    const settled = useStore(preloadBucketSettled);
     const paused = useStore(preloadPaused);
     const mapProgress = useStore(preloadMapProgress);
     const transitProgress = useStore(preloadTransitProgress);
@@ -486,6 +489,12 @@ function CompactPreloadBar({
             : id === "references"
               ? inFlight.references
               : inFlight.transit;
+    const isSettled = (id: keyof PreloadChoices) =>
+        id === "map"
+            ? settled.map
+            : id === "references"
+              ? settled.references
+              : settled.transit;
     const weightOf = (id: keyof PreloadChoices) =>
         bucketDisplayMb(BUCKETS.find((b) => b.id === id)!, areaKm2, realMapMb);
 
@@ -521,38 +530,67 @@ function CompactPreloadBar({
     const pct = wSum > 0 ? Math.min(100, Math.round((fSum / wSum) * 100)) : 0;
     const anyLoading = enabled.some(isInFlight);
     const allDone = enabled.every((id) => doneAt(id) !== null);
+    // v1071: TERMINAL state = every enabled bucket has been ATTEMPTED and
+    // nothing is still running. Distinct from `allDone` (every bucket
+    // SUCCEEDED / cached data): a bucket that ran but FAILED (e.g. transit
+    // fell to live Overpass and got rate-limited) is settled-but-not-done, so
+    // keying the spinner on `allDone` alone left it spinning forever at ~98%.
+    // The map pack is the critical offline asset, so once it succeeds the
+    // preload is usefully "ready" even if a non-map overlay bucket failed.
+    const finished = !anyLoading && !paused && enabled.every(isSettled);
+    const mapEnabled = choices.map;
+    const mapReady = doneAt("map") !== null;
+    // A settled-but-not-done non-map bucket (transit / references) that
+    // couldn't preload — it'll fall back to a live fetch in-game.
+    const failedBuckets = enabled.filter(
+        (id) => id !== "map" && isSettled(id) && doneAt(id) === null,
+    );
+    const readyLabel =
+        allDone || (mapEnabled && mapReady) ? "Map ready" : "Preload incomplete";
+    const readyOk = allDone || (mapEnabled && mapReady);
 
     return (
         <div className={cn("space-y-2", className)}>
             <div className="rounded-md border border-primary/30 bg-secondary/20 px-3 py-2.5 space-y-1.5">
                 <div className="flex items-center gap-2">
-                    {allDone ? (
-                        <CheckCircle2 className="w-4 h-4 shrink-0 text-green-400" />
+                    {finished ? (
+                        readyOk ? (
+                            <CheckCircle2 className="w-4 h-4 shrink-0 text-green-400" />
+                        ) : (
+                            <AlertTriangle className="w-4 h-4 shrink-0 text-warning" />
+                        )
                     ) : paused ? (
                         <Square className="w-4 h-4 shrink-0 text-muted-foreground" />
                     ) : (
                         <Loader2 className="w-4 h-4 shrink-0 animate-spin text-primary" />
                     )}
                     <span className="text-sm font-medium text-foreground flex-1 min-w-0">
-                        {allDone
-                            ? "Map ready"
+                        {finished
+                            ? readyLabel
                             : paused
                               ? "Preload paused"
                               : "Preloading the map…"}
                     </span>
-                    {!allDone && (
+                    {!finished && (
                         <span className="text-xs font-mono tabular-nums text-muted-foreground shrink-0">
                             {pct}%
                         </span>
                     )}
                 </div>
-                {!allDone && (
+                {!finished && (
                     <div className="h-1.5 w-full bg-background/60 rounded-full overflow-hidden">
                         <div
                             className="h-full bg-primary transition-[width] duration-300 ease-out"
                             style={{ width: `${pct}%` }}
                         />
                     </div>
+                )}
+                {finished && failedBuckets.length > 0 && (
+                    <p className="text-xs text-muted-foreground">
+                        {failedBuckets.includes("transit")
+                            ? "Transit overlays couldn't preload — they'll load live in-game."
+                            : "Some map data couldn't preload — it'll load live in-game."}
+                    </p>
                 )}
             </div>
             {(paused || anyLoading) && (

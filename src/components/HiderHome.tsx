@@ -995,7 +995,7 @@ function HidingZoneSection({
                 // map on the left + the zone identity beside it.
                 <div className="rounded-md border border-border bg-secondary/40 p-3">
                     <div className="flex items-stretch gap-3">
-                        <div className="shrink-0 w-32 sm:w-40">
+                        <div className="shrink-0 w-28 sm:w-32">
                             <Suspense
                                 fallback={
                                     <div className="aspect-square w-full rounded-lg border border-dashed border-border" />
@@ -1012,14 +1012,14 @@ function HidingZoneSection({
                             </Suspense>
                         </div>
                         <div className="min-w-0 flex-1 flex flex-col justify-center">
-                            <div className="text-[10px] uppercase tracking-[0.16em] font-poppins font-bold text-muted-foreground">
+                            <div className="text-xs uppercase tracking-[0.16em] font-poppins font-bold text-muted-foreground">
                                 Your zone
                             </div>
-                            <div className="text-2xl font-inter-tight font-bold leading-tight mt-0.5 break-words">
+                            <div className="text-3xl font-inter-tight font-bold leading-tight mt-1 break-words">
                                 {zone.stationName}
                             </div>
                             {(zoneModes.length > 0 || radiusLabel) && (
-                                <div className="flex items-center flex-wrap gap-x-2.5 gap-y-1 mt-1.5 text-xs text-muted-foreground">
+                                <div className="flex items-center flex-wrap gap-x-3 gap-y-1 mt-2.5 text-sm text-muted-foreground">
                                     {zoneModes.length > 0 && (
                                         <span className="flex items-center gap-1.5 text-foreground/70">
                                             {zoneModes.map((m) => {
@@ -1027,7 +1027,7 @@ function HidingZoneSection({
                                                 return (
                                                     <Icon
                                                         key={m}
-                                                        className="w-4 h-4"
+                                                        className="w-5 h-5"
                                                         strokeWidth={2.4}
                                                         aria-label={m}
                                                     />
