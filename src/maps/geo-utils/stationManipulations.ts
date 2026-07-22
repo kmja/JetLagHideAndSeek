@@ -184,6 +184,49 @@ export function mergeDuplicateStation(
         }
     }
 
+    // v1115: collapse directional bus-stop PAIRS by PROXIMITY (not name), so
+    // both roles share ONE dedup. OSM maps the two sides of an intersection as
+    // separate `bus_stop` nodes ~30-70 m apart under differently-ordered names
+    // ("Nanaimo NB at Dundas" vs "Dundas EB at Nanaimo") the normaliser can't
+    // reconcile, so same-name clustering misses them and the overlay reads as a
+    // wall of paired dots. Any two BUS nodes within 90 m are the same stop for
+    // hiding-zone purposes. Ported from the hider's old `sortAndDedupe` (which
+    // is being retired in favour of this shared function). BUS-only, so a train
+    // station and a nearby bus stop stay distinct hiding zones.
+    const BUS_COLLAPSE_M = 90;
+    const isBus = places.map(
+        (p) => inferStationMode(p.properties) === "bus",
+    );
+    if (isBus.some(Boolean)) {
+        const CELL_DEG = 0.0025; // ~278 m lat; ±2 cells covers 90 m at any lat
+        const busGrid = new Map<string, number[]>();
+        const key = (lng: number, lat: number) =>
+            `${Math.round(lng / CELL_DEG)}:${Math.round(lat / CELL_DEG)}`;
+        for (let i = 0; i < n; i++) {
+            if (!isBus[i]) continue;
+            const k = key(coords[i][0], coords[i][1]);
+            const g = busGrid.get(k);
+            if (g) g.push(i);
+            else busGrid.set(k, [i]);
+        }
+        for (let i = 0; i < n; i++) {
+            if (!isBus[i]) continue;
+            const cx = Math.round(coords[i][0] / CELL_DEG);
+            const cy = Math.round(coords[i][1] / CELL_DEG);
+            for (let dx = -2; dx <= 2; dx++) {
+                for (let dy = -2; dy <= 2; dy++) {
+                    const g = busGrid.get(`${cx + dx}:${cy + dy}`);
+                    if (!g) continue;
+                    for (const j of g) {
+                        if (j <= i) continue; // each pair once
+                        if (approxMeters(coords[i], coords[j]) <= BUS_COLLAPSE_M)
+                            union(i, j);
+                    }
+                }
+            }
+        }
+    }
+
     // Group by cluster root, then average each cluster to one station.
     const groups = new Map<number, number[]>();
     for (let i = 0; i < n; i++) {

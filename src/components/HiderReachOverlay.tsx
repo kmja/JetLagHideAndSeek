@@ -144,6 +144,8 @@ export function HiderReachOverlay() {
             try {
                 stations = await fetchAreaStations(anchorLat, anchorLng, {
                     allowed: $allowed,
+                    radius: $radius,
+                    units: $units,
                 });
             } catch (e) {
                 console.warn("HiderReachOverlay: station fetch failed", e);
@@ -244,7 +246,14 @@ function stationPoints(stations: AreaStation[]): GeoJSON.Feature[] {
         // (HiderBackgroundMap Tier 1) can show the right glyph (subway/train/
         // tram/…). Without it, a direct-dot tap fell back to the generic pin —
         // only the tap-in-empty-space path (findZoneAtPoint) had the mode.
-        properties: { stopId: String(s.id), name: s.name, mode: s.mode },
+        // v1115: carry the FULL mode set (pipe-joined; MapLibre props are
+        // primitives) so a multi-mode hub shows every glyph on a direct tap.
+        properties: {
+            stopId: String(s.id),
+            name: s.name,
+            mode: s.mode,
+            modes: s.modes.join("|"),
+        },
     }));
 }
 

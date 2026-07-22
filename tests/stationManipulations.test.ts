@@ -211,6 +211,128 @@ describe("mergeDuplicateStation", () => {
         // own. (Pre-floor this expected 3 distinct pair-clusters.)
         expect(result).toHaveLength(2);
     });
+
+    // v1115: the hider's old `sortAndDedupe` bus-90m proximity collapse is now
+    // part of this ONE shared dedup (both roles). These pin the behaviour.
+    it("collapses two differently-named bus stops within 90 m (directional pair)", () => {
+        const places: StationPlace[] = [
+            {
+                type: "Feature",
+                geometry: { type: "Point", coordinates: [4.835, 52.373] },
+                properties: {
+                    id: "1",
+                    name: "Main St NB at Oak",
+                    highway: "bus_stop",
+                },
+            },
+            {
+                type: "Feature",
+                geometry: { type: "Point", coordinates: [4.8357, 52.37327] },
+                properties: {
+                    id: "2",
+                    name: "Oak Ave EB at Main",
+                    highway: "bus_stop",
+                },
+            },
+        ];
+        // ~57 m apart, different names → only the proximity rule can merge them.
+        expect(mergeDuplicateStation(places, 0.5, "kilometers")).toHaveLength(1);
+    });
+
+    it("keeps two bus stops more than 90 m apart distinct", () => {
+        const places: StationPlace[] = [
+            {
+                type: "Feature",
+                geometry: { type: "Point", coordinates: [4.835, 52.373] },
+                properties: { id: "1", name: "Stop A", highway: "bus_stop" },
+            },
+            {
+                type: "Feature",
+                geometry: { type: "Point", coordinates: [4.838, 52.373] },
+                properties: { id: "2", name: "Stop B", highway: "bus_stop" },
+            },
+        ];
+        // ~200 m apart → distinct hiding zones.
+        expect(mergeDuplicateStation(places, 0.5, "kilometers")).toHaveLength(2);
+    });
+
+    it("does not collapse a bus stop and a nearby non-bus stop (bus-only rule)", () => {
+        const places: StationPlace[] = [
+            {
+                type: "Feature",
+                geometry: { type: "Point", coordinates: [4.835, 52.373] },
+                properties: { id: "1", name: "Bus stop", highway: "bus_stop" },
+            },
+            {
+                type: "Feature",
+                geometry: { type: "Point", coordinates: [4.8354, 52.3732] },
+                properties: {
+                    id: "2",
+                    name: "Rail halt",
+                    railway: "station",
+                },
+            },
+        ];
+        // ~34 m apart, but the proximity collapse is bus↔bus only, and the
+        // names differ — a train station and a nearby bus stop are distinct
+        // hiding zones (both stay selectable).
+        expect(mergeDuplicateStation(places, 0.5, "kilometers")).toHaveLength(2);
+    });
+
+    it("keeps 'North Station' and 'South Station' distinct within the 800 m same-name floor", () => {
+        // The unification deliberately keeps the CONSERVATIVE normaliser (bare
+        // cardinals are NOT stripped) — a more aggressive one would collapse
+        // both to an empty key and wrongly merge them at the 800 m floor.
+        const places: StationPlace[] = [
+            {
+                type: "Feature",
+                geometry: { type: "Point", coordinates: [4.835, 52.373] },
+                properties: {
+                    id: "1",
+                    name: "North Station",
+                    railway: "station",
+                },
+            },
+            {
+                type: "Feature",
+                geometry: { type: "Point", coordinates: [4.836, 52.373] },
+                properties: {
+                    id: "2",
+                    name: "South Station",
+                    railway: "station",
+                },
+            },
+        ];
+        // ~68 m apart, well within the 800 m floor — must NOT merge.
+        expect(mergeDuplicateStation(places, 0.5, "kilometers")).toHaveLength(2);
+    });
+
+    it("unions transit modes across same-name nodes", () => {
+        const places: StationPlace[] = [
+            {
+                type: "Feature",
+                geometry: { type: "Point", coordinates: [4.835, 52.373] },
+                properties: {
+                    id: "1",
+                    name: "Central",
+                    station: "subway",
+                },
+            },
+            {
+                type: "Feature",
+                geometry: { type: "Point", coordinates: [4.8354, 52.3732] },
+                properties: {
+                    id: "2",
+                    name: "Central",
+                    highway: "bus_stop",
+                },
+            },
+        ];
+        const result = mergeDuplicateStation(places, 0.5, "kilometers");
+        expect(result).toHaveLength(1);
+        const modes = (result[0].properties as { modes?: string[] }).modes;
+        expect(modes).toEqual(expect.arrayContaining(["subway", "bus"]));
+    });
 });
 
 import { checkIfStationsShareZones } from "../src/maps/geo-utils/stationManipulations";

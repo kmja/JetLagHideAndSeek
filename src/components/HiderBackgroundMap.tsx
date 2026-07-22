@@ -738,17 +738,22 @@ export function HiderBackgroundMap() {
                                 const props = (f.properties ?? {}) as {
                                     name?: string;
                                     mode?: string;
+                                    modes?: string;
                                 };
                                 selectedMapStation.set({
                                     lat,
                                     lng,
                                     name: props.name,
-                                    // v1105: carry the mode so the station card
-                                    // shows the right transit glyph on a direct
-                                    // dot tap (was pin-only).
-                                    modes: props.mode
-                                        ? [props.mode]
-                                        : undefined,
+                                    // v1105/v1115: carry the FULL mode set so
+                                    // the station card shows every transit glyph
+                                    // on a direct dot tap (was pin-only / single
+                                    // mode). `modes` is pipe-joined in the point
+                                    // feature; fall back to the single `mode`.
+                                    modes: props.modes
+                                        ? props.modes.split("|")
+                                        : props.mode
+                                          ? [props.mode]
+                                          : undefined,
                                 });
                             }
                         }
@@ -788,7 +793,7 @@ export function HiderBackgroundMap() {
                                 lat: station.lat,
                                 lng: station.lng,
                                 name: station.name,
-                                modes: [station.mode],
+                                modes: station.modes,
                             });
                         }
                     })();

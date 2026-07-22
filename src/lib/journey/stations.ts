@@ -22,7 +22,7 @@
  * relevant ones) — never in the query string.
  */
 
-import { booleanPointInPolygon } from "@turf/turf";
+import { booleanPointInPolygon, convertLength, type Units } from "@turf/turf";
 
 import {
     additionalMapGeoLocations,
@@ -35,7 +35,9 @@ import {
     type TransitMode,
 } from "@/lib/gameSetup";
 import { haversineMeters } from "@/lib/geo";
+import type { StationPlace } from "@/maps/api";
 import { AREA_STATIONS_BY_RELATION_BASE } from "@/maps/api/constants";
+import { mergeDuplicateStation } from "@/maps/geo-utils/stationManipulations";
 import { findPlacesInZone, overpassFailureCount } from "@/maps/api/overpass";
 
 
@@ -45,17 +47,22 @@ export interface AreaStation {
     name: string;
     lat: number;
     lng: number;
+    /** Primary transit mode (= `modes[0]`), kept for back-compat. */
     mode: TransitMode;
+    /** Every transit mode at this (merged) stop — a hub can be several. */
+    modes: TransitMode[];
     distanceMeters: number;
 }
 
 export interface AreaStationOptions {
     /** Which transit modes the game allows; defaults to all. */
     allowed: TransitMode[];
+    /** Hiding-zone radius + units — drives the same-name dedup distance so
+     *  the hider matches the seeker (`max(radius, 800 m)`). Defaults to the
+     *  0.5 km hiding radius (→ the 800 m floor) when omitted. */
+    radius?: number;
+    units?: Units;
 }
-
-/** A fetched station before any anchor-relative distance is attached. */
-type RawStation = Omit<AreaStation, "distanceMeters">;
 
 /**
  * Single-entry memo for the raw play-area station set. The set is a pure
@@ -66,76 +73,76 @@ type RawStation = Omit<AreaStation, "distanceMeters">;
  * change invalidates it. In-flight coalescing so concurrent callers
  * share the same request.
  */
-let rawStationsCache: {
+let stationElementsCache: {
     filtersKey: string;
     polyRef: unknown;
-    stations: RawStation[];
+    elements: OverpassElement[];
 } | null = null;
-let rawStationsInFlight: {
+let stationElementsInFlight: {
     filtersKey: string;
     polyRef: unknown;
-    promise: Promise<RawStation[]>;
+    promise: Promise<OverpassElement[]>;
 } | null = null;
 
-async function fetchRawAreaStations(
+/**
+ * Fetch the raw play-area station ELEMENTS for the allowed modes — the
+ * shared front half of the single station producer. Byte-identical query
+ * to the seeker's ZoneSidebar (prewarmed `/api/area-stations` union →
+ * live poly fallback), memoised per (filters, play area). Returns the raw
+ * OSM elements (KEEPING unnamed nodes + tags) so the shared dedup
+ * (`mergeDuplicateStation`) can run on the same data both roles use.
+ */
+async function fetchStationElements(
     allowed: TransitMode[],
-): Promise<RawStation[]> {
+): Promise<OverpassElement[]> {
     const filters = hidingZoneFiltersFor(allowed);
     if (filters.length === 0) return [];
     const filtersKey = filters.join("|");
     const polyRef = polyGeoJSON.get();
 
     if (
-        rawStationsCache &&
-        rawStationsCache.filtersKey === filtersKey &&
-        rawStationsCache.polyRef === polyRef
+        stationElementsCache &&
+        stationElementsCache.filtersKey === filtersKey &&
+        stationElementsCache.polyRef === polyRef
     ) {
-        return rawStationsCache.stations;
+        return stationElementsCache.elements;
     }
     if (
-        rawStationsInFlight &&
-        rawStationsInFlight.filtersKey === filtersKey &&
-        rawStationsInFlight.polyRef === polyRef
+        stationElementsInFlight &&
+        stationElementsInFlight.filtersKey === filtersKey &&
+        stationElementsInFlight.polyRef === polyRef
     ) {
-        return rawStationsInFlight.promise;
+        return stationElementsInFlight.promise;
     }
 
     const promise = (async () => {
         // v668/v669: try the PREWARMED station field first —
         // `/api/area-stations/<relationId>` serves the combined all-mode
         // stop set for a warm city straight from R2 (zero live Overpass),
-        // the same relation-ID-keyed pattern as `/api/refs`. The endpoint
-        // is fanned over EVERY play-area relation (primary + each added
-        // adjacent area) and unioned, so an added area is prewarmed just
-        // like the primary — it's fully part of the play area. The
-        // per-relation results are a 2 km-PADDED bbox superset, so the
-        // union is culled to the combined play-area polygon to match the
-        // live poly query's clipping (a station outside the play area is
-        // not a legal zone, v665). Returns null unless EVERY area is warm;
-        // any cold area is background-warmed and we fall to the live poly
-        // query below (which covers the whole union).
-        const warmUnion = await fetchPrewarmedStationsUnion();
-        if (warmUnion) {
-            const stations = parseStations(warmUnion, allowed);
-            if (stations.length > 0) {
-                rawStationsCache = { filtersKey, polyRef, stations };
-                return stations;
-            }
+        // fanned over every play-area relation, unioned, culled to the
+        // combined polygon, and mode-filtered to `allowed` by
+        // `fetchPrewarmedHidingZoneStations` (the SAME call the seeker
+        // ZoneSidebar makes — one shared entry). Returns null on any cold
+        // area → the live poly query below.
+        const prewarmed = await fetchPrewarmedHidingZoneStations(filters);
+        if (prewarmed && prewarmed.elements.length > 0) {
+            stationElementsCache = {
+                filtersKey,
+                polyRef,
+                elements: prewarmed.elements,
+            };
+            return prewarmed.elements;
         }
 
         // Byte-identical to the seeker's ZoneSidebar call (filters[0]
         // primary + rest as alternatives, nwr / out center, no timeout
-        // header) so both roles share one cached Overpass entry. The poly
-        // query is built from the COMBINED polyGeoJSON, so it covers the
-        // whole union (primary + added areas) correctly. `silent` — every
-        // consumer has its own loading/error affordances.
+        // header) so both roles share one cached Overpass entry.
         //
         // v667: `getOverpassData` returns `{elements: []}` BOTH on a
         // genuinely-empty result and on total mirror failure (rate limit
         // / soft-timeout storm). An empty caused by failure must THROW —
         // not be cached and returned — or every consumer renders
         // "loaded, zero zones" (the Chicago empty-overlay bug).
-        // `overpassFailureCount` is the designed tell-them-apart signal.
         const failuresBefore = overpassFailureCount();
         const data = (await findPlacesInZone(
             filters[0],
@@ -147,58 +154,124 @@ async function fetchRawAreaStations(
             true,
         )) as { elements?: OverpassElement[] };
         const elements = data?.elements ?? [];
-        if (
-            elements.length === 0 &&
-            overpassFailureCount() > failuresBefore
-        ) {
-            // Warm every play-area relation's station field so the next
-            // load is served from R2 instead of re-hitting a timing-out
-            // live query. Fire-and-forget.
+        if (elements.length === 0 && overpassFailureCount() > failuresBefore) {
             requestStationWarmAll();
             throw new Error(
                 "Station scan failed — all Overpass mirrors timed out or rate-limited",
             );
         }
 
-        const stations = parseStations(elements, allowed);
-        rawStationsCache = { filtersKey, polyRef, stations };
-        // Warm the prewarm entries for next time (a live poly fetch means
-        // some relation endpoint missed). Fire-and-forget, deduped.
+        stationElementsCache = { filtersKey, polyRef, elements };
         requestStationWarmAll();
-        return stations;
+        return elements;
     })();
-    rawStationsInFlight = { filtersKey, polyRef, promise };
+    stationElementsInFlight = { filtersKey, polyRef, promise };
     try {
         return await promise;
     } finally {
-        if (rawStationsInFlight?.promise === promise) {
-            rawStationsInFlight = null;
+        if (stationElementsInFlight?.promise === promise) {
+            stationElementsInFlight = null;
         }
     }
 }
 
-/** Parse a `out center` element list into RawStations, filtered to the
- *  allowed modes. Shared by the prewarmed-endpoint and live-poly paths. */
-function parseStations(
-    elements: OverpassElement[],
+/** One raw `out center` element → a StationPlace point feature, KEEPING
+ *  unnamed nodes + all tags (so `mergeDuplicateStation`'s `inferStationMode`
+ *  + nameless-absorption see the same data the seeker does). Null when the
+ *  element has no usable coordinate. */
+function elementToStationPlace(el: OverpassElement): StationPlace | null {
+    const lat = typeof el.lat === "number" ? el.lat : el.center?.lat;
+    const lng = typeof el.lon === "number" ? el.lon : el.center?.lon;
+    if (typeof lat !== "number" || typeof lng !== "number") return null;
+    const tags = el.tags ?? {};
+    const name = tags["name:en"] ?? tags.name;
+    return {
+        type: "Feature",
+        properties: { ...tags, id: String(el.id), ...(name ? { name } : {}) },
+        geometry: { type: "Point", coordinates: [lng, lat] },
+    } as unknown as StationPlace;
+}
+
+/** Fold `inferStationMode`'s output (which distinguishes `light_rail`) into
+ *  our 5-mode `TransitMode` enum. */
+function foldToTransitMode(m: string): TransitMode | null {
+    if (m === "light_rail") return "tram";
+    if (
+        m === "subway" ||
+        m === "train" ||
+        m === "tram" ||
+        m === "bus" ||
+        m === "ferry"
+    )
+        return m;
+    return null;
+}
+
+/**
+ * THE single station producer (hider side). Fetches the shared play-area
+ * station elements, runs the SHARED `mergeDuplicateStation` dedup (the
+ * exact same union-find / coordinate-average / mode-union / nameless-
+ * absorption / bus-90m-collapse the SEEKER uses — so the two roles can no
+ * longer drift), and emits `AreaStation`s (nearest-first) with the full
+ * `modes` set. Unnamed standalone stops are KEPT (matching the seeker; a
+ * lone unnamed stop is a valid hiding zone). A merged stop with no allowed
+ * mode is dropped (not a legal zone).
+ */
+async function produceAreaStations(
     allowed: TransitMode[],
-): RawStation[] {
-    const seenIds = new Set<number>();
-    const stations: RawStation[] = [];
+    radius: number,
+    units: Units,
+    anchorLat: number,
+    anchorLng: number,
+): Promise<AreaStation[]> {
+    const elements = await fetchStationElements(allowed);
+    const seen = new Set<number>();
+    const places: StationPlace[] = [];
     for (const el of elements) {
-        // `out center` puts way/relation coords under `center`.
-        const lat = typeof el.lat === "number" ? el.lat : el.center?.lat;
-        const lng = typeof el.lon === "number" ? el.lon : el.center?.lon;
-        if (typeof lat !== "number" || typeof lng !== "number") continue;
-        if (seenIds.has(el.id)) continue;
-        seenIds.add(el.id);
-        const name = el.tags?.["name:en"] ?? el.tags?.name;
-        if (!name) continue;
-        const mode = inferMode(el.tags ?? {});
-        if (!mode || !allowed.includes(mode)) continue;
-        stations.push({ id: el.id, name, lat, lng, mode });
+        if (seen.has(el.id)) continue;
+        seen.add(el.id);
+        const p = elementToStationPlace(el);
+        if (p) places.push(p);
     }
-    return stations;
+
+    const merged = mergeDuplicateStation(places, radius, units);
+    const allowedSet = new Set(allowed);
+    const out: AreaStation[] = [];
+    for (const m of merged) {
+        const props = m.properties as Record<string, unknown>;
+        const rawModes = Array.isArray(props.modes)
+            ? (props.modes as string[])
+            : [];
+        const modes = Array.from(
+            new Set(
+                rawModes
+                    .map(foldToTransitMode)
+                    .filter(
+                        (x): x is TransitMode =>
+                            x !== null && allowedSet.has(x),
+                    ),
+            ),
+        );
+        if (modes.length === 0) continue; // no allowed mode → not a legal zone
+        const coords = m.geometry.coordinates;
+        const idNum = Number(String(props.id).split("/").pop());
+        out.push({
+            id: Number.isFinite(idNum) ? idNum : 0,
+            name: typeof props.name === "string" ? props.name : "",
+            lat: coords[1],
+            lng: coords[0],
+            mode: modes[0],
+            modes,
+            distanceMeters: haversineMeters(
+                anchorLat,
+                anchorLng,
+                coords[1],
+                coords[0],
+            ),
+        });
+    }
+    out.sort((a, b) => a.distanceMeters - b.distanceMeters);
+    return out;
 }
 
 /** Cull `out center` elements to the play-area polygon, matching the
@@ -419,78 +492,6 @@ export function requestStationWarmAll(): void {
     for (const id of playAreaRelationIdsAll()) requestStationWarm(id);
 }
 
-/** Distance-sort + same-name/nearby dedupe, shared by every consumer.
- *
- *  Spatial-grid implementation: each station's normalised name is computed
- *  ONCE, and kept stations are bucketed into ~200 m cells so a new station
- *  only compares against the up-to-9 neighbouring cells instead of every
- *  prior kept station. This replaces the old `deduped.find(...)` scan that
- *  recomputed `normaliseName(d.name)` (NFD + ~10 regex passes) per pair —
- *  O(n^2) with a regex in the inner loop. Since v751 removed the 180-station
- *  cap, a dense metro (thousands of bus stops) drove that to millions of
- *  synchronous regex calls on the main thread; the grid makes it ~O(n).
- *  The dedupe RULES are unchanged (both require dist < 150 m, so any real
- *  match is guaranteed to fall inside the 3x3 window of >= 150 m cells). */
-function sortAndDedupe(stations: AreaStation[]): AreaStation[] {
-    stations.sort((a, b) => a.distanceMeters - b.distanceMeters);
-
-    const CELL_M = 200; // >= the 150 m dedupe radius → a match is <= 1 cell away
-    const M_PER_DEG_LAT = 111_320;
-    // A fixed reference cos(lat) for the lng→metre conversion so nearby
-    // stations bucket consistently regardless of their own latitude (the
-    // exact haversine below still confirms every candidate, so the grid is
-    // only a prefilter and slight cos drift at the margins is harmless).
-    const meanLat =
-        stations.length > 0
-            ? stations.reduce((sum, s) => sum + s.lat, 0) / stations.length
-            : 0;
-    const mPerDegLng = M_PER_DEG_LAT * Math.cos((meanLat * Math.PI) / 180);
-
-    type Kept = { station: AreaStation; norm: string };
-    const grid = new Map<string, Kept[]>();
-    const cellX = (lng: number) => Math.floor((lng * mPerDegLng) / CELL_M);
-    const cellY = (lat: number) => Math.floor((lat * M_PER_DEG_LAT) / CELL_M);
-
-    const deduped: AreaStation[] = [];
-    for (const s of stations) {
-        const norm = normaliseName(s.name);
-        const gx = cellX(s.lng);
-        const gy = cellY(s.lat);
-        let isDup = false;
-        for (let dx = -1; dx <= 1 && !isDup; dx++) {
-            for (let dy = -1; dy <= 1 && !isDup; dy++) {
-                const bucket = grid.get(`${gx + dx}:${gy + dy}`);
-                if (!bucket) continue;
-                for (const k of bucket) {
-                    const d = k.station;
-                    const dist = haversineMeters(d.lat, d.lng, s.lat, s.lng);
-                    // Same normalised name + near → one stop under two labels.
-                    if (dist < 150 && k.norm === norm) {
-                        isDup = true;
-                        break;
-                    }
-                    // Directional bus-stop pairs sit on opposite sides of the
-                    // SAME intersection (~30-70 m apart) under differently-
-                    // ordered names ("Nanaimo NB at Dundas" vs "Dundas EB at
-                    // Nanaimo") the normaliser can't always reconcile —
-                    // collapse any two bus stops within 90 m so the overlay
-                    // isn't a wall of paired dots (the Vancouver report).
-                    if (d.mode === "bus" && s.mode === "bus" && dist < 90) {
-                        isDup = true;
-                        break;
-                    }
-                }
-            }
-        }
-        if (isDup) continue;
-        deduped.push(s);
-        const key = `${gx}:${gy}`;
-        const existing = grid.get(key);
-        if (existing) existing.push({ station: s, norm });
-        else grid.set(key, [{ station: s, norm }]);
-    }
-    return deduped;
-}
 
 /**
  * Derive the transit-mode set a seeker's `displayHidingZonesOptions`
@@ -563,26 +564,18 @@ export async function fetchAreaStations(
     opts: AreaStationOptions,
 ): Promise<AreaStation[]> {
     const allowed = opts.allowed.length > 0 ? opts.allowed : ALL_MODES;
-    const raw = await fetchRawAreaStations(allowed);
-    const deduped = sortAndDedupe(
-        raw.map((s) => ({
-            ...s,
-            distanceMeters: haversineMeters(
-                centerLat,
-                centerLng,
-                s.lat,
-                s.lng,
-            ),
-        })),
+    // v1115: the single station producer — shares the SEEKER's
+    // `mergeDuplicateStation` dedup (no more role drift). Default radius 0.5 km
+    // → the same-name merge floor of 800 m, matching the seeker.
+    // v751: NO cap — the seeker overlay unions EVERY station circle uncapped
+    // off-thread, so the hider shows the SAME full field.
+    return produceAreaStations(
+        allowed,
+        opts.radius ?? 0.5,
+        opts.units ?? "kilometers",
+        centerLat,
+        centerLng,
     );
-    // v751: NO cap. The seeker overlay (`zonePipeline`) unions EVERY station
-    // circle with no cap — and with higher-poly 512-step circles — off the
-    // main thread; the hider's union runs off-thread too (v652), so the two
-    // are structurally identical and the hider shows the SAME full field. The
-    // old 180-cap + distance-from-hider-GPS trim was a pre-worker freeze
-    // guard that survived as an arbitrary limit, clustering a big metro's
-    // overlay around the hider (the NYC "half the boroughs missing" bug).
-    return deduped;
 }
 
 /**
@@ -603,14 +596,16 @@ export async function findZonesNearPoint(
     opts: { allowed: TransitMode[]; radiusMeters: number },
 ): Promise<AreaStation[]> {
     const allowed = opts.allowed.length > 0 ? opts.allowed : ALL_MODES;
-    const raw = await fetchRawAreaStations(allowed);
-    const within = raw
-        .map((s) => ({
-            ...s,
-            distanceMeters: haversineMeters(lat, lng, s.lat, s.lng),
-        }))
-        .filter((s) => s.distanceMeters <= opts.radiusMeters);
-    return sortAndDedupe(within);
+    // Same single producer + shared dedup; the radius IS the containment
+    // radius, so the same-name merge distance matches the zones being tested.
+    const all = await produceAreaStations(
+        allowed,
+        opts.radiusMeters,
+        "meters",
+        lat,
+        lng,
+    );
+    return all.filter((s) => s.distanceMeters <= opts.radiusMeters);
 }
 
 /** The single nearest candidate zone containing the point, or null. */

@@ -474,12 +474,47 @@ build stamp. Current: `v1069`. Use `git log` for the per-version detail;
   goes live). Client-only follow-ups noted, NOT yet applied (lower confidence):
   the dead `overpass.kumi.systems` mirror (`constants.ts`) and the one remaining
   non-cacheOnly HSR preload step (`preload.ts`, Sweden-only).
-- **NEXT (in progress): a SINGLE station producer shared by seeker + hider** to
-  end the recurring role-drift bugs — the seeker (`mergeDuplicateStation`) and
-  hider (`sortAndDedupe`) currently use different dedup rules (same-name merge
-  150 m hider vs `max(radius, 800 m)` seeker; hider also drops unnamed nodes the
-  seeker keeps), so a spread-out hub shows duplicate dots on the hider only. To
-  be unified into one deduped candidate-station set both roles consume.
+- **NEXT: a SINGLE station producer shared by seeker + hider** (shipped in
+  v1115 below).
+
+**v1115 — ONE shared station dedup for seeker + hider (ends the role-drift bug
+class).** The seeker (`mergeDuplicateStation`, `stationManipulations.ts`) and the
+hider (`sortAndDedupe`, `journey/stations.ts`) had DIFFERENT dedup rules — the
+recurring source of seeker/hider drift bugs. Concrete divergences: same-name
+merge distance (hider 150 m vs seeker `max(radius, 800 m)` → spread-out hubs
+showed duplicate dots on the HIDER only), the hider DROPPED all unnamed nodes the
+seeker KEEPS (+absorbs), and the hider had a bus-90m directional-pair collapse the
+seeker lacked. Now BOTH roles run the SAME `mergeDuplicateStation`:
+- **`mergeDuplicateStation` gained the bus-90m proximity collapse** (bus↔bus
+  within 90 m union, by distance not name — safe, and an improvement for the
+  seeker too). It KEEPS the conservative `normalizeStationName` (does NOT strip
+  bare cardinals) — the deliberate choice so "North Station"/"South Station"
+  don't wrongly collapse under the 800 m floor (the hider's aggressive
+  token-sorting `normaliseName` would have; that trap is why the rule wasn't just
+  copied). Unit-tested (`tests/stationManipulations.test.ts` +5 cases: bus-90m
+  merge / >90m distinct / bus-only / cardinal-name safety / mode-union).
+- **The hider is routed through ONE producer** (`produceAreaStations`,
+  `stations.ts`): shared fetch (`fetchStationElements` — the same prewarmed
+  `/api/area-stations` union → live-poly fallback, memoised) → build
+  `StationPlace` features KEEPING unnamed nodes + tags → the shared
+  `mergeDuplicateStation` → `AreaStation`s (nearest-first) now carrying the full
+  `modes: TransitMode[]` set (a merged hub is several modes). `sortAndDedupe` +
+  `parseStations` + the lossy `RawStation` were retired; `fetchAreaStations` /
+  `findZonesNearPoint` / `findZoneAtPoint` all go through the producer.
+  `AreaStationOptions` gained optional `radius`/`units` (default 0.5 km → the
+  800 m floor). (`normaliseName` is kept only for its existing test; it's no
+  longer used in production.)
+- **Hider-visible changes (all = "match the seeker"):** duplicate same-named-hub
+  dots gone; unnamed standalone stops now shown (a lone unnamed stop is a valid
+  hiding zone); a multi-mode hub shows every glyph on a direct dot tap
+  (`HiderReachOverlay` point features carry pipe-joined `modes`;
+  `HiderBackgroundMap` Tier-1/Tier-2 taps read the full set).
+- **Still separate (follow-up):** the SEEKER's `ZoneSidebar` keeps its own inline
+  fetch → `osmtogeojson` → `mergeDuplicateStation` call site (it supports custom
+  station filters + partial-mode selections the hider's `allowed` form doesn't).
+  The dedup RULE — the actual bug source — is now unified (one function, both
+  roles); routing the seeker's FETCH through the same producer is the remaining
+  plumbing step.
 
 **v1113 — hider hand cards peek too far / overlap the nav on iPhone (safe-area
 fix).** Same safe-area family as the empty-footer bug. The `HiderHandFan` strip
