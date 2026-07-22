@@ -1220,7 +1220,9 @@ export const fetchTransitRouteDetail = async (
             ["station", "halt", "stop", "tram_stop"].includes(t.railway) ||
             ["stop_position", "platform", "station"].includes(
                 t.public_transport,
-            )
+            ) ||
+            t.highway === "bus_stop" ||
+            t.amenity === "ferry_terminal"
         );
     };
     const rawStops: TransitRouteStop[] = [];

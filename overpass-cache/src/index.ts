@@ -4233,8 +4233,10 @@ async function warmRelationTransitRoutes(
         if (!up) return;
         const body = await up.text();
         if (isAbortedOverpassText(body)) return;
+        // v1104: strip to the minimal stops-only payload before storing.
+        const slim = slimTransitRoutesBody(body) ?? body;
         try {
-            await compressAndStoreString(env, key, body, {
+            await compressAndStoreString(env, key, slim, {
                 kind,
                 warmedBy: `on-add-${kind}`,
                 sourceRelationId: String(relationId),
@@ -4754,14 +4756,43 @@ function busTransitRoutesQueryFull(
     return `\n[out:json][timeout:180][bbox:${tuple}];\nrelation["type"="route"]["route"="bus"];\nout tags geom;\n>;\nout tags;\n`;
 }
 
+// The only relation tags the client reads (route/ref for grouping, name for
+// display + terminus parsing). Everything else (operator, network, colour,
+// wikidata, …) is dropped on store.
+const TRANSIT_ROUTE_TAG_KEYS = ["route", "ref", "name", "name:en"];
+// The stop-node tags the client reads (name for display; railway /
+// public_transport / highway / amenity to classify a node as a stop).
+const TRANSIT_STOP_TAG_KEYS = [
+    "name",
+    "name:en",
+    "railway",
+    "public_transport",
+    "highway",
+    "amenity",
+];
+function pruneTransitTags(
+    tags: any,
+    keys: string[],
+): Record<string, string> | undefined {
+    if (!tags) return undefined;
+    const out: Record<string, string> = {};
+    for (const k of keys) if (tags[k] != null) out[k] = tags[k];
+    return Object.keys(out).length ? out : undefined;
+}
+
 /**
- * v1103: transform a PRE-v1103 full-geometry transit-routes body into the
- * SLIM stops-only shape (route relations with member lists stripped of way
- * geometry + only the stop NODES). Lets the serve path migrate an existing R2
- * entry to the new key WITHOUT re-fetching from Overpass. Returns null if the
- * body can't be parsed or has no route relations. The output shape matches a
- * fresh slim Overpass fetch closely enough for the client parser (relations
- * with `members`, plus stop `node` elements with lat/lon/tags).
+ * v1103: SLIM a transit-routes body to the minimal payload the client needs —
+ * route relations with ONLY their stop (node) members + the stop nodes, tags
+ * pruned to the handful the client actually reads. Drops way members (we draw
+ * straight lines between stops), way vertex nodes, and every unused tag.
+ *
+ * Handles BOTH inputs, so it's the one transform for every store path:
+ *   • a fresh slim `out body; node(r); out body` fetch (member coords come from
+ *     the top-level stop nodes), AND
+ *   • a PRE-v1103 full-geom body (member coords come inline from `out geom`) —
+ *     the serve-path lazy migration, no re-fetch.
+ * Returns null if unparseable / no route relations (caller stores raw).
+ * v1104: also strips way members + prunes tags (NYC bus was 22 MB → smaller).
  */
 function slimTransitRoutesBody(text: string): string | null {
     let json: { elements?: any[] };
@@ -4775,9 +4806,9 @@ function slimTransitRoutesBody(text: string): string | null {
         (e) => e?.type === "relation" && e?.tags?.route,
     );
     if (relations.length === 0) return null;
-    // Collect stop nodes = the direct NODE MEMBERS of the route relations.
-    // COORDS come from the member's inline lat/lon (present because the old
-    // body was `out geom`); TAGS (names) come from the top-level node dump.
+    // Stop nodes = the direct NODE MEMBERS of the route relations. COORDS come
+    // from the member's inline lat/lon (full-geom body) OR the top-level node
+    // (slim body); TAGS from the top-level node dump.
     const stops = new Map<
         number,
         { lat?: number; lon?: number; tags?: any }
@@ -4801,27 +4832,26 @@ function slimTransitRoutesBody(text: string): string | null {
     }
     const out: any[] = [];
     for (const r of relations) {
-        // Keep the relation + its member list, but drop per-member geometry.
         out.push({
             type: "relation",
             id: r.id,
-            tags: r.tags,
-            members: (r.members ?? []).map((m: any) => ({
-                type: m.type,
-                ref: m.ref,
-                role: m.role,
-            })),
+            tags: pruneTransitTags(r.tags, TRANSIT_ROUTE_TAG_KEYS),
+            // NODE members only (drop way members — we draw stop-to-stop).
+            members: (r.members ?? [])
+                .filter((m: any) => m?.type === "node")
+                .map((m: any) => ({ type: "node", ref: m.ref, role: m.role })),
         });
     }
     for (const [id, info] of stops) {
         if (typeof info.lat !== "number" || typeof info.lon !== "number")
             continue; // no coords → can't place the stop, drop it
+        const tags = pruneTransitTags(info.tags, TRANSIT_STOP_TAG_KEYS);
         out.push({
             type: "node",
             id,
             lat: info.lat,
             lon: info.lon,
-            ...(info.tags ? { tags: info.tags } : {}),
+            ...(tags ? { tags } : {}),
         });
     }
     return JSON.stringify({ elements: out });

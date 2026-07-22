@@ -2645,6 +2645,69 @@ function transitRoutesQueryFull(extent) {
     return `\n[out:json][timeout:180][bbox:${tuple}];\nrelation["type"="route"]["route"~"^(subway|train|light_rail|tram|monorail|ferry)$"];\nout tags geom;\n>;\nout tags;\n`;
 }
 
+// v1104: slim a fetched transit-routes body to the minimal stops-only payload
+// (route relations with ONLY node members + the stop nodes, tags pruned to the
+// few the client reads). Mirrors slimTransitRoutesBody in overpass-cache/src/
+// index.ts. Returns the input unchanged if it can't parse / has no routes.
+const TRANSIT_ROUTE_TAG_KEYS = ["route", "ref", "name", "name:en"];
+const TRANSIT_STOP_TAG_KEYS = [
+    "name",
+    "name:en",
+    "railway",
+    "public_transport",
+    "highway",
+    "amenity",
+];
+function pruneTransitTags(tags, keys) {
+    if (!tags) return undefined;
+    const out = {};
+    for (const k of keys) if (tags[k] != null) out[k] = tags[k];
+    return Object.keys(out).length ? out : undefined;
+}
+function slimTransitRoutesBody(text) {
+    let json;
+    try {
+        json = JSON.parse(text);
+    } catch {
+        return text;
+    }
+    const els = Array.isArray(json?.elements) ? json.elements : [];
+    const relations = els.filter((e) => e?.type === "relation" && e?.tags?.route);
+    if (relations.length === 0) return text;
+    const stops = new Map();
+    for (const r of relations)
+        for (const m of r.members ?? []) {
+            if (m?.type !== "node" || typeof m.ref !== "number") continue;
+            const cur = stops.get(m.ref) ?? {};
+            if (typeof m.lat === "number") cur.lat = m.lat;
+            if (typeof m.lon === "number") cur.lon = m.lon;
+            stops.set(m.ref, cur);
+        }
+    for (const e of els)
+        if (e?.type === "node" && stops.has(e.id)) {
+            const cur = stops.get(e.id);
+            if (typeof e.lat === "number") cur.lat = e.lat;
+            if (typeof e.lon === "number") cur.lon = e.lon;
+            if (e.tags) cur.tags = e.tags;
+        }
+    const out = [];
+    for (const r of relations)
+        out.push({
+            type: "relation",
+            id: r.id,
+            tags: pruneTransitTags(r.tags, TRANSIT_ROUTE_TAG_KEYS),
+            members: (r.members ?? [])
+                .filter((m) => m?.type === "node")
+                .map((m) => ({ type: "node", ref: m.ref, role: m.role })),
+        });
+    for (const [id, info] of stops) {
+        if (typeof info.lat !== "number" || typeof info.lon !== "number") continue;
+        const tags = pruneTransitTags(info.tags, TRANSIT_STOP_TAG_KEYS);
+        out.push({ type: "node", id, lat: info.lat, lon: info.lon, ...(tags ? { tags } : {}) });
+    }
+    return JSON.stringify({ elements: out });
+}
+
 async function processTransitRoutes(city, extent) {
     if (!extent) return;
     const q = transitRoutesQuery(extent);
@@ -2661,7 +2724,8 @@ async function processTransitRoutes(city, extent) {
     }
     const res = await fetchOverpass(q, "transit routes");
     if (!res) return;
-    const sizeBytes = Buffer.byteLength(res.text, "utf8");
+    const bodyText = slimTransitRoutesBody(res.text); // v1104: minimal payload
+    const sizeBytes = Buffer.byteLength(bodyText, "utf8");
     if (sizeBytes > MAX_UPLOAD_BYTES) {
         console.log(`  ⤼ transit routes ${sizeBytes} B over cap — skipping`);
         return;
@@ -2669,7 +2733,7 @@ async function processTransitRoutes(city, extent) {
     try {
         const r = await uploadToWorker({
             query: q,
-            bodyText: res.text,
+            bodyText,
             kind: "transit-routes",
             sourceName: `${city.name} (transit-routes)`,
             sourceRelationId: String(city.relationId),
@@ -2715,7 +2779,8 @@ async function processBusTransitRoutes(city, extent) {
     }
     const res = await fetchOverpass(q, "bus routes");
     if (!res) return;
-    const sizeBytes = Buffer.byteLength(res.text, "utf8");
+    const bodyText = slimTransitRoutesBody(res.text); // v1104: minimal payload
+    const sizeBytes = Buffer.byteLength(bodyText, "utf8");
     if (sizeBytes > MAX_UPLOAD_BYTES) {
         console.log(`  ⤼ bus routes ${sizeBytes} B over cap — skipping`);
         return;
@@ -2723,7 +2788,7 @@ async function processBusTransitRoutes(city, extent) {
     try {
         const r = await uploadToWorker({
             query: q,
-            bodyText: res.text,
+            bodyText,
             kind: "transit-routes-bus",
             sourceName: `${city.name} (bus-routes)`,
             sourceRelationId: String(city.relationId),

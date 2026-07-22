@@ -432,6 +432,22 @@ bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
 build stamp. Current: `v1069`. Use `git log` for the per-version detail;
 
+**v1104 — transit-routes payload trimmed further (way members + unused tags
+stripped).** Follow-up to v1103: the stops-only body still carried WAY members
+(we draw straight lines between stops, never using them) and every stop node's
+FULL tag set (NYC bus was 22 MB uncompressed / ~1.5 MB gzipped). `slimTransitRoutesBody`
+(worker) — now applied on EVERY store path (fresh `?warm=1` warm, laptop upload,
+AND the lazy migration) not just the migration — keeps only NODE members
+(`type/ref/role`), prunes relation tags to `{route, ref, name, name:en}` and stop
+tags to `{name, name:en, railway, public_transport, highway, amenity}`, and drops
+way-vertex nodes. The client's `isStopNode` gained `highway=bus_stop` /
+`amenity=ferry_terminal` so bus/ferry stops are reliably classified from the kept
+tags. Byte-identical `slimTransitRoutesBody` + tag whitelists in the worker + laptop.
+The uncompressed R2 body is what shrank (parse/memory + headroom for Tokyo-scale
+bus); the gzipped download was already ~1.5 MB. (NOTE: v1103's "a couple MB" was
+the gzipped/download figure — the 17-22 MB in the laptop log is the uncompressed
+body, which stores fine under the 60 MB cap but is now lighter still.)
+
 **v1103 — transit-routes prewarm slimmed to STOPS-ONLY (fixes the silent "over cap"
 skip for big metros) + client draws straight-line schematics + lobby row-break.**
 The transit-line prewarm query was `out tags geom` — every rail line's FULL way
