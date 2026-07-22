@@ -477,6 +477,33 @@ build stamp. Current: `v1069`. Use `git log` for the per-version detail;
 - **NEXT: a SINGLE station producer shared by seeker + hider** (shipped in
   v1115 below).
 
+**v1121 — seeker/hider dedup review, batch 2 (C2): shared hiding-zone map layer
+style (fixes candidate-fill + label drift) + lobby settings row un-wraps.**
+- **The candidate-hiding-zone overlay + selected-zone highlight are single-
+  sourced.** The seeker map (`hiding-zones-*` / `selected-zone-*`) and the hider
+  map (`hider-reach-*` / `hider-selected-zone-*`) hand-kept "byte-for-byte
+  identical" layer paints across the two components — and had already DRIFTED:
+  the hider's candidate FILL was a 2-way basemap check while the seeker's is a
+  3-way theme-aware one (so a light-THEME hider got a faint red wash where the
+  seeker got neutral grey — A4), and the hider's label colour was the jetlag
+  navy `#1F2F3F` vs the seeker's slate `#1f2937`. New `src/lib/hidingZoneStyle.ts`
+  is the ONE source for both overlays' paint/data producers —
+  `candidateZoneFillPaint`/`LinePaint`/`DotPaint`/`LabelPaint` +
+  `CANDIDATE_ZONE_HIT_PAINT`/`CANDIDATE_ZONE_LABEL_LAYOUT`, `mapLabelColors`,
+  `buildSelectedZoneFC`, and the `SELECTED_ZONE_*_PAINT` constants — all derived
+  from the seeker's canonical (v622) values, so the hider now matches. These are
+  PAINT/DATA producers, not JSX: the two maps keep their own `<Layer>` ids (the
+  seeker's dot layer is `hiding-zones-points`, the hider's `hider-reach-dots`,
+  and tap resolvers key off those ids), so parameterising the values — not the
+  layers — fixes the drift without touching the tap plumbing. Both `Map.tsx` +
+  `HiderBackgroundMap.tsx` route through it (the seeker's `mapLabelColor`/`Halo`
+  now come from `mapLabelColors`, so travel-times labels stay in lockstep too).
+- **In-game lobby settings row un-wraps** (`GameLobbyDialog`, `isMidGame`). v1103
+  put the play-area badge on its OWN row (`flex flex-col`) above the size +
+  transit pills; it's now ONE `flex-wrap` row so the city badge sits alongside
+  the size + transit pills when they fit (the common case) and only wraps to a
+  second line when the city name is too long to share the row.
+
 **v1120 — seeker/hider dedup review, batch 1: kill drift + dead code + shared chrome.**
 First of three batches from a 4-agent seeker/hider architecture review.
 - **A1 — one station classifier.** `stations.ts`'s private `inferMode` (the

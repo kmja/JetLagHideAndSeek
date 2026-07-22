@@ -4,8 +4,6 @@ import { useStore } from "@nanostores/react";
 import {
     circle as turfCircle,
     convertLength as turfConvertLength,
-    featureCollection as turfFeatureCollection,
-    point as turfPoint,
     simplify as turfSimplify,
 } from "@turf/turf";
 import { HelpCircle, MapPin } from "lucide-react";
@@ -59,12 +57,23 @@ import { toast } from "react-toastify";
 import { spoofPickMode } from "@/lib/debugGpsSpoof";
 import { setSpoofAtPoint } from "@/lib/debugSpoofArea";
 import { holedMaskViaWorker } from "@/lib/geometry/client";
+import {
+    buildSelectedZoneFC,
+    candidateZoneDotPaint,
+    candidateZoneFillPaint,
+    candidateZoneLabelPaint,
+    candidateZoneLinePaint,
+    CANDIDATE_ZONE_HIT_PAINT,
+    CANDIDATE_ZONE_LABEL_LAYOUT,
+    SELECTED_ZONE_DOT_PAINT,
+    SELECTED_ZONE_FILL_PAINT,
+    SELECTED_ZONE_LINE_PAINT,
+} from "@/lib/hidingZoneStyle";
 import { findZoneAtPoint } from "@/lib/journey/stations";
 import { SAT_TILE_BASE } from "@/maps/api/constants";
 import { attachBasemapWaterCapture } from "@/maps/api/basemapWater";
 import { CurseInbox } from "@/components/CurseInbox";
 import { EndgameOverlay } from "@/components/EndgameOverlay";
-import { fadePaint } from "@/lib/mapPaint";
 import { participants, seekerLocations } from "@/lib/multiplayer/session";
 import { playerColor, playerInitials } from "@/lib/playerColor";
 import { castCurses } from "@/lib/seekerInbound";
@@ -431,20 +440,12 @@ export function HiderBackgroundMap() {
     // the selection or radius changes.
     const selectedZoneFC = useMemo(() => {
         if (!$selectedStation) return null;
-        try {
-            // Mixed Polygon+Point FC — cast around turf's homogeneous-array
-            // typing (the layers filter by geometry-type).
-            return turfFeatureCollection([
-                turfCircle(
-                    [$selectedStation.lng, $selectedStation.lat],
-                    $hidingRadius,
-                    { steps: 128, units: $hidingRadiusUnits },
-                ),
-                turfPoint([$selectedStation.lng, $selectedStation.lat]),
-            ] as never) as GeoJSON.FeatureCollection;
-        } catch {
-            return null;
-        }
+        return buildSelectedZoneFC(
+            $selectedStation.lat,
+            $selectedStation.lng,
+            $hidingRadius,
+            $hidingRadiusUnits,
+        );
     }, [
         $selectedStation?.lat,
         $selectedStation?.lng,
@@ -907,22 +908,10 @@ export function HiderBackgroundMap() {
                                     ["==", ["geometry-type"], "Polygon"],
                                     ["==", ["geometry-type"], "MultiPolygon"],
                                 ]}
-                                paint={fadePaint({
-                                    // Light basemap: NEUTRAL grey wash (the red
-                                    // tint was too prominent). Dark/satellite:
-                                    // brightening near-white wash. Matches the
-                                    // seeker's hiding-zones-fill.
-                                    "fill-color": !darkBasemap
-                                        ? "hsl(0, 0%, 42%)"
-                                        : "#f5e7e3",
-                                    "fill-opacity": shown
-                                        ? darkBasemap
-                                            ? 0.16
-                                            : 0.15
-                                        : 0,
-                                    "fill-opacity-transition": {
-                                        duration: 280,
-                                    },
+                                paint={candidateZoneFillPaint({
+                                    darkBasemap,
+                                    theme: $theme,
+                                    shown,
                                 })}
                             />
                             <Layer
@@ -939,57 +928,15 @@ export function HiderBackgroundMap() {
                                         "MultiLineString",
                                     ],
                                 ]}
-                                paint={fadePaint({
-                                    "line-color": "hsl(2, 70%, 54%)",
-                                    "line-width": 1.5,
-                                    // v783: red dashed extent border removed on
-                                    // every basemap (matches hiding-zones-line).
-                                    "line-opacity": 0,
-                                    "line-opacity-transition": {
-                                        duration: 280,
-                                    },
-                                    "line-dasharray": [6, 5],
-                                })}
+                                paint={candidateZoneLinePaint()}
                             />
                             <Layer
                                 id="hider-reach-dots"
                                 type="circle"
                                 filter={["==", ["geometry-type"], "Point"]}
-                                paint={fadePaint({
-                                    // Zoom-scaled station dots, matching the
-                                    // seeker's hiding-zones-points so a dense
-                                    // network reads as a tidy field of points.
-                                    "circle-radius": [
-                                        "interpolate",
-                                        ["linear"],
-                                        ["zoom"],
-                                        8,
-                                        1.5,
-                                        13,
-                                        2.8,
-                                        16,
-                                        4,
-                                    ],
-                                    // Light-grey dots on dark/satellite,
-                                    // neutral very-dark-grey on the light
-                                    // basemap — byte-for-byte the seeker's
-                                    // hiding-zones-points (v833: the hider's
-                                    // used to be brand red, which read as a
-                                    // loud field; grey matches the seeker).
-                                    "circle-color": darkBasemap
-                                        ? "hsl(0, 0%, 80%)"
-                                        : "hsl(0, 0%, 20%)",
-                                    // No stroke — the white outline read as a
-                                    // halo on the light basemap.
-                                    "circle-stroke-width": 0,
-                                    "circle-opacity": shown ? 1 : 0,
-                                    "circle-stroke-opacity": shown ? 1 : 0,
-                                    "circle-opacity-transition": {
-                                        duration: 280,
-                                    },
-                                    "circle-stroke-opacity-transition": {
-                                        duration: 280,
-                                    },
+                                paint={candidateZoneDotPaint({
+                                    darkBasemap,
+                                    shown,
                                 })}
                             />
                             {/* Invisible larger hit target so a tap near the
@@ -998,56 +945,21 @@ export function HiderBackgroundMap() {
                                 id="hider-reach-hit"
                                 type="circle"
                                 filter={["==", ["geometry-type"], "Point"]}
-                                paint={{
-                                    "circle-radius": 16,
-                                    "circle-color": "#000000",
-                                    "circle-opacity": 0,
-                                }}
+                                paint={CANDIDATE_ZONE_HIT_PAINT}
                             />
                             <Layer
                                 id="hider-reach-labels"
                                 type="symbol"
                                 // v1064: labels only at higher zoom — at a
-                                // metro-wide zoom (~11) the whole field of
-                                // station names crammed together was too busy
-                                // (the dots still show at all zooms).
+                                // metro-wide zoom the whole field of station
+                                // names crammed together was too busy (the
+                                // dots still show at all zooms).
                                 minzoom={13}
                                 filter={["==", ["geometry-type"], "Point"]}
-                                layout={{
-                                    // v835: shortened label (abbreviated +
-                                    // truncated) from `reachDisplay`.
-                                    "text-field": [
-                                        "coalesce",
-                                        ["get", "shortName"],
-                                        ["get", "name"],
-                                        "",
-                                    ],
-                                    "text-size": 11,
-                                    // Must be a fontstack the glyph proxy
-                                    // actually serves (Protomaps = Noto Sans);
-                                    // "Open Sans" 404s → no text.
-                                    "text-font": ["Noto Sans Regular"],
-                                    "text-anchor": "top",
-                                    "text-offset": [0, 0.7],
-                                    "text-allow-overlap": false,
-                                    "text-optional": true,
-                                }}
-                                paint={fadePaint({
-                                    // Follow the BASEMAP brightness (parity
-                                    // with the seeker map) — white washes out
-                                    // on the light basemap, so use dark text +
-                                    // light halo there.
-                                    "text-color": darkBasemap
-                                        ? "white"
-                                        : "#1F2F3F",
-                                    "text-halo-color": darkBasemap
-                                        ? "rgba(0,0,0,0.85)"
-                                        : "rgba(255,255,255,0.9)",
-                                    "text-halo-width": 1.4,
-                                    "text-opacity": shown ? 1 : 0,
-                                    "text-opacity-transition": {
-                                        duration: 280,
-                                    },
+                                layout={CANDIDATE_ZONE_LABEL_LAYOUT}
+                                paint={candidateZoneLabelPaint({
+                                    darkBasemap,
+                                    shown,
                                 })}
                             />
                         </Source>
@@ -1072,10 +984,7 @@ export function HiderBackgroundMap() {
                                 ["==", ["geometry-type"], "Polygon"],
                                 ["==", ["geometry-type"], "MultiPolygon"],
                             ]}
-                            paint={{
-                                "fill-color": "#ffffff",
-                                "fill-opacity": 0.16,
-                            }}
+                            paint={SELECTED_ZONE_FILL_PAINT}
                         />
                         <Layer
                             id="hider-selected-zone-line"
@@ -1085,21 +994,13 @@ export function HiderBackgroundMap() {
                                 ["==", ["geometry-type"], "Polygon"],
                                 ["==", ["geometry-type"], "MultiPolygon"],
                             ]}
-                            paint={{
-                                "line-color": "#ffffff",
-                                "line-width": 3,
-                            }}
+                            paint={SELECTED_ZONE_LINE_PAINT}
                         />
                         <Layer
                             id="hider-selected-zone-dot"
                             type="circle"
                             filter={["==", ["geometry-type"], "Point"]}
-                            paint={{
-                                "circle-radius": 7,
-                                "circle-color": "#ffffff",
-                                "circle-stroke-color": "#1F2F3F",
-                                "circle-stroke-width": 2.5,
-                            }}
+                            paint={SELECTED_ZONE_DOT_PAINT}
                         />
                     </Source>
                 )}

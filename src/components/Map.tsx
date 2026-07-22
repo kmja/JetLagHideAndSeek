@@ -81,6 +81,19 @@ import {
     seekerLocations,
 } from "@/lib/multiplayer/session";
 import { playerColor, playerInitials } from "@/lib/playerColor";
+import {
+    buildSelectedZoneFC,
+    candidateZoneDotPaint,
+    candidateZoneFillPaint,
+    candidateZoneLabelPaint,
+    candidateZoneLinePaint,
+    CANDIDATE_ZONE_HIT_PAINT,
+    CANDIDATE_ZONE_LABEL_LAYOUT,
+    mapLabelColors,
+    SELECTED_ZONE_DOT_PAINT,
+    SELECTED_ZONE_FILL_PAINT,
+    SELECTED_ZONE_LINE_PAINT,
+} from "@/lib/hidingZoneStyle";
 import { fadePaint } from "@/lib/mapPaint";
 import { createMapShim } from "@/lib/mapShim";
 import { buildStyle } from "@/lib/mapStyle";
@@ -459,25 +472,12 @@ export function Map({ className }: MapProps) {
     // radius changes.
     const selectedZoneFC = useMemo(() => {
         if (!$selectedStation) return null;
-        try {
-            const circle = turf.circle(
-                [$selectedStation.lng, $selectedStation.lat],
-                $hidingRadius,
-                { steps: 128, units: $hidingRadiusUnits },
-            );
-            const dot = turf.point([
-                $selectedStation.lng,
-                $selectedStation.lat,
-            ]);
-            // Mixed Polygon+Point FC — cast around turf's homogeneous-array
-            // typing (the layers filter by geometry-type).
-            return turf.featureCollection([
-                circle,
-                dot,
-            ] as never) as GeoJSON.FeatureCollection;
-        } catch {
-            return null;
-        }
+        return buildSelectedZoneFC(
+            $selectedStation.lat,
+            $selectedStation.lng,
+            $hidingRadius,
+            $hidingRadiusUnits,
+        );
     }, [
         $selectedStation?.lat,
         $selectedStation?.lng,
@@ -2119,10 +2119,8 @@ export function Map({ className }: MapProps) {
     // thin halo read). So invert to dark text + light halo whenever the
     // basemap is light (light theme AND satellite off).
     const darkBasemap = $satellite || $theme === "dark";
-    const mapLabelColor = darkBasemap ? "#ffffff" : "#1f2937";
-    const mapLabelHalo = darkBasemap
-        ? "rgba(0,0,0,0.85)"
-        : "rgba(255,255,255,0.9)";
+    const { color: mapLabelColor, halo: mapLabelHalo } =
+        mapLabelColors(darkBasemap);
 
     return (
         <div className={cn("relative w-full h-screen", className)}>
@@ -2303,31 +2301,10 @@ export function Map({ className }: MapProps) {
                                     ["==", ["geometry-type"], "Polygon"],
                                     ["==", ["geometry-type"], "MultiPolygon"],
                                 ]}
-                                paint={fadePaint({
-                                    // Light basemap: a NEUTRAL grey wash — the
-                                    // red tint read as too prominent / "took
-                                    // over" the bright map, so the fill is a
-                                    // plain grey that's visible but recedes.
-                                    // Dark/satellite basemap: a faint red tint
-                                    // disappears on near-black, so the overlay
-                                    // paints a brightening near-white wash that
-                                    // POSITIVELY lights up the remaining hiding
-                                    // circles against the darker surround.
-                                    "fill-color": !darkBasemap
-                                        ? "hsl(0, 0%, 42%)"
-                                        : $theme === "dark"
-                                          ? "#f5e7e3"
-                                          : "hsl(2, 70%, 54%)",
-                                    "fill-opacity": shown
-                                        ? !darkBasemap
-                                            ? 0.15
-                                            : $theme === "dark"
-                                              ? 0.16
-                                              : 0.08
-                                        : 0,
-                                    "fill-opacity-transition": {
-                                        duration: 280,
-                                    },
+                                paint={candidateZoneFillPaint({
+                                    darkBasemap,
+                                    theme: $theme,
+                                    shown,
                                 })}
                             />
                             <Layer
@@ -2340,56 +2317,15 @@ export function Map({ className }: MapProps) {
                                     ["==", ["geometry-type"], "LineString"],
                                     ["==", ["geometry-type"], "MultiLineString"],
                                 ]}
-                                paint={fadePaint({
-                                    "line-color": "hsl(2, 70%, 54%)",
-                                    "line-width": 1.5,
-                                    // v783: the red dashed extent border was
-                                    // removed on every basemap — it read as
-                                    // clutter. The faint fill alone conveys the
-                                    // extent.
-                                    "line-opacity": 0,
-                                    "line-opacity-transition": {
-                                        duration: 280,
-                                    },
-                                    "line-dasharray": [6, 5],
-                                })}
+                                paint={candidateZoneLinePaint()}
                             />
                             <Layer
                                 id="hiding-zones-points"
                                 type="circle"
                                 filter={["==", ["geometry-type"], "Point"]}
-                                paint={fadePaint({
-                                    // Zoom-scaled station dots — small enough that
-                                    // a dense network (Stockholm-scale) reads as a
-                                    // tidy field of points rather than a solid mass.
-                                    "circle-radius": [
-                                        "interpolate",
-                                        ["linear"],
-                                        ["zoom"],
-                                        8,
-                                        1.5,
-                                        13,
-                                        2.8,
-                                        16,
-                                        4,
-                                    ],
-                                    // Dark/satellite: light-grey dots (v783 —
-                                    // the red field was too loud). Light
-                                    // basemap: neutral very-dark-grey.
-                                    "circle-color": darkBasemap
-                                        ? "hsl(0, 0%, 80%)"
-                                        : "hsl(0, 0%, 20%)",
-                                    // No stroke — the white outline read as a
-                                    // halo on the light basemap.
-                                    "circle-stroke-width": 0,
-                                    "circle-opacity": shown ? 1 : 0,
-                                    "circle-stroke-opacity": shown ? 1 : 0,
-                                    "circle-opacity-transition": {
-                                        duration: 280,
-                                    },
-                                    "circle-stroke-opacity-transition": {
-                                        duration: 280,
-                                    },
+                                paint={candidateZoneDotPaint({
+                                    darkBasemap,
+                                    shown,
                                 })}
                             />
                             {/* Invisible larger hit target on each station
@@ -2402,53 +2338,22 @@ export function Map({ className }: MapProps) {
                                 id="hiding-zones-hit"
                                 type="circle"
                                 filter={["==", ["geometry-type"], "Point"]}
-                                paint={{
-                                    "circle-radius": 16,
-                                    "circle-color": "#000000",
-                                    "circle-opacity": 0,
-                                }}
+                                paint={CANDIDATE_ZONE_HIT_PAINT}
                             />
                             {/* Station name labels. Reads `name` off the
                                 centre point features the zone overlay ships
-                                alongside the circles. Hidden when zoomed out
-                                / on overlap so a dense network doesn't turn
-                                into a wall of text. */}
+                                alongside the circles. v1064: labels only at
+                                higher zoom — a metro-wide field of names was
+                                too busy. */}
                             <Layer
                                 id="hiding-zones-labels"
                                 type="symbol"
                                 filter={["==", ["geometry-type"], "Point"]}
-                                // v1064: labels only at higher zoom — a
-                                // metro-wide field of names was too busy.
                                 minzoom={13}
-                                layout={{
-                                    // v835: prefer the shortened label
-                                    // (abbreviated + truncated) computed in
-                                    // `hidingZonesDisplay`; fall back to the
-                                    // full name.
-                                    "text-field": [
-                                        "coalesce",
-                                        ["get", "shortName"],
-                                        ["get", "name"],
-                                        "",
-                                    ],
-                                    "text-size": 11,
-                                    // Must be a fontstack the glyph proxy
-                                    // actually serves (Protomaps assets =
-                                    // Noto Sans); "Open Sans" 404s → no text.
-                                    "text-font": ["Noto Sans Regular"],
-                                    "text-anchor": "top",
-                                    "text-offset": [0, 0.7],
-                                    "text-allow-overlap": false,
-                                    "text-optional": true,
-                                }}
-                                paint={fadePaint({
-                                    "text-color": mapLabelColor,
-                                    "text-halo-color": mapLabelHalo,
-                                    "text-halo-width": 1.4,
-                                    "text-opacity": shown ? 1 : 0,
-                                    "text-opacity-transition": {
-                                        duration: 280,
-                                    },
+                                layout={CANDIDATE_ZONE_LABEL_LAYOUT}
+                                paint={candidateZoneLabelPaint({
+                                    darkBasemap,
+                                    shown,
                                 })}
                             />
                         </Source>
@@ -2509,10 +2414,7 @@ export function Map({ className }: MapProps) {
                                 ["==", ["geometry-type"], "Polygon"],
                                 ["==", ["geometry-type"], "MultiPolygon"],
                             ]}
-                            paint={{
-                                "fill-color": "#ffffff",
-                                "fill-opacity": 0.16,
-                            }}
+                            paint={SELECTED_ZONE_FILL_PAINT}
                         />
                         <Layer
                             id="selected-zone-line"
@@ -2522,21 +2424,13 @@ export function Map({ className }: MapProps) {
                                 ["==", ["geometry-type"], "Polygon"],
                                 ["==", ["geometry-type"], "MultiPolygon"],
                             ]}
-                            paint={{
-                                "line-color": "#ffffff",
-                                "line-width": 3,
-                            }}
+                            paint={SELECTED_ZONE_LINE_PAINT}
                         />
                         <Layer
                             id="selected-zone-dot"
                             type="circle"
                             filter={["==", ["geometry-type"], "Point"]}
-                            paint={{
-                                "circle-radius": 7,
-                                "circle-color": "#ffffff",
-                                "circle-stroke-color": "#1F2F3F",
-                                "circle-stroke-width": 2.5,
-                            }}
+                            paint={SELECTED_ZONE_DOT_PAINT}
                         />
                     </Source>
                 )}
