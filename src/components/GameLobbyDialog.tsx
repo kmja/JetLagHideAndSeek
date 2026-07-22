@@ -6,6 +6,7 @@ import {
     Copy,
     Loader2,
     LogOut,
+    MapPin,
     Pause,
     Pencil,
     Plus,
@@ -690,41 +691,80 @@ export function GameLobbyDialog() {
                 </VaulDrawer.Description>
 
                 {isMidGame ? (
-                    <div className="px-5 pt-2 pb-3 shrink-0 border-b border-border flex items-center gap-2">
-                        <div className="flex flex-col min-w-0 leading-none">
-                            <span className="text-[10px] uppercase tracking-[0.14em] font-display font-extrabold text-muted-foreground">
-                                Room code
-                            </span>
-                            <span className="font-display font-black uppercase text-2xl tabular-nums tracking-[0.08em] text-primary mt-0.5">
-                                {$code ?? "——"}
-                            </span>
-                        </div>
-                        {$code && (
-                            <div className="ml-auto flex items-center gap-1.5">
-                                <Button
-                                    size="sm"
-                                    onClick={handleShare}
-                                    aria-label="Share invite link"
-                                    className="gap-1.5"
-                                >
-                                    <Share2 className="w-3.5 h-3.5" />
-                                    Share
-                                </Button>
-                                <Button
-                                    size="sm"
-                                    variant="outline"
-                                    onClick={handleCopy}
-                                    aria-label="Copy invite link"
-                                    className="px-2"
-                                >
-                                    {copied ? (
-                                        <Check className="w-3.5 h-3.5" />
-                                    ) : (
-                                        <Copy className="w-3.5 h-3.5" />
-                                    )}
-                                </Button>
+                    <div className="px-5 pt-2 pb-3 shrink-0 border-b border-border space-y-2.5">
+                        <div className="flex items-center gap-2">
+                            <div className="flex flex-col min-w-0 leading-none">
+                                <span className="text-[10px] uppercase tracking-[0.14em] font-display font-extrabold text-muted-foreground">
+                                    Room code
+                                </span>
+                                <span className="font-display font-black uppercase text-2xl tabular-nums tracking-[0.08em] text-primary mt-0.5">
+                                    {$code ?? "——"}
+                                </span>
                             </div>
-                        )}
+                            {$code && (
+                                <div className="ml-auto flex items-center gap-1.5">
+                                    <Button
+                                        size="sm"
+                                        onClick={handleShare}
+                                        aria-label="Share invite link"
+                                        className="gap-1.5"
+                                    >
+                                        <Share2 className="w-3.5 h-3.5" />
+                                        Share
+                                    </Button>
+                                    <Button
+                                        size="sm"
+                                        variant="outline"
+                                        onClick={handleCopy}
+                                        aria-label="Copy invite link"
+                                        className="px-2"
+                                    >
+                                        {copied ? (
+                                            <Check className="w-3.5 h-3.5" />
+                                        ) : (
+                                            <Copy className="w-3.5 h-3.5" />
+                                        )}
+                                    </Button>
+                                </div>
+                            )}
+                        </div>
+                        {/* v1085: read-only game settings (the game is running, so
+                            they can't be edited from here) — play area, size, and
+                            allowed transit, mirroring the pre-game header. */}
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                            {cityName && (
+                                <span
+                                    className="inline-flex items-center gap-1 rounded-md bg-secondary/60 border border-border px-2 py-1 text-xs font-medium text-foreground max-w-[45%] truncate"
+                                    title={cityName}
+                                >
+                                    <MapPin className="w-3.5 h-3.5 shrink-0 text-muted-foreground" />
+                                    <span className="truncate">{cityName}</span>
+                                </span>
+                            )}
+                            <SizeBadge
+                                size={$size}
+                                className="text-xs px-2.5 h-8 shadow-sm"
+                            />
+                            {$allowedTransit.length === 0 ? (
+                                <span className="rounded-md bg-secondary/60 border border-border px-2 py-1 text-xs text-muted-foreground italic">
+                                    Walking only
+                                </span>
+                            ) : (
+                                $allowedTransit.map((m) => {
+                                    const Icon = TRANSIT_ICONS[m];
+                                    return (
+                                        <span
+                                            key={m}
+                                            className={cn(GLASS_PILL, "shadow-sm")}
+                                            title={TRANSIT_LABELS[m]}
+                                            aria-label={TRANSIT_LABELS[m]}
+                                        >
+                                            <Icon className="w-5 h-5" />
+                                        </span>
+                                    );
+                                })
+                            )}
+                        </div>
                     </div>
                 ) : (
                     // Pre-game header (v882): a SHARE section on top in its own

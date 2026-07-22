@@ -430,6 +430,12 @@ bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
 build stamp. Current: `v1069`. Use `git log` for the per-version detail;
 
+**v1085 — in-game lobby shows the game settings.** The mid-game lobby reopen
+(`GameLobbyDialog` `isMidGame`) showed only the room code + Share — no game
+settings. Added a read-only settings row under the room code (play-area name +
+`SizeBadge` + allowed-transit glyphs, mirroring the pre-game header). Read-only
+because the game is running; editing stays a pre-game affordance.
+
 **v1084 — GPS-spoof chip moved out of the way.** The persistent "GPS SPOOFED ·
 tap to clear" chip (`SpoofIndicator`) was top-CENTER (`left-1/2`), overlapping the
 HIDE+SEEK wordmark — which is the debug-panel trigger, so it blocked opening the
