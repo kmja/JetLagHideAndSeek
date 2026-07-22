@@ -432,6 +432,24 @@ bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
 build stamp. Current: `v1069`. Use `git log` for the per-version detail;
 
+**v1101 — Mediocre Travel Agent destination constraints ENFORCED (with override).**
+The one remaining CHECKABLE curse constraint the audit flagged. The travel-agent
+casting only gated on "a pin is set"; the rulebook imposes two geographic
+conditions the app already has every coordinate for, so they're now enforced like
+Bridge Troll / Water Weight: `evaluateTravelAgent(size, hiderPos, seekerRef,
+destPos)` (`castingConstraint.ts`, unit-tested) checks (1) the destination is
+within `travelAgentRadiusKm` of the seekers (0.5/0.5/1 km — the effect's allowed
+radius) and (2) it's FARTHER from the hider than the seekers currently are (the
+casting cost). `CastCurseDialog` folds `travelAgentBlocked` into the existing
+`locationBlocked` so the shared **"Cast anyway"** override + the red banner (with a
+reason-specific message) cover it. Fail-safe: `unknown` (→ allowed) when no pin is
+placed or no seeker has shared a real location — the freshest REAL seeker fix is
+used (not `destCenter`'s play-area-centroid fallback), so a solo/offline pin is
+never false-blocked; the farther-from-hider half is skipped when the hider has no
+GPS fix. This closes the last curse-review gap in the checkable class; the genuinely
+un-verifiable constraints (U-Turn heading, Distant Cuisine "at the restaurant",
+"must be outside") stay self-attested by design.
+
 **v1100 — a CLEARED blocking curse no longer keeps blocking new casts.** After the
 seekers beat (or lost out of) a one-at-a-time blocking curse — most visibly Hidden
 Hangman — the hider stayed blocked from casting the next blocking curse ("… is

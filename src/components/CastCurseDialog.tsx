@@ -43,8 +43,10 @@ import {
 import {
     CURSE_BRIDGE_TROLL,
     CURSE_HIDDEN_HANGMAN,
+    CURSE_TRAVEL_AGENT,
     CURSE_WATER_WEIGHT,
     evaluateBridgeTroll,
+    evaluateTravelAgent,
     hangmanMaxLosses,
     WATER_WEIGHT_WITHIN_M,
 } from "@/lib/castingConstraint";
@@ -81,6 +83,12 @@ import { reverseGeocode } from "@/maps/api";
 // Lazy — keeps maplibre-gl off the critical path; only the Mediocre Travel
 // Agent curse mounts it.
 const DestinationPicker = lazy(() => import("./DestinationPicker"));
+
+/** Format a kilometre distance as "N m" (<1 km) or "N.N km" for a banner. */
+function fmtKm(km: number | undefined): string {
+    if (km == null || !Number.isFinite(km)) return "—";
+    return km < 1 ? `${Math.round(km * 1000)} m` : `${km.toFixed(1)} km`;
+}
 
 /**
  * Confirm-and-cast dialog for curses. Surfaces:
@@ -238,6 +246,16 @@ export function CastCurseDialog({
         if ($playArea) return { lat: $playArea.lat, lng: $playArea.lng };
         return { lat: 0, lng: 0 };
     }, [$seekerLocs, $playArea]);
+    // Destination (Mediocre Travel Agent): the place the hider sends the
+    // seekers to — picked on a MAP (v1029). `travelDestPoint` is the picked
+    // coordinate; `travelDestName` is the reverse-geocoded label shown to the
+    // seekers alongside the map pin. Declared here (above the constraint block)
+    // so the travel-agent casting constraint can read it.
+    const [travelDestPoint, setTravelDestPoint] = useState<{
+        lat: number;
+        lng: number;
+    } | null>(null);
+    const [travelDestName, setTravelDestName] = useState("");
     // v1094/v1095: location-based CASTING-COST constraints, ENFORCED but
     // OVERRIDABLE. Evaluated from the hider's own GPS + the seekers' last-shared
     // positions; `unknown` (no fix / nobody has shared / a geo lookup fails) →
@@ -296,6 +314,32 @@ export function CastCurseDialog({
     }, [card, $seekerLocs]);
     const waterBlocked = waterFarM != null;
 
+    // Mediocre Travel Agent (v1101) — the two CHECKABLE geographic conditions:
+    // the picked destination must be within 0.5/0.5/1 km of the seekers AND
+    // farther from the hider than the seekers currently are. `unknown` (no
+    // pin / no seeker fix) → allowed.
+    const travelAgent = useMemo(() => {
+        if (!card || card.name !== CURSE_TRAVEL_AGENT) return null;
+        // Use the freshest REAL seeker location (not `destCenter`'s play-area
+        // centroid fallback) so a solo/offline pin isn't checked against a
+        // non-seeker point → `unknown` (allowed).
+        const locs = Object.values($seekerLocs);
+        const seekerRef =
+            locs.length > 0
+                ? (() => {
+                      const f = locs.reduce((a, b) => (b.ts > a.ts ? b : a));
+                      return { lat: f.lat, lng: f.lng };
+                  })()
+                : null;
+        return evaluateTravelAgent(
+            $gameSize,
+            $hiderPos,
+            seekerRef,
+            travelDestPoint,
+        );
+    }, [card, $gameSize, $hiderPos, $seekerLocs, travelDestPoint]);
+    const travelAgentBlocked = travelAgent?.status === "blocked";
+
     // The hider can OVERRIDE a location block ("Cast anyway") when the app's
     // GPS/water data is wrong — GPS noise, water not mapped in OSM, a seeker who
     // hasn't shared a fresh fix. Reset whenever the open card changes.
@@ -303,7 +347,8 @@ export function CastCurseDialog({
     useEffect(() => {
         setConstraintOverride(false);
     }, [card?.id, open]);
-    const locationBlocked = bridgeTrollBlocked || waterBlocked;
+    const locationBlocked =
+        bridgeTrollBlocked || waterBlocked || travelAgentBlocked;
     const castBlockedByLocation = locationBlocked && !constraintOverride;
 
     // Hidden Hangman (v1099): the hider picks the FIRST secret word as part of
@@ -349,15 +394,6 @@ export function CastCurseDialog({
     // Rock-tower casting cost (Curse of the Cairn): the number of rocks the
     // hider's tower reached — the target the seekers must match.
     const [rockCount, setRockCount] = useState<number | null>(null);
-    // Destination (Mediocre Travel Agent): the place the hider sends the
-    // seekers to — picked on a MAP (v1029). `travelDestPoint` is the picked
-    // coordinate; `travelDestName` is the reverse-geocoded label shown to the
-    // seekers alongside the map pin.
-    const [travelDestPoint, setTravelDestPoint] = useState<{
-        lat: number;
-        lng: number;
-    } | null>(null);
-    const [travelDestName, setTravelDestName] = useState("");
     const destPickTokenRef = useRef(0);
     const [rolled, setRolled] = useState<number | null>(null);
     const [rolling, setRolling] = useState(false);
@@ -1776,21 +1812,31 @@ export function CastCurseDialog({
                             role="status"
                         >
                             <span>
-                                {bridgeTrollBlocked && bridgeTroll?.minKm != null
-                                    ? `The seekers are only about ${
-                                          bridgeTroll.nearestKm != null
-                                              ? bridgeTroll.nearestKm < 1
-                                                  ? `${Math.round(bridgeTroll.nearestKm * 1000)} m`
-                                                  : `${bridgeTroll.nearestKm.toFixed(1)} km`
-                                              : "—"
-                                      } away — they must be at least ${bridgeTroll.minKm} km from you to cast this curse.`
-                                    : `The seekers' last position is about ${
-                                          waterFarM != null
-                                              ? waterFarM >= 1000
-                                                  ? `${(waterFarM / 1000).toFixed(1)} km`
-                                                  : `${Math.round(waterFarM)} m`
-                                              : "—"
-                                      } from water — they must be within ${WATER_WEIGHT_WITHIN_M} m of a body of water to cast this curse.`}
+                                {travelAgentBlocked
+                                    ? travelAgent?.reason ===
+                                      "too-far-from-seekers"
+                                        ? `That destination is about ${fmtKm(
+                                              travelAgent.destToSeekersKm,
+                                          )} from the seekers — pick a public place within ${
+                                              travelAgent.radiusKm
+                                          } km of them.`
+                                        : "That destination is closer to you than the seekers are — pick a place farther from you than they currently are."
+                                    : bridgeTrollBlocked &&
+                                        bridgeTroll?.minKm != null
+                                      ? `The seekers are only about ${
+                                            bridgeTroll.nearestKm != null
+                                                ? bridgeTroll.nearestKm < 1
+                                                    ? `${Math.round(bridgeTroll.nearestKm * 1000)} m`
+                                                    : `${bridgeTroll.nearestKm.toFixed(1)} km`
+                                                : "—"
+                                        } away — they must be at least ${bridgeTroll.minKm} km from you to cast this curse.`
+                                      : `The seekers' last position is about ${
+                                            waterFarM != null
+                                                ? waterFarM >= 1000
+                                                    ? `${(waterFarM / 1000).toFixed(1)} km`
+                                                    : `${Math.round(waterFarM)} m`
+                                                : "—"
+                                        } from water — they must be within ${WATER_WEIGHT_WITHIN_M} m of a body of water to cast this curse.`}
                             </span>
                             <Button
                                 variant="outline"

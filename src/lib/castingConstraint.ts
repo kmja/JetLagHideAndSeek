@@ -29,6 +29,7 @@ import type { GameSize } from "@/lib/gameSetup";
 export const CURSE_BRIDGE_TROLL = "Curse of the Bridge Troll";
 export const CURSE_WATER_WEIGHT = "Curse of Water Weight";
 export const CURSE_HIDDEN_HANGMAN = "Curse of the Hidden Hangman";
+export const CURSE_TRAVEL_AGENT = "Curse of the Mediocre Travel Agent";
 
 /** Hidden Hangman: losses that end the curse (1 S / 2 M / 3 L, rulebook). */
 export function hangmanMaxLosses(size: GameSize): number {
@@ -96,4 +97,85 @@ export function evaluateBridgeTroll(
         nearestKm,
         minKm,
     };
+}
+
+/**
+ * Mediocre Travel Agent: the destination radius around the seekers, km — the
+ * "publicly-accessible place within 0.5 km (S) / 0.5 km (M) / 1 km (L) of the
+ * seekers' current location" the effect allows.
+ */
+export function travelAgentRadiusKm(size: GameSize): number {
+    return size === "large" ? 1 : 0.5;
+}
+
+export interface TravelAgentResult {
+    status: ConstraintStatus;
+    /** Which condition failed (only when `blocked`). */
+    reason?: "too-far-from-seekers" | "too-close-to-hider";
+    /** Picked destination → seekers, km. */
+    destToSeekersKm?: number;
+    /** Allowed radius around the seekers, km. */
+    radiusKm?: number;
+    /** Picked destination → hider, km. */
+    destToHiderKm?: number;
+    /** Seekers → hider, km. */
+    seekerToHiderKm?: number;
+}
+
+/**
+ * Mediocre Travel Agent — the two CHECKABLE geographic conditions:
+ *   1. Effect: the destination must be within `travelAgentRadiusKm` of the
+ *      seekers' current location.
+ *   2. Casting cost: the destination must be FARTHER from the hider than the
+ *      seekers currently are ("further from you than their current location").
+ *
+ * `seekerRef` = the freshest seeker location (the destination picker's centre).
+ * Returns `unknown` (→ allow) when the destination or seeker reference is
+ * missing/non-finite. The farther-from-hider check needs the hider's own fix;
+ * when that's absent only the proximity condition is enforced (still `ok`
+ * otherwise). Same fail-safe philosophy as the other constraints + the same
+ * "Cast anyway" override on the fallible data.
+ */
+export function evaluateTravelAgent(
+    size: GameSize,
+    hiderPos: LatLng | null | undefined,
+    seekerRef: LatLng | null | undefined,
+    destPos: LatLng | null | undefined,
+): TravelAgentResult {
+    const finite = (p?: LatLng | null): p is LatLng =>
+        !!p && Number.isFinite(p.lat) && Number.isFinite(p.lng);
+    if (!finite(seekerRef) || !finite(destPos)) return { status: "unknown" };
+
+    const radiusKm = travelAgentRadiusKm(size);
+    const destToSeekersKm = haversineKm(destPos, seekerRef);
+    if (destToSeekersKm > radiusKm) {
+        return {
+            status: "blocked",
+            reason: "too-far-from-seekers",
+            destToSeekersKm,
+            radiusKm,
+        };
+    }
+    if (finite(hiderPos)) {
+        const destToHiderKm = haversineKm(destPos, hiderPos);
+        const seekerToHiderKm = haversineKm(seekerRef, hiderPos);
+        if (destToHiderKm <= seekerToHiderKm) {
+            return {
+                status: "blocked",
+                reason: "too-close-to-hider",
+                destToSeekersKm,
+                radiusKm,
+                destToHiderKm,
+                seekerToHiderKm,
+            };
+        }
+        return {
+            status: "ok",
+            destToSeekersKm,
+            radiusKm,
+            destToHiderKm,
+            seekerToHiderKm,
+        };
+    }
+    return { status: "ok", destToSeekersKm, radiusKm };
 }

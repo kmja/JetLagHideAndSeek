@@ -3,7 +3,9 @@ import { describe, expect, it } from "vitest";
 import {
     bridgeTrollMinKm,
     evaluateBridgeTroll,
+    evaluateTravelAgent,
     haversineKm,
+    travelAgentRadiusKm,
 } from "@/lib/castingConstraint";
 
 describe("bridgeTrollMinKm", () => {
@@ -56,5 +58,65 @@ describe("evaluateBridgeTroll", () => {
         expect(evaluateBridgeTroll("medium", hider, [far, near]).status).toBe(
             "blocked",
         );
+    });
+});
+
+describe("travelAgentRadiusKm", () => {
+    it("is 0.5 / 0.5 / 1 km by size", () => {
+        expect(travelAgentRadiusKm("small")).toBe(0.5);
+        expect(travelAgentRadiusKm("medium")).toBe(0.5);
+        expect(travelAgentRadiusKm("large")).toBe(1);
+    });
+});
+
+describe("evaluateTravelAgent", () => {
+    const hider = { lat: 59.33, lng: 18.06 }; // Stockholm
+    // Seekers ~11 km north of the hider.
+    const seekers = { lat: 59.43, lng: 18.06 };
+
+    it("is unknown with no destination or no seeker reference", () => {
+        expect(
+            evaluateTravelAgent("medium", hider, seekers, null).status,
+        ).toBe("unknown");
+        expect(
+            evaluateTravelAgent("medium", hider, null, seekers).status,
+        ).toBe("unknown");
+    });
+
+    it("blocks a destination outside the seekers' radius", () => {
+        // ~2 km east of the seekers — medium radius is 0.5 km.
+        const dest = { lat: 59.43, lng: 18.095 };
+        const r = evaluateTravelAgent("medium", hider, seekers, dest);
+        expect(r.status).toBe("blocked");
+        expect(r.reason).toBe("too-far-from-seekers");
+    });
+
+    it("blocks a destination closer to the hider than the seekers are", () => {
+        // Within 0.5 km of the seekers but nudged SOUTH (toward the hider).
+        const dest = { lat: 59.427, lng: 18.06 };
+        const r = evaluateTravelAgent("medium", hider, seekers, dest);
+        expect(r.status).toBe("blocked");
+        expect(r.reason).toBe("too-close-to-hider");
+        expect(r.destToHiderKm).toBeLessThan(r.seekerToHiderKm!);
+    });
+
+    it("allows a destination near the seekers and farther from the hider", () => {
+        // Within 0.5 km of the seekers, nudged NORTH (away from the hider).
+        const dest = { lat: 59.433, lng: 18.06 };
+        const r = evaluateTravelAgent("medium", hider, seekers, dest);
+        expect(r.status).toBe("ok");
+        expect(r.destToHiderKm).toBeGreaterThan(r.seekerToHiderKm!);
+    });
+
+    it("enforces only proximity when the hider has no fix", () => {
+        const nearNorth = { lat: 59.433, lng: 18.06 };
+        expect(
+            evaluateTravelAgent("medium", null, seekers, nearNorth).status,
+        ).toBe("ok");
+        const nearSouth = { lat: 59.427, lng: 18.06 };
+        // Closer to the (unknown) hider, but with no fix we can't check it → ok.
+        expect(
+            evaluateTravelAgent("medium", null, seekers, nearSouth).status,
+        ).toBe("ok");
     });
 });
