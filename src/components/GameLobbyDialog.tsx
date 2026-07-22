@@ -21,6 +21,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "react-toastify";
 import { Drawer as VaulDrawer } from "vaul";
 
+import { rankBadgeBg } from "@/components/LeaderboardRankBadge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
@@ -748,10 +749,12 @@ export function GameLobbyDialog() {
                         {/* v1085: read-only game settings (the game is running, so
                             they can't be edited from here) — play area, size, and
                             allowed transit, mirroring the pre-game header. v1121:
-                            ONE wrapping row — the play-area badge sits alongside
-                            the size + transit pills when they fit (the common
-                            case) and only wraps to a second line when the city
-                            name is too long to share the row. */}
+                            the play-area badge sits alongside the size + transit
+                            pills on ONE row when they fit; when they don't, the
+                            size + transit pills wrap as a GROUP to the next line
+                            (never a stray transit mode alone) — the outer row is
+                            flex-wrap with two children, the second a NO-wrap
+                            size+transit group. */}
                         <div className="flex items-center gap-1.5 flex-wrap">
                             {cityName && (
                                 <span
@@ -762,32 +765,34 @@ export function GameLobbyDialog() {
                                     <span className="truncate">{cityName}</span>
                                 </span>
                             )}
-                            <SizeBadge
-                                size={$size}
-                                className="text-sm px-3 h-10 shadow-sm"
-                            />
-                            {$allowedTransit.length === 0 ? (
-                                <span className="inline-flex h-10 items-center rounded-md bg-secondary/60 border border-border px-3 text-sm text-muted-foreground italic">
-                                    Walking only
-                                </span>
-                            ) : (
-                                $allowedTransit.map((m) => {
-                                    const Icon = TRANSIT_ICONS[m];
-                                    return (
-                                        <span
-                                            key={m}
-                                            className={cn(
-                                                GLASS_PILL,
-                                                "shadow-sm",
-                                            )}
-                                            title={TRANSIT_LABELS[m]}
-                                            aria-label={TRANSIT_LABELS[m]}
-                                        >
-                                            <Icon className="w-5 h-5" />
-                                        </span>
-                                    );
-                                })
-                            )}
+                            <div className="flex items-center gap-1.5">
+                                <SizeBadge
+                                    size={$size}
+                                    className="text-sm px-3 h-10 shadow-sm"
+                                />
+                                {$allowedTransit.length === 0 ? (
+                                    <span className="inline-flex h-10 items-center rounded-md bg-secondary/60 border border-border px-3 text-sm text-muted-foreground italic">
+                                        Walking only
+                                    </span>
+                                ) : (
+                                    $allowedTransit.map((m) => {
+                                        const Icon = TRANSIT_ICONS[m];
+                                        return (
+                                            <span
+                                                key={m}
+                                                className={cn(
+                                                    GLASS_PILL,
+                                                    "shadow-sm",
+                                                )}
+                                                title={TRANSIT_LABELS[m]}
+                                                aria-label={TRANSIT_LABELS[m]}
+                                            >
+                                                <Icon className="w-5 h-5" />
+                                            </span>
+                                        );
+                                    })
+                                )}
+                            </div>
                         </div>
                     </div>
                 ) : (
@@ -1768,15 +1773,9 @@ function LeaderboardSection() {
                             style={{
                                 // Placement blocks — gold / silver / bronze /
                                 // neutral, matching the EndOfRoundDialog +
-                                // HiderTimer leaderboards (v850/v871).
-                                background:
-                                    idx === 0
-                                        ? "#F2C63C"
-                                        : idx === 1
-                                          ? "#B8BDC7"
-                                          : idx === 2
-                                            ? "#CF8B4B"
-                                            : "#9AA1AD",
+                                // HiderTimer leaderboards (v850/v871). Shared
+                                // ramp (v1121, C3).
+                                background: rankBadgeBg(idx + 1),
                                 color: idx === 2 ? "#fff" : "#1F2F3F",
                             }}
                             aria-label={`Position ${idx + 1}`}

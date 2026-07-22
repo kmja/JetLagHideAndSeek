@@ -17,6 +17,12 @@ import { lobbyManualOpen, participants } from "@/lib/multiplayer/session";
 import { receivedCurses } from "@/lib/seekerInbound";
 import { cn } from "@/lib/utils";
 
+import {
+    NAV_BTN_CLASS,
+    NAV_LABEL_CLASS,
+    NavBadge,
+} from "@/components/bottomNavPrimitives";
+
 import { AddQuestionDialog } from "./AddQuestionDialog";
 import { AppSettingsDrawer } from "./AppSettingsDrawer";
 import {
@@ -79,14 +85,8 @@ export const BottomNav = () => {
     // question still in draft (drag:true) as awaiting an answer.
     const hasPendingAnswer = $questions.some((q) => q.data.drag === true);
 
-    const navBtnClass = cn(
-        "relative flex-1 flex flex-col items-center justify-center gap-0.5",
-        "py-2 px-1 rounded-md min-h-[48px]",
-        "text-muted-foreground hover:text-foreground hover:bg-secondary",
-        "active:bg-secondary/80 transition-colors",
-        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-    );
-    const navLabelClass = "text-[10px] font-poppins font-semibold";
+    const navBtnClass = NAV_BTN_CLASS;
+    const navLabelClass = NAV_LABEL_CLASS;
 
     return (
         <div
@@ -111,19 +111,11 @@ export const BottomNav = () => {
                     <List className="w-5 h-5" strokeWidth={2} />
                     <span className={navLabelClass}>Questions</span>
                     {$questions.length > 0 && (
-                        <span
-                            className={cn(
-                                "absolute top-1 right-2",
-                                "text-[9px] font-mono font-semibold",
-                                "bg-secondary text-foreground",
-                                "px-1.5 min-w-[18px] h-[18px]",
-                                "rounded-full flex items-center justify-center",
-                                "border border-border",
-                            )}
+                        <NavBadge
+                            count={$questions.length}
+                            className="bg-secondary text-foreground border border-border"
                             aria-label={`${$questions.length} questions added`}
-                        >
-                            {$questions.length}
-                        </span>
+                        />
                     )}
                 </button>
 
@@ -182,19 +174,11 @@ export const BottomNav = () => {
                     <MapIcon className="w-5 h-5" strokeWidth={2} />
                     <span className={navLabelClass}>Map</span>
                     {mapActiveCount > 0 && (
-                        <span
-                            className={cn(
-                                "absolute top-1 right-2",
-                                "text-[9px] font-mono font-semibold",
-                                "bg-primary text-primary-foreground",
-                                "px-1.5 min-w-[18px] h-[18px]",
-                                "rounded-full flex items-center justify-center",
-                                "border border-background",
-                            )}
+                        <NavBadge
+                            count={mapActiveCount}
+                            className="bg-primary text-primary-foreground border border-background"
                             aria-label={`${mapActiveCount} map option(s) active`}
-                        >
-                            {mapActiveCount}
-                        </span>
+                        />
                     )}
                 </button>
 
@@ -210,19 +194,11 @@ export const BottomNav = () => {
                     <Users className="w-5 h-5" strokeWidth={2} />
                     <span className={navLabelClass}>Lobby</span>
                     {$participants.filter((p) => p.online).length > 0 && (
-                        <span
-                            className={cn(
-                                "absolute top-1 right-2",
-                                "text-[9px] font-mono font-semibold",
-                                "bg-secondary text-foreground",
-                                "px-1.5 min-w-[18px] h-[18px]",
-                                "rounded-full flex items-center justify-center",
-                                "border border-border",
-                            )}
+                        <NavBadge
+                            count={$participants.filter((p) => p.online).length}
+                            className="bg-secondary text-foreground border border-border"
                             aria-label={`${$participants.filter((p) => p.online).length} players online`}
-                        >
-                            {$participants.filter((p) => p.online).length}
-                        </span>
+                        />
                     )}
                 </button>
 

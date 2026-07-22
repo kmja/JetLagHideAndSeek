@@ -23,6 +23,7 @@ import {
 } from "@/lib/multiplayer/session";
 import { seekerMarkFound } from "@/lib/multiplayer/store";
 import { cn } from "@/lib/utils";
+import { RankBadge, rankBoxBg } from "@/components/LeaderboardRankBadge";
 
 /**
  * Always-visible hider timer for seekers (top-left, above the map).
@@ -217,7 +218,6 @@ export function HiderTimer({ preview }: { preview?: HiderTimerPreview } = {}) {
     // below 3rd (v848), so the live clock never disappears. The current entry
     // climbs as it grows and takes the "1st" spot once it passes the best
     // past hide. Only meaningful while seeking (currentElapsedMs set).
-    const rankSuffix = (n: number) => (n === 1 ? "st" : n === 2 ? "nd" : "rd");
     const leaderboard =
         currentElapsedMs === null
             ? []
@@ -380,33 +380,7 @@ export function HiderTimer({ preview }: { preview?: HiderTimerPreview } = {}) {
                                     : `Time to beat: ${formatTtb(e.ms)}`
                             }
                         >
-                            <div
-                                className="flex items-center px-2"
-                                style={{
-                                    background:
-                                        e.rank === 1
-                                            ? "#F2C63C" // gold (vivid)
-                                            : e.rank === 2
-                                              ? "#B8BDC7" // silver
-                                              : e.rank === 3
-                                                ? "#CF8B4B" // bronze
-                                                : "#9AA1AD",
-                                }}
-                            >
-                                <span
-                                    className={cn(
-                                        "font-inter-tight font-black text-sm leading-none",
-                                        e.rank === 3
-                                            ? "text-white"
-                                            : "text-[#1F2F3F]",
-                                    )}
-                                >
-                                    {e.rank}
-                                    <span className="text-[9px] align-super">
-                                        {rankSuffix(e.rank)}
-                                    </span>
-                                </span>
-                            </div>
+                            <RankBadge rank={e.rank} className="px-2" />
                             {e.current ? (
                                 // The LIVE clock — kept at its full prominent
                                 // size (text-3xl, red accent), always shown.
@@ -430,16 +404,7 @@ export function HiderTimer({ preview }: { preview?: HiderTimerPreview } = {}) {
                                     // 2nd-place time isn't gold (v871): gold 1st
                                     // / silver 2nd / bronze 3rd / neutral rest,
                                     // lightened so the navy digits stay legible.
-                                    style={{
-                                        background:
-                                            e.rank === 1
-                                                ? "#F2C63C"
-                                                : e.rank === 2
-                                                  ? "#D6DAE1"
-                                                  : e.rank === 3
-                                                    ? "#E4B98D"
-                                                    : "#E6E8EC",
-                                    }}
+                                    style={{ background: rankBoxBg(e.rank) }}
                                 >
                                     {/* v879: hider name above the time. */}
                                     <span className="block max-w-[9rem] truncate text-[9px] font-poppins font-extrabold uppercase tracking-[0.12em] text-[#1F2F3F]/60 leading-none mb-0.5">

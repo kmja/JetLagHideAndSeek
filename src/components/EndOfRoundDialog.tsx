@@ -9,6 +9,7 @@ import {
 import type { CSSProperties } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
+import { rankSuffix } from "@/components/LeaderboardRankBadge";
 import { Button } from "@/components/ui/button";
 import { appConfirm } from "@/lib/confirm";
 import {
@@ -438,14 +439,7 @@ export function EndOfRoundDialog() {
                                                   bg: "hsl(var(--muted))",
                                                   fg: "hsl(var(--muted-foreground))",
                                               };
-                                const suffix =
-                                    rank === 1
-                                        ? "st"
-                                        : rank === 2
-                                          ? "nd"
-                                          : rank === 3
-                                            ? "rd"
-                                            : "th";
+                                const suffix = rankSuffix(rank);
                                 return (
                                     <div
                                         key={`${row.roundNumber}-${idx}`}

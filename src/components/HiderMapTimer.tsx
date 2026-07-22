@@ -31,6 +31,7 @@ import {
     roundLog,
     ZONE_GRACE_MS,
 } from "@/lib/hiderRole";
+import { RankBadge, rankBoxBg } from "@/components/LeaderboardRankBadge";
 import { endHidingPeriodEarly } from "@/lib/roundActions";
 import { cn } from "@/lib/utils";
 
@@ -450,51 +451,10 @@ export function HiderMapTimer() {
                             className="flex items-stretch rounded-xl overflow-hidden shadow-lg"
                             title={`Next to beat: ${nextToBeat.name} — ${formatTimeRemaining(nextToBeat.hidingMs)}`}
                         >
-                            <div
-                                className="flex items-center px-2.5"
-                                style={{
-                                    background:
-                                        nextToBeat.rank === 1
-                                            ? "#F2C63C"
-                                            : nextToBeat.rank === 2
-                                              ? "#B8BDC7"
-                                              : nextToBeat.rank === 3
-                                                ? "#CF8B4B"
-                                                : "#9AA1AD",
-                                }}
-                            >
-                                <span
-                                    className={cn(
-                                        "font-inter-tight font-black text-sm leading-none",
-                                        nextToBeat.rank === 3
-                                            ? "text-white"
-                                            : "text-[#1F2F3F]",
-                                    )}
-                                >
-                                    {nextToBeat.rank}
-                                    <span className="text-[9px] align-super">
-                                        {nextToBeat.rank === 1
-                                            ? "st"
-                                            : nextToBeat.rank === 2
-                                              ? "nd"
-                                              : nextToBeat.rank === 3
-                                                ? "rd"
-                                                : "th"}
-                                    </span>
-                                </span>
-                            </div>
+                            <RankBadge rank={nextToBeat.rank} />
                             <div
                                 className="flex flex-col justify-center px-3 py-1.5 leading-none"
-                                style={{
-                                    background:
-                                        nextToBeat.rank === 1
-                                            ? "#F2C63C"
-                                            : nextToBeat.rank === 2
-                                              ? "#D6DAE1"
-                                              : nextToBeat.rank === 3
-                                                ? "#E4B98D"
-                                                : "#E6E8EC",
-                                }}
+                                style={{ background: rankBoxBg(nextToBeat.rank) }}
                             >
                                 <span className="block max-w-[9rem] truncate text-[9px] font-poppins font-extrabold uppercase tracking-[0.12em] text-[#1F2F3F]/60 leading-none mb-0.5">
                                     {nextToBeat.name}

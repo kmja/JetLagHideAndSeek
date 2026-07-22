@@ -4,6 +4,13 @@ import { useEffect, useRef, useState } from "react";
 import { Drawer as VaulDrawer } from "vaul";
 
 import { AppSettingsDrawer } from "@/components/AppSettingsDrawer";
+import {
+    NAV_BTN_CLASS,
+    NAV_LABEL_CLASS,
+    NAV_PRIMARY_CLASS,
+    NAV_PRIMARY_LABEL_CLASS,
+    NavBadge,
+} from "@/components/bottomNavPrimitives";
 import { HiderHomeContent } from "@/components/HiderHome";
 import { HidingCountdownBadge } from "@/components/HidingCountdownBadge";
 import {
@@ -116,25 +123,12 @@ export function HiderBottomNav() {
 
     // v873: match the SEEKER nav (BottomNav) exactly — flat muted buttons,
     // NOT the old bordered/filled tiles, so the two navs read identically.
-    const navBtnClass = cn(
-        "relative flex-1 flex flex-col items-center justify-center gap-0.5",
-        "py-2 px-1 rounded-md min-h-[48px]",
-        "text-muted-foreground hover:text-foreground hover:bg-secondary",
-        "active:bg-secondary/80 transition-colors",
-        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-    );
     // The hider's PRIMARY action (Zone) mirrors the seeker's "New question"
     // centre CTA — filled brand red, slightly wider.
-    const navPrimaryClass = cn(
-        "relative flex-[1.4] flex flex-col items-center justify-center gap-0.5",
-        "py-2 px-1 rounded-md min-h-[48px]",
-        "bg-primary text-primary-foreground hover:bg-primary/90 active:bg-primary/80",
-        "transition-colors font-poppins",
-        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-    );
-    const navLabelClass = "text-[10px] font-poppins font-semibold";
-    const navPrimaryLabelClass =
-        "text-[10px] font-bold uppercase tracking-wider";
+    const navBtnClass = NAV_BTN_CLASS;
+    const navPrimaryClass = NAV_PRIMARY_CLASS;
+    const navLabelClass = NAV_LABEL_CLASS;
+    const navPrimaryLabelClass = NAV_PRIMARY_LABEL_CLASS;
 
     return (
         <>
@@ -159,18 +153,11 @@ export function HiderBottomNav() {
                         <List className="w-5 h-5" strokeWidth={2} />
                         <span className={navLabelClass}>Questions</span>
                         {inboxCount > 0 && (
-                            <span
-                                className={cn(
-                                    "absolute top-1 right-2",
-                                    "text-[9px] font-mono font-semibold",
-                                    "bg-primary text-primary-foreground",
-                                    "px-1.5 min-w-[18px] h-[18px]",
-                                    "rounded-full flex items-center justify-center",
-                                )}
+                            <NavBadge
+                                count={inboxCount}
+                                className="bg-primary text-primary-foreground"
                                 aria-label={`${inboxCount} questions in inbox`}
-                            >
-                                {inboxCount}
-                            </span>
+                            />
                         )}
                     </button>
 
@@ -199,18 +186,11 @@ export function HiderBottomNav() {
                         <MapIcon className="w-5 h-5" strokeWidth={2} />
                         <span className={navLabelClass}>Map</span>
                         {mapActiveCount > 0 && (
-                            <span
-                                className={cn(
-                                    "absolute top-1 right-2",
-                                    "text-[9px] font-mono font-semibold",
-                                    "bg-primary text-primary-foreground",
-                                    "px-1.5 min-w-[18px] h-[18px]",
-                                    "rounded-full flex items-center justify-center",
-                                )}
+                            <NavBadge
+                                count={mapActiveCount}
+                                className="bg-primary text-primary-foreground"
                                 aria-label={`${mapActiveCount} map option(s) active`}
-                            >
-                                {mapActiveCount}
-                            </span>
+                            />
                         )}
                     </button>
 
@@ -225,18 +205,11 @@ export function HiderBottomNav() {
                         <Users className="w-5 h-5" strokeWidth={2} />
                         <span className={navLabelClass}>Lobby</span>
                         {onlineCount > 0 && (
-                            <span
-                                className={cn(
-                                    "absolute top-1 right-2",
-                                    "text-[9px] font-mono font-semibold",
-                                    "bg-primary text-primary-foreground",
-                                    "px-1.5 min-w-[18px] h-[18px]",
-                                    "rounded-full flex items-center justify-center",
-                                )}
+                            <NavBadge
+                                count={onlineCount}
+                                className="bg-primary text-primary-foreground"
                                 aria-label={`${onlineCount} players online`}
-                            >
-                                {onlineCount}
-                            </span>
+                            />
                         )}
                     </button>
                 </div>

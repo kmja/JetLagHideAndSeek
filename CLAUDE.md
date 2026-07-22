@@ -477,6 +477,29 @@ build stamp. Current: `v1069`. Use `git log` for the per-version detail;
 - **NEXT: a SINGLE station producer shared by seeker + hider** (shipped in
   v1115 below).
 
+**v1122 — seeker/hider dedup review, batch 2 (C3 + C4): shared leaderboard rank
+badge + bottom-nav primitives; lobby row wraps as a group.**
+- **C3 — one leaderboard placement ramp.** The seeker map's `HiderTimer`
+  (top-3 ranked rows) and the hider map's `HiderMapTimer` ("next to beat" row)
+  hand-kept an identical gold/silver/bronze/neutral colour ramp + st/nd/rd
+  suffix. New `src/components/LeaderboardRankBadge.tsx` single-sources it
+  (`rankSuffix`, `rankBadgeBg`, `rankBoxBg`, `RankBadge`); both timers +
+  `GameLobbyDialog`'s leaderboard block (which used the exact same ramp) + the
+  `EndOfRoundDialog` suffix now derive from it, so a colour tweak can't drift.
+- **C4 — shared bottom-nav primitives.** `BottomNav` (seeker) and
+  `HiderBottomNav` (hider) hand-kept byte-identical nav-button/label class
+  strings and a 6×-duplicated badge pill. New
+  `src/components/bottomNavPrimitives.tsx` (`NAV_BTN_CLASS` /
+  `NAV_PRIMARY_CLASS` / `NAV_LABEL_CLASS` / `NAV_PRIMARY_LABEL_CLASS` +
+  `NavBadge`) unifies the GEOMETRY; per-slot COLOUR (the seeker deliberately
+  tints Questions/Lobby secondary+bordered, the hider borderless primary) stays
+  with each caller, so zero visual change.
+- **Lobby mid-game settings row wraps as a GROUP** (`GameLobbyDialog`, follow-up
+  to v1121). The play-area badge + a NO-wrap size+transit group are the two
+  children of a flex-wrap row: one line when it fits, and when it doesn't the
+  size + transit pills wrap together to the next line — never a stray transit
+  mode alone.
+
 **v1121 — seeker/hider dedup review, batch 2 (C2): shared hiding-zone map layer
 style (fixes candidate-fill + label drift) + lobby settings row un-wraps.**
 - **The candidate-hiding-zone overlay + selected-zone highlight are single-
