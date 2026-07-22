@@ -692,6 +692,8 @@ export class GameRoom {
                 return this.handleCurseCleared(socket, msg.castId);
             case "curseProof":
                 return this.handleCurseProof(socket, msg.castId, msg.photoUrl);
+            case "curseFail":
+                return this.handleCurseFail(socket, msg.castId, msg.name);
             case "subscribePush":
                 return this.handleSubscribePush(socket, msg.subscription);
             case "ping":
@@ -2102,6 +2104,22 @@ export class GameRoom {
             this.sendTo(c.socket, { t: "curseProof", castId, photoUrl });
         }
         void this.persist();
+    }
+
+    /**
+     * v1087: a seeker self-reported failing a curse's keep-task (lost the
+     * souvenir/water/lemon, cracked the egg, hit someone with a die). Relay to
+     * the hide team, whose hider awards the rulebook bonus minutes (deduped on
+     * `castId` client-side). Purely a relay — the hider owns the score.
+     */
+    private handleCurseFail(socket: WebSocket, castId: number, name: string) {
+        const conn = this.lookupConn(socket);
+        if (!conn) return;
+        for (const [pid, c] of this.conns.entries()) {
+            const cp = this.game.participants.find((q) => q.id === pid);
+            if (cp?.role !== "hider") continue;
+            this.sendTo(c.socket, { t: "curseFail", castId, name });
+        }
     }
 
     private handleSubscribePush(socket: WebSocket, subscription: PushSubscriptionData) {

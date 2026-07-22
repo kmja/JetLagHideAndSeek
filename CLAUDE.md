@@ -430,6 +430,32 @@ bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
 build stamp. Current: `v1069`. Use `git log` for the per-version detail;
 
+**v1087 — curse audit batch 2: end-of-round hider-bonus system.** Several curses
+award the HIDER extra hidden-time when the seekers fail a keep-task (rulebook "you
+are awarded an extra N min"): Mediocre Travel Agent (lose the souvenir 30/45/60),
+Water Weight (lose the liquid 30/30/60), Egg Partner (crack the egg 30/45/60),
+Lemon Phylactery (drop a lemon 30/45/60), Endless Tumble (hit someone with a die
+10/20/30, mid-round only). None of this existed before — the `hiddenCredit/DebitMs`
+ledger was Move / late-answer only.
+- New `src/lib/curseBonus.ts` — the registry (`CURSE_BONUSES`, minutes by size,
+  end-prompt text) + a per-round `curseBonusResolved` atom (keyed by `castId`, reset
+  in `resetCurseState`).
+- **Two award paths, both funnel through `store.awardCurseBonus`** (HIDER-side,
+  deduped on `castId`): mid-round it banks into `hiddenCreditMs`; post-round it bumps
+  the frozen `roundEndBaseMs` + re-sends `roundSummary` so every device's displayed
+  time + the leaderboard update.
+- **Mid-round self-report** — the seeker's `CurseInbox` curse card shows a "we lost
+  it / hit someone" button for a bonus curse → new `curseFail` wire message
+  (`CMsgCurseFail`/`SMsgCurseFail`, worker `handleCurseFail` relays to the hide team)
+  → the hider awards + notifies.
+- **End-of-round prompt** — the `EndOfRoundDialog` shows the hide team a "did the
+  seekers still have their egg/lemon/water/souvenir?" check per unsettled bonus curse
+  (from `castCurses`); a "No" awards the minutes.
+- **Co-hider dedup** — `isPrimaryHiderDevice()` (lowest hider participant id) picks
+  exactly one hide-team device to award + show the prompt, so co-hiders can't
+  double-count. Demo broker no-ops `curseFail` (single device). Values unit-tested
+  (`tests/curseBonus.test.ts`).
+
 **v1086 — curse audit batch 1: seeker photo-response generalized + Bird Guide
 auto-clear.** First batch of a full 24-curse conformance pass.
 - **Seekers respond with a photo** for Zoologist, Luxury Car and Labyrinth (was

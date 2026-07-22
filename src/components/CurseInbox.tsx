@@ -41,11 +41,16 @@ import {
     DialogTitle,
 } from "@/components/ui/dialog";
 import { curseNeedsSeekerProof } from "@/lib/castingCost";
+import { curseBonusFor, curseBonusResolved } from "@/lib/curseBonus";
 import { playerRole } from "@/lib/hiderRole";
 import { multiplayerEnabled } from "@/lib/multiplayer/session";
 import { preparePhotoForSend } from "@/lib/photo";
 import { openRulebookAt, RULEBOOK_ANCHORS } from "@/lib/rulebook";
-import { sendCurseCleared, sendCurseProof } from "@/lib/multiplayer/store";
+import {
+    reportCurseFail,
+    sendCurseCleared,
+    sendCurseProof,
+} from "@/lib/multiplayer/store";
 import { type ReceivedCurse, receivedCurses } from "@/lib/seekerInbound";
 import { cn } from "@/lib/utils";
 import type { WritableAtom } from "nanostores";
@@ -104,6 +109,7 @@ export function CurseInbox({
 } = {}) {
     const $curses = useStore(source);
     const $gameSize = useStore(gameSize);
+    const $bonusResolved = useStore(curseBonusResolved);
     const $onTransit = useStore(seekerOnTransit);
     const $spottyCategory = useStore(spottyMemoryCategory);
     const $questions = useStore(questions);
@@ -571,6 +577,53 @@ export function CurseInbox({
                                 high before asking your next question.
                             </p>
                         )}
+                        {/* v1087: seeker self-reports failing a bonus curse's
+                            keep-task (lost souvenir/water/lemon, cracked egg,
+                            hit someone) — the hider is awarded the bonus. */}
+                        {isSeekerView &&
+                            (() => {
+                                const bonus = curseBonusFor(
+                                    resolvedDialog?.name,
+                                );
+                                if (!bonus) return null;
+                                const cid = resolvedDialog?.castId;
+                                const reported =
+                                    cid != null &&
+                                    $bonusResolved[String(cid)] === "lost";
+                                const mins = bonus.minutes[$gameSize];
+                                return (
+                                    <div className="space-y-1.5 rounded-md border border-purple-500/30 bg-purple-500/5 p-2.5">
+                                        {reported ? (
+                                            <p className="flex items-center gap-1.5 text-sm font-semibold text-amber-400">
+                                                <Check className="h-4 w-4" />
+                                                Reported — the hider was awarded
+                                                +{mins} min.
+                                            </p>
+                                        ) : (
+                                            <>
+                                                <p className="text-xs text-muted-foreground leading-snug">
+                                                    If this happens, tell the
+                                                    hider — they&apos;re awarded
+                                                    +{mins} min.
+                                                </p>
+                                                <Button
+                                                    type="button"
+                                                    variant="destructive"
+                                                    size="sm"
+                                                    onClick={() =>
+                                                        reportCurseFail(
+                                                            cid,
+                                                            resolvedDialog!.name,
+                                                        )
+                                                    }
+                                                >
+                                                    {bonus.reportLabel}
+                                                </Button>
+                                            </>
+                                        )}
+                                    </div>
+                                );
+                            })()}
                         {/* v1079: Curse of the Unguided Tourist — the SEEKERS
                             find the sent spot in real life and send the hider a
                             verification photo. The Clear button unlocks once

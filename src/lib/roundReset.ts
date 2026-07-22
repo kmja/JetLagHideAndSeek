@@ -65,6 +65,7 @@ import {
     seekingStartCelebrationAt,
     seekingStartFiredFor,
 } from "@/lib/gameSetup";
+import { curseBonusResolved } from "@/lib/curseBonus";
 import { resetHiderRoundState, roundFoundAt } from "@/lib/hiderRole";
 import { castCurses, receivedCurses } from "@/lib/seekerInbound";
 
@@ -99,6 +100,8 @@ export function resetCurseState(): void {
     seekerOnTransit.set(false);
     activeBlockingCurse.set(null);
     activeBlockingCurseCastAt.set(null);
+    // v1087: per-round curse-bonus settlement (souvenir/egg/lemon/water/die-hit).
+    curseBonusResolved.set({});
 }
 
 export function resetSharedRoundState(): void {

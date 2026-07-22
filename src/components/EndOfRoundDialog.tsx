@@ -12,6 +12,12 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { appConfirm } from "@/lib/confirm";
 import {
+    curseBonusFor,
+    curseBonusResolved,
+    setCurseBonusResolved,
+} from "@/lib/curseBonus";
+import { castCurses } from "@/lib/seekerInbound";
+import {
     effectiveHiddenDebitMs,
     endOfRoundDialogOpen,
     gamePausedForLocationAt,
@@ -32,7 +38,11 @@ import {
     multiplayerEnabled,
     participants,
 } from "@/lib/multiplayer/session";
-import { seekerRotateHider } from "@/lib/multiplayer/store";
+import {
+    awardCurseBonus,
+    isPrimaryHiderDevice,
+    seekerRotateHider,
+} from "@/lib/multiplayer/store";
 import {
     returnToLandingPage,
     startNewRound,
@@ -90,6 +100,9 @@ export function EndOfRoundDialog() {
     useStore(gamePausedForLocationAt);
     const $hand = useStore(hiderHand);
     const $gameSize = useStore(gameSize);
+    // v1087: end-of-round curse-bonus prompts (souvenir/egg/lemon/water).
+    const $castCurses = useStore(castCurses);
+    const $bonusResolved = useStore(curseBonusResolved);
     // v851: the hider's authoritative round result, synced over the wire so
     // a REMOTE seeker device (which can't compute Move credit / late-answer
     // debit / the in-hand bonus) shows the same total + tally. Falls back to
@@ -483,6 +496,71 @@ export function EndOfRoundDialog() {
                         </div>
                     </div>
                 )}
+
+                {/* v1087: end-of-round curse-bonus checks (hide team only).
+                    For each bonus curse cast this round that isn't already
+                    settled, the hider confirms whether the seekers kept the
+                    task — a "No" awards the rulebook minutes to their time. */}
+                {isPrimaryHiderDevice() &&
+                    (() => {
+                        const pending = $castCurses.filter((c) => {
+                            const b = curseBonusFor(c.name);
+                            return (
+                                b &&
+                                b.endPrompt &&
+                                c.castId != null &&
+                                $bonusResolved[String(c.castId)] === undefined
+                            );
+                        });
+                        if (pending.length === 0) return null;
+                        return (
+                            <div className="space-y-2.5 text-left rounded-xl border border-border bg-secondary/40 p-3">
+                                <div className="text-sm uppercase tracking-[0.14em] font-display font-extrabold text-muted-foreground text-center">
+                                    Curse checks
+                                </div>
+                                {pending.map((c) => {
+                                    const b = curseBonusFor(c.name)!;
+                                    const mins = b.minutes[$gameSize];
+                                    return (
+                                        <div
+                                            key={c.castId}
+                                            className="space-y-1.5"
+                                        >
+                                            <p className="text-sm leading-snug">
+                                                {b.endPrompt}
+                                            </p>
+                                            <div className="grid grid-cols-2 gap-2">
+                                                <Button
+                                                    variant="outline"
+                                                    size="sm"
+                                                    onClick={() =>
+                                                        setCurseBonusResolved(
+                                                            c.castId,
+                                                            "kept",
+                                                        )
+                                                    }
+                                                >
+                                                    Yes
+                                                </Button>
+                                                <Button
+                                                    variant="destructive"
+                                                    size="sm"
+                                                    onClick={() =>
+                                                        awardCurseBonus(
+                                                            c.castId,
+                                                            c.name,
+                                                        )
+                                                    }
+                                                >
+                                                    No · +{mins} min
+                                                </Button>
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        );
+                    })()}
 
                 {/* Actions. */}
                 <div className="space-y-2 pt-1">

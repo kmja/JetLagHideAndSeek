@@ -369,6 +369,20 @@ export interface CMsgCurseProof {
     photoUrl: string;
 }
 
+/**
+ * A seeker self-reports FAILING a curse's keep-task (v1087) — losing the
+ * souvenir / water / a lemon, cracking the egg, or hitting someone with a die.
+ * The server relays it to the hide team, whose hider then awards themselves the
+ * rulebook bonus minutes. Keyed on the server `castId` so the award can't double.
+ */
+export interface CMsgCurseFail {
+    t: "curseFail";
+    castId: number;
+    /** The curse name, so the hider can resolve the bonus even if its local
+     *  cast-curse mirror is missing (reconnected seeker on a fresh device). */
+    name: string;
+}
+
 /** Client registers its Web Push subscription so the server can notify it offline. */
 export interface CMsgSubscribePush {
     t: "subscribePush";
@@ -402,6 +416,7 @@ export type ClientMessage =
     | CMsgCastCurse
     | CMsgCurseCleared
     | CMsgCurseProof
+    | CMsgCurseFail
     | CMsgSubscribePush;
 
 /* ────────────────── Server → Client ────────────────── */
@@ -627,6 +642,17 @@ export interface SMsgCurseProof {
 }
 
 /**
+ * v1087: relayed to the hide team when a seeker self-reports FAILING a curse's
+ * keep-task (lost souvenir/water/lemon, cracked egg, hit someone with a die).
+ * The hider awards the rulebook bonus minutes, deduped on `castId`.
+ */
+export interface SMsgCurseFail {
+    t: "curseFail";
+    castId: number;
+    name: string;
+}
+
+/**
  * v950: the server VALIDATED an endgame claim and found the claiming seeker is
  * NOT at the hider's committed zone. A wrong claim does NOT arm the endgame
  * (so the seekers can re-try at the right station); instead this transient
@@ -671,6 +697,7 @@ export type ServerMessage =
     | SMsgCurseBacklog
     | SMsgCurseCleared
     | SMsgCurseProof
+    | SMsgCurseFail
     | SMsgEndgameDenied;
 
 /* ────────────────── Shared payload types ────────────────── */

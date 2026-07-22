@@ -72,6 +72,12 @@ import {
     roundEndHiderName,
     seekersFrozenUntil,
 } from "@/lib/gameSetup";
+import {
+    curseBonusFor,
+    curseBonusMinutes,
+    isCurseBonusUnresolved,
+    setCurseBonusResolved,
+} from "@/lib/curseBonus";
 import { timeBonusPieces } from "@/lib/hiderDeck";
 import {
     applySharedDeckState,
@@ -687,6 +693,66 @@ export function sendCurseProof(castId: number | undefined, photoUrl: string) {
     if (castId == null || !photoUrl) return;
     if (!multiplayerEnabled.get()) return;
     getTransport().send({ t: "curseProof", castId, photoUrl });
+}
+
+/**
+ * v1087: award the hider the curse-bonus minutes for a failed keep-task
+ * (souvenir/water/egg/lemon/die-hit). HIDER-side only — the hider owns the
+ * score. Deduped on `castId`. Mid-round it banks into `hiddenCreditMs` (which
+ * flows into the round's base time at round-end); post-round it bumps the frozen
+ * `roundEndBaseMs` + re-syncs `roundSummary` so every device's displayed time +
+ * the leaderboard update.
+ */
+export function awardCurseBonus(
+    castId: number | undefined,
+    name: string,
+): void {
+    if (!isCurseBonusUnresolved(castId)) return;
+    const ms = curseBonusMinutes(name, gameSize.get()) * 60_000;
+    setCurseBonusResolved(castId, "lost");
+    if (ms <= 0) return;
+    if (roundEndBaseMs.get() != null) {
+        const newBase = (roundEndBaseMs.get() ?? 0) + ms;
+        roundEndBaseMs.set(newBase);
+        if (multiplayerEnabled.get())
+            getTransport()?.send({
+                t: "roundSummary",
+                baseMs: newBase,
+                bonusPieces: roundEndBonusPieces.get() ?? [],
+            });
+    } else {
+        hiddenCreditMs.set(hiddenCreditMs.get() + ms);
+    }
+}
+
+/**
+ * v1087: is THIS device the one hide-team member that should award curse
+ * bonuses? Every hider is equal (v829), so a deterministic tie-break (the
+ * lowest participant id among hiders) picks exactly ONE so co-hider devices
+ * can't double-award the same bonus. Solo / single hider is always primary.
+ */
+export function isPrimaryHiderDevice(): boolean {
+    if (playerRole.get() !== "hider") return false;
+    const hiders = participants.get().filter((p) => p.role === "hider");
+    if (hiders.length <= 1) return true;
+    const self = selfParticipantId.get();
+    const first = [...hiders].sort((a, b) => a.id.localeCompare(b.id))[0];
+    return self != null && first?.id === self;
+}
+
+/**
+ * v1087: the SEEKERS self-report failing a curse's keep-task from their curse
+ * card. Sends `curseFail` to the hider (who awards the bonus) and marks it
+ * resolved locally so the button disables. No-op solo/offline (no hider to tell).
+ */
+export function reportCurseFail(
+    castId: number | undefined,
+    name: string,
+): void {
+    if (castId == null) return;
+    setCurseBonusResolved(castId, "lost");
+    if (!multiplayerEnabled.get()) return;
+    getTransport()?.send({ t: "curseFail", castId, name });
 }
 
 /* ────────────────── Inbound dispatch ────────────────── */
@@ -1632,6 +1698,25 @@ function handleServerMessage(msg: ServerMessage) {
                     body: "The seekers sent proof for a curse — check the active curse card.",
                     tag: "curse-proof",
                 });
+            }
+            return;
+        }
+        case "curseFail": {
+            // v1087: the seekers self-reported failing a curse's keep-task; the
+            // PRIMARY hider awards the rulebook bonus minutes (deduped so
+            // co-hiders can't double-award).
+            if (isPrimaryHiderDevice()) {
+                const before = isCurseBonusUnresolved(msg.castId);
+                awardCurseBonus(msg.castId, msg.name);
+                if (before) {
+                    const mins = curseBonusMinutes(msg.name, gameSize.get());
+                    const noun = curseBonusFor(msg.name)?.noun ?? "task";
+                    notify({
+                        title: "Curse bonus awarded",
+                        body: `The seekers lost their ${noun} — +${mins} min added to your time.`,
+                        tag: "curse-bonus",
+                    });
+                }
             }
             return;
         }
