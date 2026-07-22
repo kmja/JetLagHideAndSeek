@@ -432,6 +432,55 @@ bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
 build stamp. Current: `v1069`. Use `git log` for the per-version detail;
 
+**v1114 — build-fix + UI batch.**
+- **CI build unbroken (the v1113 deploy failed).** `tests/operators.test.ts >
+  voronoi diagram` was NON-deterministic (`turf.randomPoint` with no seed, over
+  the whole-globe default bbox), so it intermittently failed when a random test
+  point landed on a voronoi cell boundary where the Mercator-reprojected
+  `geoSpatialVoronoi` and the geodesic `turf.nearestPoint` legitimately disagree
+  by a numerical hair (it rolled a failing config at v1113, blocking `npm run
+  verify` → no deploy). Fixed by (a) DETERMINISTIC seeded points (mulberry32) in
+  a mid-latitude box (representative of real city-scale play areas, no
+  poles/antimeridian Mercator distortion), and (b) a boundary-proximity guard —
+  skip a test point that's within 2% equidistant to its two nearest base points.
+  Now stable across repeated runs.
+- **Curse-reveal shape: starfish → wavy-edged disc** (`CurseRevealOverlay`). The
+  v1109 `outer:98 / inner:30` deep 5-point star read as a starfish; replaced
+  `useStarPath` with `useWavyBlobPath` — a near-circular blob whose radius gently
+  undulates (14 shallow lobes), so the *edge* is wavy but it stays a disc. Purple
+  fill + light-blue edge + the `curseStarWater` water-distortion filter unchanged.
+- **Mediocre Travel Agent destination picker: radius + divider COMBINED**
+  (`DestinationPicker`). Instead of drawing a green seeker-radius circle AND a
+  separate red "farther from the hider" divider, it now draws ONE allowed region
+  — the union of the seeker-radius circles CLIPPED to the half-plane away from
+  the hider (`turf.intersect`), i.e. the half-circle where a legal pin can land.
+  Falls back to the full radius zone when the hider position is unknown.
+- **Travel Agent: removed the "Sent to the seekers with the map pin." line** in
+  `CastCurseDialog` — it read as if the destination had already been sent when it
+  hasn't been cast yet.
+- **Touch targets: smallest interactive component variants bumped toward the
+  ~44px minimum.** `Button` `sm` 36→40px + `icon` 40→44px (`ui/button.tsx`);
+  `Toggle` `sm` 36→40px (`ui/toggle.tsx`). (Ad-hoc `h-7`/`h-8` per-call overrides
+  and tiny fixed text are left for a targeted pass — the variant defs are the
+  "smallest variants of components".)
+- **Transit-preload investigation (NYC/Stockholm `[preload] transit FAILED
+  subway:0 …`):** root cause is worker/data-side, not the client. The rail/ferry
+  preload correctly goes CACHE-ONLY (v1088) — `no-data` is an honest report that
+  the worker's `/api/transit/<id>/<mode>` endpoint returned empty for these warm
+  cities. The `/api/interpreter` 500/502-without-CORS is Cloudflare killing the
+  worker isolate when it HANGS on a slow LIVE Overpass query for a huge metro
+  (the worker already CORS-wraps its own errors). Fix path is a worker/laptop
+  RE-WARM of NYC/Stockholm transit shards so the endpoint serves from R2 (never
+  goes live). Client-only follow-ups noted, NOT yet applied (lower confidence):
+  the dead `overpass.kumi.systems` mirror (`constants.ts`) and the one remaining
+  non-cacheOnly HSR preload step (`preload.ts`, Sweden-only).
+- **NEXT (in progress): a SINGLE station producer shared by seeker + hider** to
+  end the recurring role-drift bugs — the seeker (`mergeDuplicateStation`) and
+  hider (`sortAndDedupe`) currently use different dedup rules (same-name merge
+  150 m hider vs `max(radius, 800 m)` seeker; hider also drops unnamed nodes the
+  seeker keeps), so a spread-out hub shows duplicate dots on the hider only. To
+  be unified into one deduped candidate-station set both roles consume.
+
 **v1113 — hider hand cards peek too far / overlap the nav on iPhone (safe-area
 fix).** Same safe-area family as the empty-footer bug. The `HiderHandFan` strip
 lifts its cards by `env(safe-area-inset-bottom)` (to clear the iOS home

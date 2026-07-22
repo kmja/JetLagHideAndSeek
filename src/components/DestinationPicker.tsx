@@ -84,84 +84,87 @@ export function DestinationPicker({
         [$tileKey, $satellite, $tfKey, dark],
     );
 
-    // The valid ZONE: within `radiusKm` of any seeker. One circle per seeker,
-    // fed to a fill + dashed line so the hider sees exactly where a legal pin
-    // can land.
-    const radiusFC = useMemo<GeoJSON.FeatureCollection | null>(() => {
-        if (!radiusKm || radiusKm <= 0 || seekers.length === 0) return null;
-        const circles = seekers
-            .filter((s) => Number.isFinite(s.lat) && Number.isFinite(s.lng))
-            .map((s) =>
-                turf.circle([s.lng, s.lat], radiusKm, {
-                    steps: 64,
-                    units: "kilometers",
-                }),
-            );
-        if (!circles.length) return null;
-        return { type: "FeatureCollection", features: circles };
-    }, [seekers, radiusKm]);
-
-    // The "farther from you than the seekers" DIVIDER. The exact boundary is a
-    // circle around the hider through the seekers; at this scale (a sub-km pick
-    // zone, the hider km away) its arc is a straight LINE through the seekers'
-    // centroid, perpendicular to the hider bearing. The forbidden (closer-to-
-    // hider) side is shaded. Skipped when the hider position is unknown or the
-    // hider is right on top of the seekers (no meaningful direction).
-    const dividerFC = useMemo<{
-        line: GeoJSON.FeatureCollection;
-        forbidden: GeoJSON.FeatureCollection;
-    } | null>(() => {
+    // The single ALLOWED region: within `radiusKm` of the seekers AND on the
+    // far side of the "farther from the hider" divider. The two constraints are
+    // COMBINED (v1114) — the union of the seeker-radius circles is clipped to
+    // the half-plane away from the hider, so what's drawn is the half-circle
+    // (or lens) where a legal pin can actually land, not two overlapping hints.
+    // Falls back to the full radius zone when the hider position is unknown
+    // (can't compute a direction).
+    const allowedFC = useMemo<GeoJSON.FeatureCollection | null>(() => {
+        if (!radiusKm || radiusKm <= 0) return null;
         const pts = seekers.filter(
             (s) => Number.isFinite(s.lat) && Number.isFinite(s.lng),
         );
-        if (!hider || !Number.isFinite(hider.lat) || pts.length === 0)
-            return null;
-        // Seekers' centroid = "their current location".
-        const ref = [
-            pts.reduce((a, s) => a + s.lng, 0) / pts.length,
-            pts.reduce((a, s) => a + s.lat, 0) / pts.length,
-        ] as [number, number];
-        const refPt = turf.point(ref);
-        const hiderPt = turf.point([hider.lng, hider.lat]);
-        const distToHider = turf.distance(refPt, hiderPt, {
-            units: "kilometers",
-        });
-        if (distToHider < 0.02) return null; // hider ~on top of the seekers
-        const bearingToHider = turf.bearing(refPt, hiderPt);
-        // Extend the tangent line well past the visible pick zone.
-        const span = Math.max((radiusKm ?? 0.5) * 6, 2);
-        const a = turf.destination(refPt, span, bearingToHider + 90, {
-            units: "kilometers",
-        });
-        const b = turf.destination(refPt, span, bearingToHider - 90, {
-            units: "kilometers",
-        });
-        const line = turf.lineString([
-            a.geometry.coordinates,
-            b.geometry.coordinates,
-        ]);
-        // Forbidden half = the closer-to-hider side: a wedge from the two line
-        // ends toward the hider.
-        const towardHiderA = turf.destination(a, span * 2, bearingToHider, {
-            units: "kilometers",
-        });
-        const towardHiderB = turf.destination(b, span * 2, bearingToHider, {
-            units: "kilometers",
-        });
-        const forbidden = turf.polygon([
-            [
-                a.geometry.coordinates,
-                b.geometry.coordinates,
-                towardHiderB.geometry.coordinates,
-                towardHiderA.geometry.coordinates,
-                a.geometry.coordinates,
-            ],
-        ]);
-        return {
-            line: { type: "FeatureCollection", features: [line] },
-            forbidden: { type: "FeatureCollection", features: [forbidden] },
-        };
-    }, [seekers, hider, radiusKm]);
+        if (!pts.length) return null;
+        const circles = pts.map((s) =>
+            turf.circle([s.lng, s.lat], radiusKm, {
+                steps: 96,
+                units: "kilometers",
+            }),
+        );
+        let zone: GeoJSON.Feature<
+            GeoJSON.Polygon | GeoJSON.MultiPolygon
+        > | null =
+            circles.length === 1
+                ? circles[0]
+                : (turf.union(turf.featureCollection(circles)) as
+                      | GeoJSON.Feature<GeoJSON.Polygon | GeoJSON.MultiPolygon>
+                      | null);
+        if (!zone) return null;
+
+        // Clip to the "farther from the hider" half-plane. The exact boundary
+        // is a circle around the hider through the seekers; at this scale (a
+        // sub-km pick zone, the hider km away) its arc is a straight LINE
+        // through the seekers' centroid, perpendicular to the hider bearing.
+        if (hider && Number.isFinite(hider.lat) && Number.isFinite(hider.lng)) {
+            const ref = [
+                pts.reduce((a, s) => a + s.lng, 0) / pts.length,
+                pts.reduce((a, s) => a + s.lat, 0) / pts.length,
+            ] as [number, number];
+            const refPt = turf.point(ref);
+            const hiderPt = turf.point([hider.lng, hider.lat]);
+            const distToHider = turf.distance(refPt, hiderPt, {
+                units: "kilometers",
+            });
+            if (distToHider >= 0.02) {
+                const bearingToHider = turf.bearing(refPt, hiderPt);
+                const span = Math.max(radiusKm * 8, 3);
+                const a = turf.destination(refPt, span, bearingToHider + 90, {
+                    units: "kilometers",
+                });
+                const b = turf.destination(refPt, span, bearingToHider - 90, {
+                    units: "kilometers",
+                });
+                // Far half-plane: extrude the divider endpoints AWAY from the
+                // hider, then intersect with the radius zone → the allowed
+                // half-circle.
+                const farA = turf.destination(a, span * 2, bearingToHider + 180, {
+                    units: "kilometers",
+                });
+                const farB = turf.destination(b, span * 2, bearingToHider + 180, {
+                    units: "kilometers",
+                });
+                const farHalf = turf.polygon([
+                    [
+                        a.geometry.coordinates,
+                        b.geometry.coordinates,
+                        farB.geometry.coordinates,
+                        farA.geometry.coordinates,
+                        a.geometry.coordinates,
+                    ],
+                ]);
+                const clipped = turf.intersect(
+                    turf.featureCollection([zone, farHalf]),
+                ) as GeoJSON.Feature<
+                    GeoJSON.Polygon | GeoJSON.MultiPolygon
+                > | null;
+                if (clipped) zone = clipped;
+            }
+        }
+
+        return turf.featureCollection([zone]) as GeoJSON.FeatureCollection;
+    }, [seekers, radiusKm, hider]);
 
     const handleClick = (e: MapLayerMouseEvent) => {
         onChange(e.lngLat.lat, e.lngLat.lng);
@@ -187,60 +190,25 @@ export function DestinationPicker({
                 onClick={handleClick}
                 style={{ width: "100%", height: "100%" }}
             >
-                {/* Forbidden (closer-to-hider) half — drawn first, under the
-                    radius zone. */}
-                {dividerFC && (
-                    <Source
-                        id="dest-forbidden"
-                        type="geojson"
-                        data={dividerFC.forbidden}
-                    >
+                {/* The single ALLOWED region — the half-circle of the seeker
+                    radius that lies farther from the hider. */}
+                {allowedFC && (
+                    <Source id="dest-allowed" type="geojson" data={allowedFC}>
                         <Layer
-                            id="dest-forbidden-fill"
-                            type="fill"
-                            paint={{
-                                "fill-color": PLAY_AREA_COLOR,
-                                "fill-opacity": 0.1,
-                            }}
-                        />
-                    </Source>
-                )}
-                {/* Allowed radius zone around the seekers. */}
-                {radiusFC && (
-                    <Source id="dest-radius" type="geojson" data={radiusFC}>
-                        <Layer
-                            id="dest-radius-fill"
+                            id="dest-allowed-fill"
                             type="fill"
                             paint={{
                                 "fill-color": "hsl(145 60% 45%)",
-                                "fill-opacity": 0.12,
+                                "fill-opacity": 0.14,
                             }}
                         />
                         <Layer
-                            id="dest-radius-line"
+                            id="dest-allowed-line"
                             type="line"
                             paint={{
                                 "line-color": "hsl(145 60% 40%)",
                                 "line-width": 2,
                                 "line-dasharray": [2, 2],
-                            }}
-                        />
-                    </Source>
-                )}
-                {/* The divider LINE itself, on top. */}
-                {dividerFC && (
-                    <Source
-                        id="dest-divider"
-                        type="geojson"
-                        data={dividerFC.line}
-                    >
-                        <Layer
-                            id="dest-divider-line"
-                            type="line"
-                            paint={{
-                                "line-color": PLAY_AREA_COLOR,
-                                "line-width": 2,
-                                "line-dasharray": [4, 3],
                             }}
                         />
                     </Source>

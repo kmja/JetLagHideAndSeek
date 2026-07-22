@@ -1701,7 +1701,7 @@ export function CastCurseDialog({
                                         />
                                     </Suspense>
                                     {/* v1107: the picked destination name, big
-                                        and clear — this is what's sent. */}
+                                        and clear — this is what will be sent. */}
                                     {travelDestPoint ? (
                                         <div className="rounded-md bg-muted/50 px-3 py-2">
                                             <div className="text-[10px] uppercase tracking-[0.14em] font-poppins font-bold text-muted-foreground">
@@ -1710,10 +1710,6 @@ export function CastCurseDialog({
                                             <div className="font-inter-tight font-bold text-lg leading-tight truncate">
                                                 {travelDestName ||
                                                     "the pinned location"}
-                                            </div>
-                                            <div className="text-[11px] text-muted-foreground leading-snug">
-                                                Sent to the seekers with the map
-                                                pin.
                                             </div>
                                         </div>
                                     ) : (
