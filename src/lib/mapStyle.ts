@@ -42,6 +42,7 @@ export function buildStyle(
     withSatellite: boolean,
     thunderforestKey: string,
     resolvedThemeMode: "light" | "dark" = "dark",
+    opts: { keepPois?: boolean } = {},
 ): StyleSpecification {
     // v230+: the "auto"/"light"/"dark"/"voyager"/"osm" keys all
     // resolve to the Protomaps vector basemap with our transit-first
@@ -81,6 +82,7 @@ export function buildStyle(
         // below — it just goes on top.
         base = protomapsMapLibreStyle(
             effectiveKey === "dark" ? "dark" : "light",
+            { keepPois: opts.keepPois },
         ) as StyleSpecification;
     }
 

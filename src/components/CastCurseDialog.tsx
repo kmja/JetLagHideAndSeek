@@ -51,8 +51,10 @@ import {
     evaluateBridgeTroll,
     evaluateTravelAgent,
     hangmanMaxLosses,
+    travelAgentRadiusKm,
     WATER_WEIGHT_WITHIN_M,
 } from "@/lib/castingConstraint";
+import { assignPlayerColors, playerInitials } from "@/lib/playerColor";
 import { lastKnownPosition } from "@/lib/context";
 import { preparePhotoForSend } from "@/lib/photo";
 import {
@@ -75,6 +77,7 @@ import {
 import {
     currentGameCode,
     multiplayerEnabled,
+    participants,
     seekerLocations,
 } from "@/lib/multiplayer/session";
 import { hiderCastCurse, sendHangmanStart } from "@/lib/multiplayer/store";
@@ -323,25 +326,42 @@ export function CastCurseDialog({
     // pin / no seeker fix) → allowed.
     const travelAgent = useMemo(() => {
         if (!card || card.name !== CURSE_TRAVEL_AGENT) return null;
-        // Use the freshest REAL seeker location (not `destCenter`'s play-area
-        // centroid fallback) so a solo/offline pin isn't checked against a
-        // non-seeker point → `unknown` (allowed).
-        const locs = Object.values($seekerLocs);
-        const seekerRef =
-            locs.length > 0
-                ? (() => {
-                      const f = locs.reduce((a, b) => (b.ts > a.ts ? b : a));
-                      return { lat: f.lat, lng: f.lng };
-                  })()
-                : null;
+        // v1107: check the pin against ALL seekers (nearest wins) — using only
+        // the freshest false-blocked a legit pin when a stale/split seeker was
+        // freshest. Solo/offline (no seeker fix) → `unknown` (allowed).
+        const seekerPts = Object.values($seekerLocs).map((l) => ({
+            lat: l.lat,
+            lng: l.lng,
+        }));
         return evaluateTravelAgent(
             $gameSize,
             $hiderPos,
-            seekerRef,
+            seekerPts,
             travelDestPoint,
         );
     }, [card, $gameSize, $hiderPos, $seekerLocs, travelDestPoint]);
     const travelAgentBlocked = travelAgent?.status === "blocked";
+    // v1107: seekers for the destination picker — each with their roster
+    // avatar (initials + colour) so the hider sees WHO is where. Keyed by the
+    // participant id, matching the seeker map's markers.
+    const $participants = useStore(participants);
+    const travelSeekers = useMemo(() => {
+        const ids = Object.keys($seekerLocs);
+        const colors = assignPlayerColors(ids);
+        const nameById = new Map(
+            $participants.map((p) => [p.id, p.displayName]),
+        );
+        return ids.map((id) => {
+            const l = $seekerLocs[id];
+            return {
+                lat: l.lat,
+                lng: l.lng,
+                initials: playerInitials(nameById.get(id) ?? "S"),
+                color: colors[id],
+            };
+        });
+    }, [$seekerLocs, $participants]);
+    const travelRadiusKm = travelAgentRadiusKm($gameSize);
 
     // The hider can OVERRIDE a location block ("Cast anyway") when the app's
     // GPS/water data is wrong — GPS noise, water not mapped in OSM, a seeker who
@@ -1676,21 +1696,39 @@ export function CastCurseDialog({
                                             center={destCenter}
                                             value={travelDestPoint}
                                             onChange={pickDestination}
-                                            seekers={Object.values(
-                                                $seekerLocs,
-                                            ).map((s) => ({
-                                                lat: s.lat,
-                                                lng: s.lng,
-                                            }))}
+                                            seekers={travelSeekers}
+                                            radiusKm={travelRadiusKm}
+                                            hider={$hiderPos}
                                             className="w-full h-56"
                                         />
                                     </Suspense>
-                                    <p className="text-[11px] text-muted-foreground leading-snug inline-flex items-center gap-1">
-                                        <MapPin className="w-3 h-3 shrink-0" />
-                                        {travelDestPoint
-                                            ? `Destination: ${travelDestName || "the pinned location"} — sent to the seekers with the map pin.`
-                                            : "Tap the map near the seekers to set their destination."}
-                                    </p>
+                                    {/* v1107: the picked destination name, big
+                                        and clear — this is what's sent. */}
+                                    {travelDestPoint ? (
+                                        <div className="rounded-md bg-muted/50 px-3 py-2">
+                                            <div className="text-[10px] uppercase tracking-[0.14em] font-poppins font-bold text-muted-foreground">
+                                                Destination
+                                            </div>
+                                            <div className="font-inter-tight font-bold text-lg leading-tight truncate">
+                                                {travelDestName ||
+                                                    "the pinned location"}
+                                            </div>
+                                            <div className="text-[11px] text-muted-foreground leading-snug">
+                                                Sent to the seekers with the map
+                                                pin.
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        <p className="text-[11px] text-muted-foreground leading-snug inline-flex items-center gap-1">
+                                            <MapPin className="w-3 h-3 shrink-0" />
+                                            Tap inside the green zone (within{" "}
+                                            {travelRadiusKm < 1
+                                                ? `${travelRadiusKm * 1000} m`
+                                                : `${travelRadiusKm} km`}{" "}
+                                            of the seekers) to set their
+                                            destination.
+                                        </p>
+                                    )}
                                 </div>
                             )}
 

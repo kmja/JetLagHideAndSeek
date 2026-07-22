@@ -108,6 +108,22 @@ describe("evaluateTravelAgent", () => {
         expect(r.destToHiderKm).toBeGreaterThan(r.seekerToHiderKm!);
     });
 
+    it("checks the NEAREST seeker, not just the first (multi-seeker)", () => {
+        // A far seeker (would false-block) + a near seeker. A pin near the
+        // near seeker must be allowed — the team is together.
+        const farSeeker = { lat: 59.5, lng: 18.2 }; // ~10 km away
+        const nearSeeker = { lat: 59.433, lng: 18.06 };
+        const dest = { lat: 59.4335, lng: 18.06 }; // ~55 m from nearSeeker
+        const r = evaluateTravelAgent(
+            "medium",
+            hider,
+            [farSeeker, nearSeeker],
+            dest,
+        );
+        expect(r.status).toBe("ok");
+        expect(r.destToSeekersKm).toBeLessThan(0.5);
+    });
+
     it("enforces only proximity when the hider has no fix", () => {
         const nearNorth = { lat: 59.433, lng: 18.06 };
         expect(

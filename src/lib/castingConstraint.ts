@@ -129,7 +129,10 @@ export interface TravelAgentResult {
  *   2. Casting cost: the destination must be FARTHER from the hider than the
  *      seekers currently are ("further from you than their current location").
  *
- * `seekerRef` = the freshest seeker location (the destination picker's centre).
+ * `seekerRefs` = the seekers' locations (a single point, or an ARRAY — the
+ * seekers travel as a team, so we check against the NEAREST seeker to the
+ * destination, not just the freshest one; v1107 — using only the freshest
+ * false-blocked a legit pin when a stale/split seeker was the freshest).
  * Returns `unknown` (→ allow) when the destination or seeker reference is
  * missing/non-finite. The farther-from-hider check needs the hider's own fix;
  * when that's absent only the proximity condition is enforced (still `ok`
@@ -139,15 +142,29 @@ export interface TravelAgentResult {
 export function evaluateTravelAgent(
     size: GameSize,
     hiderPos: LatLng | null | undefined,
-    seekerRef: LatLng | null | undefined,
+    seekerRefs: LatLng | LatLng[] | null | undefined,
     destPos: LatLng | null | undefined,
 ): TravelAgentResult {
     const finite = (p?: LatLng | null): p is LatLng =>
         !!p && Number.isFinite(p.lat) && Number.isFinite(p.lng);
-    if (!finite(seekerRef) || !finite(destPos)) return { status: "unknown" };
+    if (!finite(destPos)) return { status: "unknown" };
+    const seekers = (
+        Array.isArray(seekerRefs) ? seekerRefs : [seekerRefs]
+    ).filter(finite);
+    if (seekers.length === 0) return { status: "unknown" };
 
     const radiusKm = travelAgentRadiusKm(size);
-    const destToSeekersKm = haversineKm(destPos, seekerRef);
+    // Check the destination against the NEAREST seeker to it (the team is
+    // together; a stale far seeker must not false-block a legit pin).
+    let refSeeker = seekers[0];
+    let destToSeekersKm = haversineKm(destPos, refSeeker);
+    for (const s of seekers) {
+        const d = haversineKm(destPos, s);
+        if (d < destToSeekersKm) {
+            destToSeekersKm = d;
+            refSeeker = s;
+        }
+    }
     if (destToSeekersKm > radiusKm) {
         return {
             status: "blocked",
@@ -158,7 +175,7 @@ export function evaluateTravelAgent(
     }
     if (finite(hiderPos)) {
         const destToHiderKm = haversineKm(destPos, hiderPos);
-        const seekerToHiderKm = haversineKm(seekerRef, hiderPos);
+        const seekerToHiderKm = haversineKm(refSeeker, hiderPos);
         if (destToHiderKm <= seekerToHiderKm) {
             return {
                 status: "blocked",

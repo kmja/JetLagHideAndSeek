@@ -432,6 +432,34 @@ bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
 build stamp. Current: `v1069`. Use `git log` for the per-version detail;
 
+**v1107 — Mediocre Travel Agent destination picker overhaul + "too far" bug
+fix.** The destination picker (`DestinationPicker`, used by the Travel Agent
+curse) was a bare map with a generic "S" pin and no guidance. Now it shows
+everything the hider needs to pick a LEGAL spot:
+- **Each seeker's roster avatar** (initials + player colour via
+  `assignPlayerColors`/`playerInitials`), matching the main map — not a generic
+  "S". `DestinationPicker` takes `seekers: {lat,lng,initials?,color?}[]`.
+- **The allowed RADIUS** — a green fill + dashed circle (turf) around each seeker
+  (0.5 km S/M, 1 km L); the destination must land inside. New `radiusKm` prop.
+- **The "farther from you" DIVIDER** — the casting cost is "the destination must
+  be farther from the hider than the seekers are"; the exact boundary is a circle
+  around the hider through the seekers, which at pick scale is a straight line
+  through the seekers' centroid perpendicular to the hider bearing. Drawn as a
+  dashed line with the forbidden (closer-to-hider) half shaded. New `hider` prop;
+  skipped when the hider has no fix.
+- **Protomaps POIs** — `buildStyle` gained a `keepPois` option (threads to
+  `protomapsMapLibreStyle({keepPois})`); the picker passes it so shops/parks/
+  landmarks show, helping the hider find a good spot.
+- **Big destination name** — the picked place name renders in a prominent
+  "DESTINATION" card under the map instead of a tiny caption.
+- **"Too far" bug FIXED** — `evaluateTravelAgent` checked the pin against only the
+  FRESHEST seeker, so a stale/split seeker that happened to be freshest
+  false-blocked a legit pin ("4.7 km from the seekers" when the pin was ~metres
+  from the seeker shown on the map). It now accepts an ARRAY of seekers and checks
+  against the NEAREST one to the pin (the team travels together); `CastCurseDialog`
+  passes all `seekerLocations`. Unit-tested (`castingConstraint.test.ts`); the
+  single-point signature still works (array-normalised).
+
 **v1106 — cast-curse dialog shows a SHORT hider-facing summary + a Rules
 deep-link.** The Cast Curse dialog rendered the FULL rulebook paragraph — most
 of which describes what the SEEKERS must do afterwards — which is clutter on the
