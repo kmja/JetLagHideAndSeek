@@ -104,6 +104,10 @@ import {
     zoneRadiusBuffer,
 } from "@/lib/houseRules";
 import { resetSharedRoundState } from "@/lib/roundReset";
+import {
+    activeBlockingCurse,
+    activeBlockingCurseCastAt,
+} from "@/lib/curseEnforcement";
 import { triggerCurseReveal } from "@/lib/curseReveal";
 import { appendRoundResult } from "@/lib/roundLeaderboard";
 import {
@@ -1746,6 +1750,18 @@ function handleServerMessage(msg: ServerMessage) {
                                 : c,
                         ),
                 );
+            // If the cleared curse was the ACTIVE one-at-a-time blocker
+            // (Hidden Hangman, U-Turn, etc.), lift the blocker so the hider
+            // can cast the next blocking curse. Without this, a Hidden Hangman
+            // the seekers already beat kept blocking every new curse until
+            // round end (the reported bug). Match by the cleared castId's name.
+            const clearedName = castCurses
+                .get()
+                .find((c) => c.castId === msg.castId)?.name;
+            if (clearedName && activeBlockingCurse.get() === clearedName) {
+                activeBlockingCurse.set(null);
+                activeBlockingCurseCastAt.set(null);
+            }
             markCleared(receivedCurses);
             markCleared(castCurses);
             return;

@@ -432,6 +432,22 @@ bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
 build stamp. Current: `v1069`. Use `git log` for the per-version detail;
 
+**v1100 — a CLEARED blocking curse no longer keeps blocking new casts.** After the
+seekers beat (or lost out of) a one-at-a-time blocking curse — most visibly Hidden
+Hangman — the hider stayed blocked from casting the next blocking curse ("… is
+still blocking the seekers … Wait for the seekers to clear it"), even though the
+curse was gone from both roles' active lists. Root cause: `activeBlockingCurse`
+(the persistent hider-side atom the one-at-a-time gate reads, `curseEnforcement.ts`)
+was only cleared at round end or via a manual cast-dialog affordance — the
+`curseCleared` resolution (game won / lost-out / seeker cleared) marked the
+`castCurses` mirror dismissed but never lifted the blocker atom. Non-timed TASK
+blockers (Hangman, U-Turn, …) don't auto-expire via `blockingCurseExpired`, so the
+gate stayed stuck. Fixes: (1) the inbound `curseCleared` handler (`store.ts`) now
+clears `activeBlockingCurse`/`…CastAt` when the cleared castId's name matches the
+active blocker; (2) the hider's own `CurseInbox.dismiss` (clearing a cast curse
+from their active-curse card) does the same. So a beaten Hangman immediately frees
+the next cast. Round-end reset + timed-blocker auto-expiry are unchanged.
+
 **v1099 — Hidden Hangman playtest fixes (word picked at cast, seekers start the
 game, cleaner dialog).** Four fixes from a live playtest of v1097:
 - **The hider picks the FIRST word while CASTING** (feedback 1). `CastCurseDialog`

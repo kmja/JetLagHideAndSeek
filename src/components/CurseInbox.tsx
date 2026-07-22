@@ -21,6 +21,8 @@ import {
     CURSE_JAMMED_DOOR,
     CURSE_SPOTTY_MEMORY,
     CURSE_URBAN_EXPLORER,
+    activeBlockingCurse,
+    activeBlockingCurseCastAt,
     seekerOnTransit,
     spottyCategoryForRoll,
     spottyMemoryCategory,
@@ -268,6 +270,12 @@ export function CurseInbox({
         );
         // v1022: propagate the clear to the hide team + other seekers.
         if (playerRole.get() === "seeker") sendCurseCleared(target?.castId);
+        // v1100: if the HIDER clears the active one-at-a-time blocker from their
+        // own active-curse card, lift the blocker so they can cast the next one.
+        if (target?.name && activeBlockingCurse.get() === target.name) {
+            activeBlockingCurse.set(null);
+            activeBlockingCurseCastAt.set(null);
+        }
         setDialogCurse(null);
     };
 
