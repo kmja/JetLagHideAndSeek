@@ -432,6 +432,25 @@ bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
 build stamp. Current: `v1069`. Use `git log` for the per-version detail;
 
+**v1106 — cast-curse dialog shows a SHORT hider-facing summary + a Rules
+deep-link.** The Cast Curse dialog rendered the FULL rulebook paragraph — most
+of which describes what the SEEKERS must do afterwards — which is clutter on the
+hider's action screen (they're picking a place / taking a photo / choosing a
+word). New `src/lib/curseCastSummary.ts` (`CURSE_CAST_SUMMARY` keyed by curse
+name + `curseCastSummary(name, full)`) holds a one-or-two-sentence gist per curse:
+action curses (location/photo/film/rock-tower/word/disable-picks) show just the
+hider's action + key constraint (Travel Agent → "Choose any publicly-accessible
+place within {{km}} of the seekers. They can't currently be on transit."); task/
+timed curses show a single line of what the curse does to the seekers. Summaries
+keep the `{{km:}}`/`{{m:}}`/size-triplet templates so `renderBodyText` still
+converts units + collapses S/M/L. `CastCurseDialog` renders
+`curseCastSummary(card.name, card.description)` instead of `card.description`;
+an unmapped/future curse falls back to its full text. **This is display-only —
+the SEEKERS still receive the full `card.description` verbatim in the curse
+payload**, and a new **"Rules" deep-link in the header** (`BookOpen` →
+`openRulebookAt(RULEBOOK_ANCHORS.curses)`, mirroring `CurseInbox`) keeps the full
+entry one tap away for the hider.
+
 **v1105 — hiding-zone overlay tap-selection fixes (both roles).** Two live-testing
 bugs on the hiding-zone overlay:
 - **Seeker: tapping anywhere in a zone now selects it, not just the centre dot.**

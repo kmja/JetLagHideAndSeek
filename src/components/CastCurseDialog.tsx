@@ -1,5 +1,6 @@
 import { useStore } from "@nanostores/react";
 import {
+    BookOpen,
     Camera,
     Check,
     ChevronDown,
@@ -30,6 +31,8 @@ import {
     DialogTitle,
 } from "@/components/ui/dialog";
 import { CATEGORIES, type CategoryId } from "@/lib/categories";
+import { curseCastSummary } from "@/lib/curseCastSummary";
+import { openRulebookAt, RULEBOOK_ANCHORS } from "@/lib/rulebook";
 import {
     canPayDiscardCost,
     curseBlockedDuringEndgame,
@@ -1074,6 +1077,17 @@ export function CastCurseDialog({
                             {card.name}
                         </DialogTitle>
                     </div>
+                    {/* v1106: the cast dialog now shows a SHORT summary; the
+                        full rulebook entry is one tap away. `mr-7` clears the
+                        dialog's own close X. */}
+                    <button
+                        type="button"
+                        onClick={() => openRulebookAt(RULEBOOK_ANCHORS.curses)}
+                        className="mr-7 shrink-0 inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-semibold text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors"
+                    >
+                        <BookOpen className="w-3.5 h-3.5" />
+                        Rules
+                    </button>
                 </div>
 
                 <div className="flex-1 overflow-y-auto px-6 py-4 min-h-0 space-y-3 text-sm">
@@ -1086,7 +1100,16 @@ export function CastCurseDialog({
                             + inline <SizeBadge> spans is valid React
                             without breaking the Radix description
                             semantics (sr-only label still works). */}
-                        <p>{renderBodyText(card.description, $gameSize)}</p>
+                        {/* v1106: HIDER-facing SHORT summary, not the full
+                            rulebook paragraph. The seekers still receive the
+                            full `card.description`; the "Rules" link (header)
+                            deep-links to the full entry. */}
+                        <p>
+                            {renderBodyText(
+                                curseCastSummary(card.name, card.description),
+                                $gameSize,
+                            )}
+                        </p>
                     </DialogDescription>
 
                     {/* Drained Brain: pick the 3 categories to disable on
