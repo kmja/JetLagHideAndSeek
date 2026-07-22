@@ -13,6 +13,8 @@ import { toast } from "react-toastify";
 
 import {
     hiderMode,
+    hidingRadius,
+    hidingRadiusUnits,
     mapGeoJSON,
     mapGeoLocation,
     polyGeoJSON,
@@ -308,6 +310,36 @@ async function matchingStationBoundary(
     question: MatchingQuestion,
     mode: "line" | "first-letter" | "length",
 ): Promise<Feature<Polygon | MultiPolygon> | false> {
+    // v1088: the transit-LINE question is "is the hider's station one of the
+    // stops on the seeker's line?" The hider hides within the hiding radius of
+    // a station, so the MATCHING region is simply the union of hiding-radius
+    // circles around each SELECTED STOP (from the picked route). This is built
+    // directly from the route's own stop coordinates — it does NOT depend on
+    // those stops matching a `[railway=station]` node (Stockholm's Tunnelbana
+    // stops don't, which is why the old Voronoi path returned `false` and cut
+    // nothing). `adjustPerMatching` then keeps this region on "matching" (the
+    // hider's zone is one of those stops → eliminate everything else) or
+    // complements it on "not matching" (eliminate exactly those station zones).
+    if (mode === "line") {
+        const stops = question.transitRoute?.stops ?? [];
+        const r = hidingRadius.get();
+        const units = hidingRadiusUnits.get();
+        const circles = stops
+            .filter(
+                (s) =>
+                    Number.isFinite(s.lat) &&
+                    Number.isFinite(s.lng) &&
+                    !(s.lat === 0 && s.lng === 0),
+            )
+            .map((s) =>
+                turf.circle([s.lng, s.lat], r, { steps: 64, units }),
+            );
+        if (circles.length === 0) return false;
+        return safeUnion(
+            turf.featureCollection(circles),
+        ) as Feature<Polygon | MultiPolygon>;
+    }
+
     const stations = osmtogeojson(
         await findPlacesInZone("[railway=station]", undefined, "node"),
     ) as FeatureCollection<Point>;
@@ -317,18 +349,7 @@ async function matchingStationBoundary(
     const nearest = turf.nearestPoint(seekerPoint, stations);
 
     let matching: Feature<Point>[];
-    if (mode === "line") {
-        // v966: the answer is "is the hider's station a stop on the ROUTE the
-        // seekers are riding?" — so the matching set is every candidate
-        // station that is one of the picked route's stops (within
-        // STATION_STOP_MATCH_M, bridging the station node vs the route's
-        // stop_position/platform node). No route picked → nothing to cut.
-        const stops = question.transitRoute?.stops ?? [];
-        if (stops.length === 0) return false;
-        matching = stations.features.filter((s) =>
-            stationIsRouteStop(s, stops),
-        );
-    } else {
+    {
         const name = stationName(nearest);
         if (!name) return false;
         if (mode === "first-letter") {

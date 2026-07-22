@@ -156,6 +156,13 @@ function requestWarmTransit(relationId: number, mode: string): void {
 async function fetchTransitRelations(
     routeType: string,
     silent = false,
+    /** v1088: the background PRELOAD passes true so a mode whose per-city
+     *  shard isn't warm (bus especially — whole-city routes are heavy) does
+     *  NOT fall through to a LIVE `/api/interpreter` bbox query that times out
+     *  (the reported "Stockholm lobby calls Overpass and 504s"). It returns
+     *  empty + fires a background `?warm=1`; the overlay still fetches live on
+     *  demand if the user explicitly toggles that mode on the map. */
+    cacheOnly = false,
 ): Promise<unknown> {
     // v386: try the STABLE relation-id-keyed endpoint first when the play
     // area is a single OSM relation (the common case). The worker derives
@@ -209,6 +216,11 @@ async function fetchTransitRelations(
         }
     }
 
+    // v1088: the preload never goes LIVE — a cold mode returns empty (already
+    // warmed via `?warm=1` above where the relation path ran), so the lobby
+    // can't hammer Overpass with a heavy bus bbox query.
+    if (cacheOnly) return { elements: [] };
+
     const tuple = buildTransitBboxTuple();
     if (!tuple) return { elements: [] };
     // Byte-identical to overpass-cache transitRouteQuery (worker AND
@@ -246,10 +258,11 @@ export async function fetchTransitRoutesFeatures(
     /** Background callers (the preload pass) pass `true` so a
      *  rate-limited / failed warm doesn't pop the user-facing
      *  "Could not load data from Overpass" toast — the preload reports
-     *  the failure honestly via its bucket badge instead. */
+     *  the failure honestly via its bucket badge instead. It ALSO makes the
+     *  fetch cache-only (v1088): a cold mode won't fire a live bbox query. */
     silent = false,
 ): Promise<GeoJSON.FeatureCollection> {
-    const data = await fetchTransitRelations(mode, silent);
+    const data = await fetchTransitRelations(mode, silent, silent);
     const elements = (
         ((data as { elements?: unknown }).elements ?? []) as Array<{
             type: string;

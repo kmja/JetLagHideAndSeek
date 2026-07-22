@@ -430,6 +430,34 @@ bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
 build stamp. Current: `v1069`. Use `git log` for the per-version detail;
 
+**v1088 — live-testing fixes: lobby Overpass spam, transit-line elimination,
+endgame button, multi-hider timer names.**
+- **Stockholm lobby fired live Overpass (`/api/interpreter` 502/504) before the
+  game even started.** The transit-route PRELOAD fell through to a live bbox
+  query for any mode whose per-city shard isn't warm (bus especially — a
+  whole-city route set that times out). `fetchTransitRelations` gained a
+  `cacheOnly` mode the preload passes (via its existing `silent` flag): a cold
+  mode returns empty + fires a background `?warm=1` instead of a live query, so
+  the lobby never hammers Overpass. The on-demand overlay toggle still goes live.
+- **Transit-line question eliminated NOTHING on the map.** `matchingStationBoundary`'s
+  `line` mode built a Voronoi over `[railway=station]` nodes and matched the
+  route stops against them — but Stockholm's Tunnelbana stops don't join
+  `railway=station`, so it returned `false` and cut nothing. Rebuilt: the
+  matching region is now the union of hiding-radius circles around each SELECTED
+  STOP (from the picked route), built directly from the route's own coordinates.
+  `adjustPerMatching` keeps it on "matching" (eliminate everything but those
+  station zones) or complements it on "not matching" (eliminate exactly those
+  zones) — the correct semantics, robust for subway/tram.
+- **Seeker couldn't start the endgame.** The `StationTransitCard` "Start endgame
+  here" button was HIDDEN by a client-side GPS distance check (`seekerReachedZone`)
+  that silently blocked legitimate attempts (GPS noise / a spoofed fix not
+  reaching the component). Removed — the SERVER already validates the seeker's
+  location against the hider's zone (v950) and denies a wrong claim with a
+  banner, so the button now shows whenever the hiding period is over + the
+  endgame isn't armed.
+- **Timer shows ALL hider names.** With multiple hiders the `HiderTimer` showed
+  only the first (`MACBOOK`); it now joins every hide-team member's name.
+
 **v1087 — curse audit batch 2: end-of-round hider-bonus system.** Several curses
 award the HIDER extra hidden-time when the seekers fail a keep-task (rulebook "you
 are awarded an extra N min"): Mediocre Travel Agent (lose the souvenir 30/45/60),

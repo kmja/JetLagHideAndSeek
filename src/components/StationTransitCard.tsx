@@ -315,19 +315,20 @@ export function StationTransitCard({
     // being within the zone's hiding-radius (+ a generous margin for GPS
     // noise). With NO GPS fix we can't tell, so we still show it (the server
     // makes the final call).
-    const seekerReachedZone =
-        !$gps ||
-        station === null ||
-        haversineMeters($gps.lat, $gps.lng, station.lat, station.lng) <=
-            endgameRadiusM + 150;
+    // v1088: the button shows whenever the hiding period is over + the endgame
+    // isn't armed. We no longer HIDE it on a client-side GPS distance check —
+    // that silently blocked legitimate attempts (GPS noise / a spoofed fix not
+    // reaching this component), the reported "I can't start the endgame". The
+    // SERVER validates the seeker's location against the hider's zone (v950)
+    // and denies a wrong claim with a clear banner, so the location check lives
+    // there, not in whether the button appears.
     const canTriggerEndgame =
         allowEndgame &&
         station !== null &&
         $endsAt !== null &&
         Date.now() >= $endsAt &&
         $endgame === null &&
-        $found === null &&
-        seekerReachedZone;
+        $found === null;
 
     // v1020: hider can commit the tapped zone directly from the map — only
     // while the hiding period runs, nothing is committed yet, and the hider

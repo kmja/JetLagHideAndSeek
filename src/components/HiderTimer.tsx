@@ -60,11 +60,18 @@ export function HiderTimer({ preview }: { preview?: HiderTimerPreview } = {}) {
     let $roundLog = useStore(roundLog);
     const $participants = useStore(participants);
     // v879: the name of the hider hiding THIS round, for the live
-    // leaderboard row (past rows carry their own stored name).
+    // leaderboard row (past rows carry their own stored name). v1088: with
+    // MULTIPLE hiders, show EVERY hide-team member's name (joined), not just
+    // the first.
     const currentHiderName =
-        $participants.find((p) => p.role === "hider")?.displayName?.trim() ||
-        displayName.get()?.trim() ||
-        "Hider";
+        (() => {
+            const names = $participants
+                .filter((p) => p.role === "hider")
+                .map((p) => p.displayName?.trim())
+                .filter((n): n is string => !!n);
+            if (names.length > 0) return names.join(" & ");
+            return displayName.get()?.trim() || "Hider";
+        })();
     if (preview) {
         $endsAt = preview.endsAt;
         $setupCompleted = preview.setupCompleted ?? true;
