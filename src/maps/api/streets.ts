@@ -21,6 +21,7 @@ import {
     additionalMapGeoLocations,
     mapGeoLocation,
 } from "@/lib/context";
+import { safeJsonFromCachedResponse } from "@/maps/api/cache";
 import { STREETS_BY_RELATION_BASE } from "@/maps/api/constants";
 
 /** Raw Overpass element (a highway `way` with `out geom` geometry + node ids
@@ -78,7 +79,7 @@ async function fetchPrewarmedStreets(
     try {
         const resp = await fetch(`${STREETS_BY_RELATION_BASE}/${relationId}`);
         if (!resp.ok) return null;
-        const data = (await resp.json()) as {
+        const data = (await safeJsonFromCachedResponse(resp)) as {
             elements?: OverpassStreetElement[];
             cache?: string;
         };

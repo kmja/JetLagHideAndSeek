@@ -38,6 +38,7 @@ import {
     mapGeoLocation,
 } from "@/lib/context";
 import { landFromCoast as landFromCoastViaWorker } from "@/lib/geometry/client";
+import { safeJsonFromCachedResponse } from "@/maps/api/cache";
 import { COAST_BY_RELATION_BASE } from "@/maps/api/constants";
 import { getOverpassData } from "@/maps/api/overpass";
 import { seaFromCoastline } from "@/maps/questions/seaFromCoastline";
@@ -89,7 +90,7 @@ async function fetchPrewarmedCoast(
     try {
         const resp = await fetch(`${COAST_BY_RELATION_BASE}/${relationId}`);
         if (!resp.ok) return null;
-        const data = (await resp.json()) as {
+        const data = (await safeJsonFromCachedResponse(resp)) as {
             elements?: OverpassElement[];
             cache?: string;
         };

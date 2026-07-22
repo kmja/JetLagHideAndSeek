@@ -477,6 +477,35 @@ build stamp. Current: `v1069`. Use `git log` for the per-version detail;
 - **NEXT: a SINGLE station producer shared by seeker + hider** (shipped in
   v1115 below).
 
+**v1116 — REAL transit root cause (gzip-parse, NOT re-warm) + systemic
+prewarm-read hardening + seeker/hider fetch unified (Phase B).**
+- **The transit `subway:0 …no-data` + live `/api/interpreter` 500/502 for a
+  FULLY-WARM NYC/Stockholm was a CLIENT PARSE bug, not a warmth problem** (the
+  earlier "needs re-warm" theory was wrong — the prewarmer confirmed NYC fully
+  cached). `fetchTransitRelations` (`transitRoutes.ts`, the transit-overlay +
+  preload path reading `/api/transit/<id>/<mode>`) parsed the R2 body with plain
+  `resp.json()`, which THROWS at the `0x1f` gzip magic byte on a double-/residual-
+  gzipped body (the v738/v739 class) — the `catch` swallowed it, so the client
+  fell back EVEN FOR A WARM CITY. This ONE bug explains BOTH symptoms: the
+  cacheOnly preload reported `mode:0` (parse throw → `[]`), and the overlay toggle
+  fell through to the LIVE bbox query (→ the `/api/interpreter` 500/502). Fixed by
+  parsing with the gzip-peeling `safeJsonFromCachedResponse` — the SAME v1078 fix
+  already on the sibling `/api/transit-routes` path, which `fetchTransitRelations`
+  never got. (+ a `[transit] … parse failed` console diag.)
+- **Systemic hardening — the SAME plain-`resp.json()` gap existed on every other
+  relation-endpoint read** and was the recurring "warm but the app goes live"
+  class: `fetchPrewarmedStations` (area-stations), `water.ts`, `coast.ts`,
+  `adminBoundary.ts`, `streets.ts` all now use `safeJsonFromCachedResponse`
+  (parses plain identically, but PEELS a double-gzip body → serves the warm data
+  instead of null-falling-to-live). Pure hardening, no contract change.
+- **Phase B — seeker + hider now share ONE station FETCH producer.** The seeker
+  `ZoneSidebar` fetch is routed through the shared `fetchStationElements`
+  (verified byte-identical query: `timeoutDuration` default 0 matches, `silent`
+  doesn't affect the key) — so together with v1115's shared `mergeDuplicateStation`
+  dedup, BOTH the fetch AND the dedup are now single-sourced (no two functions
+  building the same query). Trust-warm behavior unified (`if (prewarmed)` — trust
+  a warm-empty result instead of the hider's old needless live re-query).
+
 **v1115 — ONE shared station dedup for seeker + hider (ends the role-drift bug
 class).** The seeker (`mergeDuplicateStation`, `stationManipulations.ts`) and the
 hider (`sortAndDedupe`, `journey/stations.ts`) had DIFFERENT dedup rules — the

@@ -8,6 +8,7 @@ import {
     mapGeoLocation,
     polyGeoJSON,
 } from "@/lib/context";
+import { safeJsonFromCachedResponse } from "@/maps/api/cache";
 import { TRANSIT_BY_RELATION_BASE } from "@/maps/api/constants";
 import { getOverpassData } from "@/maps/api/overpass";
 import { referenceExtent } from "@/maps/api/playAreaPrefetch";
@@ -203,12 +204,32 @@ async function fetchTransitRelations(
                 `${TRANSIT_BY_RELATION_BASE}/${relId}/${routeType}`,
             );
             if (resp.ok) {
-                const data = (await resp.json()) as { elements?: unknown[] };
+                // v1116: gzip-TOLERANT parse. Plain `resp.json()` THROWS on a
+                // double-/residual-gzipped R2 body (the v738/v739 class) at the
+                // 0x1f gzip magic byte, and the catch below swallowed it — so
+                // the client fell to LIVE Overpass EVEN FOR A FULLY-WARM CITY
+                // (the reported NYC/Stockholm `transit FAILED subway:0 …` +
+                // the live `/api/interpreter` 500/502). Preload (cacheOnly)
+                // then reported 0; the overlay toggle fell through to the live
+                // bbox query below. `safeJsonFromCachedResponse` peels every
+                // gzip layer (and parses plain JSON identically), matching the
+                // v1078 fix already on the sibling `/api/transit-routes` path.
+                let data: { elements?: unknown[] } | null = null;
+                try {
+                    data = (await safeJsonFromCachedResponse(resp)) as {
+                        elements?: unknown[];
+                    };
+                } catch (e) {
+                    console.warn(
+                        `[transit] ${routeType} r${relId}: R2 body parse failed → falling back`,
+                        e,
+                    );
+                }
                 const els = data?.elements;
-                if (Array.isArray(els) && els.length > 0) return data;
-                // Empty body = miss / no-boundary marker. Fire a
-                // background warm and fall through to the bbox path so
-                // the user still gets data this session.
+                if (Array.isArray(els) && els.length > 0) return data!;
+                // Empty/unparseable body = miss / no-boundary marker. Fire a
+                // background warm and fall through to the bbox path so the user
+                // still gets data this session.
                 requestWarmTransit(relId, routeType);
             }
         } catch {

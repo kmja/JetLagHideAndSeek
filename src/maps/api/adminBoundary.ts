@@ -21,6 +21,7 @@ import {
     additionalMapGeoLocations,
     mapGeoLocation,
 } from "@/lib/context";
+import { safeJsonFromCachedResponse } from "@/maps/api/cache";
 import { ADMIN_BY_RELATION_BASE } from "@/maps/api/constants";
 
 /** Raw Overpass element (relation with `out geom` geometry). */
@@ -73,7 +74,7 @@ async function fetchPrewarmedAdmin(
             `${ADMIN_BY_RELATION_BASE}/${relationId}/${level}`,
         );
         if (!resp.ok) return null;
-        const data = (await resp.json()) as {
+        const data = (await safeJsonFromCachedResponse(resp)) as {
             elements?: OverpassElement[];
             cache?: string;
         };

@@ -44,7 +44,7 @@ import {
     useCustomStations as useCustomStationsAtom,
     zoneSidebarOpen,
 } from "@/lib/context";
-import { fetchPrewarmedHidingZoneStations } from "@/lib/journey/stations";
+import { fetchStationElements } from "@/lib/journey/stations";
 import {
     prepareZoneCirclesAsync,
     styleZoneStationsAsync,
@@ -52,12 +52,10 @@ import {
 import { cn } from "@/lib/utils";
 import {
     BLANK_GEOJSON,
-    findPlacesInZone,
     findPlacesSpecificInZone,
     findTentacleLocations,
     nearestToQuestion,
     normalizeToStationFeatures,
-    overpassFailureCount,
     parseCustomStationsFromText,
     QuestionSpecificLocation,
     type StationCircle,
@@ -254,47 +252,20 @@ export const ZoneSidebar = () => {
                 // a compact "Finding stations" pill in the map-display
                 // controls already covers the loading affordance (driven by
                 // `isLoading`).
-                // v668: serve the DEFAULT station set from the prewarmed
-                // `/api/area-stations/<id>` endpoint when the selected
-                // options map cleanly to transit modes (the common
-                // auto-tracking case) — zero live Overpass on a warm city,
-                // the same relation-ID-keyed path the hider overlay uses.
-                // Custom/partial-mode selections, non-relation play areas,
-                // and cold misses return null → the live poly query below.
-                const prewarmed = await fetchPrewarmedHidingZoneStations(
-                    effectiveOptions,
-                );
-                if (prewarmed) {
-                    // @ts-expect-error osmtogeojson always defines properties with an "id" string
-                    places = osmtogeojson(prewarmed).features;
-                } else {
-                    // v667: tell a FAILED fetch (all mirrors rate-limited /
-                    // soft-timed-out → `{elements: []}`) apart from a
-                    // genuinely-empty result. Throwing routes it into this
-                    // effect's catch → error toast + isLoading cleanup, and
-                    // crucially does NOT record the compute signature — so
-                    // toggling the overlay again actually retries instead of
-                    // repainting the cached empty.
-                    const failuresBefore = overpassFailureCount();
-                    // @ts-expect-error osmtogeojson always defines properties with an "id" string
-                    places = osmtogeojson(
-                        await findPlacesInZone(
-                            effectiveOptions[0],
-                            undefined,
-                            "nwr",
-                            "center",
-                            effectiveOptions.slice(1),
-                        ),
-                    ).features;
-                    if (
-                        places.length === 0 &&
-                        overpassFailureCount() > failuresBefore
-                    ) {
-                        throw new Error(
-                            "Station scan failed — all Overpass mirrors timed out or rate-limited",
-                        );
-                    }
-                }
+                // v1116: the seeker's station FETCH is now the SHARED
+                // `fetchStationElements` (the SAME single producer the hider
+                // uses — no more two functions building the same query). It
+                // serves the prewarmed `/api/area-stations` union for a warm
+                // city (zero live Overpass) and falls to the byte-identical
+                // live poly query on a cold miss, THROWING on a total-mirror
+                // failure (routed into this effect's catch → toast + retry, and
+                // NOT recorded in the compute signature). Custom/partial-mode
+                // selections decline the prewarm and use the live query, as
+                // before. The seeker parses the raw elements with osmtogeojson
+                // exactly as it always did.
+                const elements = await fetchStationElements(effectiveOptions);
+                // @ts-expect-error osmtogeojson always defines properties with an "id" string
+                places = osmtogeojson({ elements }).features;
 
                 if (
                     useCustomStations &&

@@ -36,6 +36,7 @@ import {
 } from "@/lib/gameSetup";
 import { haversineMeters } from "@/lib/geo";
 import type { StationPlace } from "@/maps/api";
+import { safeJsonFromCachedResponse } from "@/maps/api/cache";
 import { AREA_STATIONS_BY_RELATION_BASE } from "@/maps/api/constants";
 import { mergeDuplicateStation } from "@/maps/geo-utils/stationManipulations";
 import { findPlacesInZone, overpassFailureCount } from "@/maps/api/overpass";
@@ -85,17 +86,17 @@ let stationElementsInFlight: {
 } | null = null;
 
 /**
- * Fetch the raw play-area station ELEMENTS for the allowed modes — the
- * shared front half of the single station producer. Byte-identical query
- * to the seeker's ZoneSidebar (prewarmed `/api/area-stations` union →
- * live poly fallback), memoised per (filters, play area). Returns the raw
- * OSM elements (KEEPING unnamed nodes + tags) so the shared dedup
- * (`mergeDuplicateStation`) can run on the same data both roles use.
+ * THE shared station FETCH (v1115) — used by BOTH the hider producer
+ * (`produceAreaStations`) and the seeker `ZoneSidebar`, so the query is a
+ * SINGLE producer, not two functions building the same string. Prewarmed
+ * `/api/area-stations` union → live poly fallback, memoised per (filters,
+ * play area), keeping the raw OSM elements (unnamed nodes + tags) for the
+ * shared dedup. `filters` are the hiding-zone selector strings (the seeker's
+ * `displayHidingZonesOptions`; the hider passes `hidingZoneFiltersFor(allowed)`).
  */
-async function fetchStationElements(
-    allowed: TransitMode[],
+export async function fetchStationElements(
+    filters: string[],
 ): Promise<OverpassElement[]> {
-    const filters = hidingZoneFiltersFor(allowed);
     if (filters.length === 0) return [];
     const filtersKey = filters.join("|");
     const polyRef = polyGeoJSON.get();
@@ -124,8 +125,13 @@ async function fetchStationElements(
         // `fetchPrewarmedHidingZoneStations` (the SAME call the seeker
         // ZoneSidebar makes — one shared entry). Returns null on any cold
         // area → the live poly query below.
+        // TRUST a warm result — even an EMPTY one (all areas warm + genuinely
+        // no allowed-mode stations). This matches the seeker (which trusted
+        // `if (prewarmed)`) and avoids a needless live re-query on a
+        // warm-but-empty area. A wrongly-empty warm result is a prewarm bug to
+        // fix at the source, not paper over with a live query (v640 lesson).
         const prewarmed = await fetchPrewarmedHidingZoneStations(filters);
-        if (prewarmed && prewarmed.elements.length > 0) {
+        if (prewarmed) {
             stationElementsCache = {
                 filtersKey,
                 polyRef,
@@ -224,7 +230,7 @@ async function produceAreaStations(
     anchorLat: number,
     anchorLng: number,
 ): Promise<AreaStation[]> {
-    const elements = await fetchStationElements(allowed);
+    const elements = await fetchStationElements(hidingZoneFiltersFor(allowed));
     const seen = new Set<number>();
     const places: StationPlace[] = [];
     for (const el of elements) {
@@ -349,7 +355,7 @@ async function fetchPrewarmedStations(
             `${AREA_STATIONS_BY_RELATION_BASE}/${relationId}`,
         );
         if (!resp.ok) return null;
-        const data = (await resp.json()) as {
+        const data = (await safeJsonFromCachedResponse(resp)) as {
             elements?: OverpassElement[];
             cache?: string;
         };
