@@ -511,9 +511,11 @@ function handleClientMessage(msg: ClientMessage) {
         case "curseCleared":
         case "curseProof":
         case "curseFail":
+        case "curseCooldownStart":
             // Single-device demo: the hider IS the caster, so there's no
             // separate device to sync a clear / verification photo / bonus
-            // report to — no-op.
+            // report / shared cooldown to — no-op. (`startCurseCooldown` already
+            // applied the cooldown locally before sending.)
             return;
         case "loc":
         case "hiderLoc":

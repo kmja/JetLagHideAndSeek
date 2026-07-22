@@ -106,7 +106,11 @@ import {
 import { resetSharedRoundState } from "@/lib/roundReset";
 import { triggerCurseReveal } from "@/lib/curseReveal";
 import { appendRoundResult } from "@/lib/roundLeaderboard";
-import { castCurses, receivedCurses } from "@/lib/seekerInbound";
+import {
+    castCurses,
+    receivedCurses,
+    setCurseCooldown,
+} from "@/lib/seekerInbound";
 import {
     type Question,
     type Questions,
@@ -753,6 +757,23 @@ export function reportCurseFail(
     setCurseBonusResolved(castId, "lost");
     if (!multiplayerEnabled.get()) return;
     getTransport()?.send({ t: "curseFail", castId, name });
+}
+
+/**
+ * v1093: a seeker failed a Jammed Door 2d6 doorway roll — start the SHARED
+ * cooldown. Applies it locally straight away (solo / instant feedback) and, in
+ * multiplayer, tells the server the size-derived duration; the server stamps the
+ * authoritative end time on its own clock and broadcasts it to every seeker (+
+ * re-delivers on rejoin), so the wait is shared and restart-proof.
+ */
+export function startCurseCooldown(
+    castId: number | undefined,
+    durationMs: number,
+): void {
+    if (castId == null) return;
+    setCurseCooldown(castId, Date.now() + durationMs);
+    if (!multiplayerEnabled.get()) return;
+    getTransport()?.send({ t: "curseCooldownStart", castId, durationMs });
 }
 
 /* ────────────────── Inbound dispatch ────────────────── */
@@ -1718,6 +1739,13 @@ function handleServerMessage(msg: ServerMessage) {
                     });
                 }
             }
+            return;
+        }
+        case "curseCooldown": {
+            // v1093: the server-stamped end time of a shared Jammed Door
+            // cooldown — adopt it so every seeker's clock agrees and the wait
+            // survives a reconnect.
+            setCurseCooldown(msg.castId, msg.until);
             return;
         }
         case "endgameDenied": {

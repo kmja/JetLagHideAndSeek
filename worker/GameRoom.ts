@@ -157,6 +157,8 @@ interface PersistedRoom {
     /** v955: the `hidingPeriodEndsAt` we've already fired the seeking-start
      *  push for — persisted so a DO eviction+reload can't re-push it. */
     seekingStartPushedFor?: number | null;
+    /** v1088: shared Jammed Door cooldowns (castId → end ms). */
+    curseCooldowns?: Record<number, number>;
 }
 
 /* ────────────────── Connection bookkeeping ────────────────── */
@@ -243,6 +245,14 @@ export class GameRoom {
     private castCurses: CursePayload[] = [];
     private curseCastSeq = 0;
 
+    /**
+     * v1088: server-stamped shared curse cooldowns (Curse of the Jammed Door),
+     * castId → Unix ms the cooldown ends. Broadcast to every seeker on a fail
+     * and re-delivered on rejoin so the wait is shared + restart-proof. Cleared
+     * each round.
+     */
+    private curseCooldowns: Record<number, number> = {};
+
     /** Per-participant Web Push subscriptions. Keyed by participant id. */
     private pushSubscriptions: Map<string, PushSubscriptionData> = new Map();
 
@@ -304,6 +314,7 @@ export class GameRoom {
                 this.scoutedSpots = stored.scoutedSpots ?? null;
                 this.castCurses = stored.castCurses ?? [];
                 this.curseCastSeq = stored.curseCastSeq ?? 0;
+                this.curseCooldowns = stored.curseCooldowns ?? {};
                 this.pushSubscriptions = new Map(
                     stored.pushSubscriptions ?? [],
                 );
@@ -343,6 +354,7 @@ export class GameRoom {
                 scoutedSpots: this.scoutedSpots,
                 castCurses: this.castCurses,
                 curseCastSeq: this.curseCastSeq,
+                curseCooldowns: this.curseCooldowns,
                 pushSubscriptions: [...this.pushSubscriptions],
                 idleSince: this.idleSince,
                 seekingStartPushedFor: this.seekingStartPushedFor,
@@ -482,6 +494,7 @@ export class GameRoom {
             this.scoutedSpots = null;
             this.castCurses = [];
             this.curseCastSeq = 0;
+            this.curseCooldowns = {};
             this.closingSample.clear();
             this.closingPushed = false;
             this.pushSubscriptions.clear();
@@ -694,6 +707,12 @@ export class GameRoom {
                 return this.handleCurseProof(socket, msg.castId, msg.photoUrl);
             case "curseFail":
                 return this.handleCurseFail(socket, msg.castId, msg.name);
+            case "curseCooldownStart":
+                return this.handleCurseCooldownStart(
+                    socket,
+                    msg.castId,
+                    msg.durationMs,
+                );
             case "subscribePush":
                 return this.handleSubscribePush(socket, msg.subscription);
             case "ping":
@@ -961,6 +980,10 @@ export class GameRoom {
         if (existing && existing.role === "seeker" && this.castCurses.length) {
             this.sendTo(socket, { t: "curseBacklog", curses: this.castCurses });
         }
+        // v1093: re-deliver active Jammed Door cooldowns so the wait survives a
+        // reconnect / a fresh device (restart-proof).
+        if (existing && existing.role === "seeker")
+            this.deliverActiveCooldowns(socket);
         this.broadcastPresence();
     }
 
@@ -996,6 +1019,8 @@ export class GameRoom {
         if (effRole === "seeker" && this.castCurses.length) {
             this.sendTo(socket, { t: "curseBacklog", curses: this.castCurses });
         }
+        // v1093: deliver active Jammed Door cooldowns to a just-claimed seeker.
+        if (effRole === "seeker") this.deliverActiveCooldowns(socket);
     }
 
     private handleSetHideZone(
@@ -2009,6 +2034,8 @@ export class GameRoom {
         // seeker doesn't recover last round's curses on reconnect.
         this.castCurses = [];
         this.curseCastSeq = 0;
+        // v1093: Jammed Door cooldowns are per-round too.
+        this.curseCooldowns = {};
         this.closingSample.clear();
         this.closingPushed = false;
         // Per-participant location-update timestamps are per-round
@@ -2120,6 +2147,61 @@ export class GameRoom {
             if (cp?.role !== "hider") continue;
             this.sendTo(c.socket, { t: "curseFail", castId, name });
         }
+    }
+
+    /**
+     * v1093: a seeker failed a Jammed Door 2d6 doorway roll and started the
+     * shared cooldown. The SERVER stamps the end time on its OWN clock (so the
+     * wait can't be shortened by a device with a fast clock) and broadcasts it
+     * to every seeker — the cooldown is SHARED across the seek team and, because
+     * it's persisted + re-delivered on rejoin, can't be reset by restarting the
+     * app. The client sends the size-derived duration; we clamp it to a sane
+     * bound so a bad client can't set an absurd cooldown.
+     */
+    private handleCurseCooldownStart(
+        socket: WebSocket,
+        castId: number,
+        durationMs: number,
+    ) {
+        const conn = this.lookupConn(socket);
+        if (!conn) return;
+        const dur = Math.min(
+            Math.max(Number(durationMs) || 0, 60_000),
+            60 * 60_000,
+        );
+        const until = Date.now() + dur;
+        this.curseCooldowns[castId] = until;
+        this.broadcastCurseCooldown(castId, until);
+        void this.persist();
+    }
+
+    /** Fan a cooldown's server-stamped end time to every seeker (+ sender). */
+    private broadcastCurseCooldown(castId: number, until: number) {
+        for (const [pid, c] of this.conns.entries()) {
+            const cp = this.game.participants.find((q) => q.id === pid);
+            if (cp?.role !== "seeker") continue;
+            this.sendTo(c.socket, { t: "curseCooldown", castId, until });
+        }
+    }
+
+    /** Deliver every still-active cooldown to a (re)joining seeker so the wait
+     *  survives a reconnect / a fresh device. Prunes expired entries. */
+    private deliverActiveCooldowns(socket: WebSocket) {
+        const now = Date.now();
+        let changed = false;
+        for (const [k, until] of Object.entries(this.curseCooldowns)) {
+            if (until <= now) {
+                delete this.curseCooldowns[Number(k)];
+                changed = true;
+                continue;
+            }
+            this.sendTo(socket, {
+                t: "curseCooldown",
+                castId: Number(k),
+                until,
+            });
+        }
+        if (changed) void this.persist();
     }
 
     private handleSubscribePush(socket: WebSocket, subscription: PushSubscriptionData) {

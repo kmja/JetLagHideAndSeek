@@ -90,6 +90,45 @@ if (!g[CAST_KEY]) {
 }
 export const castCurses = g[CAST_KEY] as WritableAtom<ReceivedCurse[]>;
 
+/**
+ * v1087: SERVER-shared per-curse cooldowns (Curse of the Jammed Door — after a
+ * failed 2d6 doorway roll the seekers can't re-roll for 5/10/15 min). Keyed by
+ * the curse's `castId` → Unix ms the cooldown ends. The SERVER stamps the end
+ * time (its own clock) and broadcasts it to every seeker + re-delivers active
+ * cooldowns on rejoin, so the wait is SHARED across seeker devices and can't be
+ * reset by restarting the app. Persisted so a reload doesn't lose it; reset per
+ * round in `resetCurseState`.
+ */
+const COOLDOWN_KEY = "__jlhs_curseCooldownUntil";
+if (!g[COOLDOWN_KEY]) {
+    g[COOLDOWN_KEY] = persistentAtom<Record<string, number>>(
+        "curseCooldownUntil",
+        {},
+        {
+            encode: JSON.stringify,
+            decode: (v) => {
+                try {
+                    const parsed = JSON.parse(v);
+                    return parsed && typeof parsed === "object" ? parsed : {};
+                } catch {
+                    return {};
+                }
+            },
+        },
+    );
+}
+export const curseCooldownUntil = g[COOLDOWN_KEY] as WritableAtom<
+    Record<string, number>
+>;
+
+/** Set (or clear, with until<=0) a curse's shared cooldown end time. */
+export function setCurseCooldown(castId: number, until: number): void {
+    const next = { ...curseCooldownUntil.get() };
+    if (until > Date.now()) next[String(castId)] = until;
+    else delete next[String(castId)];
+    curseCooldownUntil.set(next);
+}
+
 /** Record a curse the hider just cast so it shows in the hider's active-curse
  *  list. Payload is the same shape sent to the seekers. */
 export function recordCastCurse(payload: SharedCursePayload): void {

@@ -430,6 +430,27 @@ bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
 build stamp. Current: `v1069`. Use `git log` for the per-version detail;
 
+**v1093 — Jammed Door cooldown is SERVER-SHARED + restart-proof.** The Curse of
+the Jammed Door doorway cooldown (after a failed 2d6 roll the seekers wait
+5/10/15 min to re-roll, rulebook p396) was device-LOCAL (v1032) — a seeker could
+reset it by restarting the app, and co-seekers didn't share it. Now it's
+server-authoritative and shared:
+- **Protocol:** `CMsgCurseCooldownStart {castId, durationMs}` (client → server) +
+  `SMsgCurseCooldown {castId, until}` (server → seekers). The server stamps the
+  end time on ITS clock (so a fast client clock can't shorten it), persists it in
+  the `GameRoom` DO (`curseCooldowns`, hydrated/persisted/round-reset alongside
+  `castCurses`), broadcasts it to every seeker, and RE-DELIVERS active cooldowns
+  to a (re)joining/role-claiming seeker (`deliverActiveCooldowns`, prunes
+  expired) — so the wait survives a reconnect or a fresh device.
+- **Client:** the local per-dialog `jammedCooldownUntil` state became the shared
+  persistent `curseCooldownUntil` atom (`seekerInbound.ts`, keyed by `castId`,
+  reset per round). `startCurseCooldown` (store) applies it locally for instant
+  feedback AND sends `curseCooldownStart` in multiplayer; the inbound
+  `curseCooldown` handler adopts the server-stamped `until`. `CurseInbox` reads
+  the atom by the curse's `castId`. Demo broker no-ops `curseCooldownStart`
+  (single device — the local apply already happened). Solo/offline keeps the
+  local-clock cooldown (no server to stamp it).
+
 **v1092 — transit-line answer dialog marks the seeker's line + stops.** The
 hider's answer-comparison map (`HiderMap`) drew only the generic seeker pin for a
 `same-train-line` matching question, so the hider couldn't see which stations

@@ -383,6 +383,19 @@ export interface CMsgCurseFail {
     name: string;
 }
 
+/**
+ * A seeker started a shared curse cooldown (v1088 — Curse of the Jammed Door:
+ * a failed 2d6 doorway roll blocks re-rolling for 5/10/15 min). The client
+ * sends the size-derived duration; the SERVER stamps the end time on its own
+ * clock and broadcasts it to every seeker (+ re-delivers on rejoin), so the
+ * wait is SHARED and can't be reset by restarting the app.
+ */
+export interface CMsgCurseCooldownStart {
+    t: "curseCooldownStart";
+    castId: number;
+    durationMs: number;
+}
+
 /** Client registers its Web Push subscription so the server can notify it offline. */
 export interface CMsgSubscribePush {
     t: "subscribePush";
@@ -417,6 +430,7 @@ export type ClientMessage =
     | CMsgCurseCleared
     | CMsgCurseProof
     | CMsgCurseFail
+    | CMsgCurseCooldownStart
     | CMsgSubscribePush;
 
 /* ────────────────── Server → Client ────────────────── */
@@ -653,6 +667,18 @@ export interface SMsgCurseFail {
 }
 
 /**
+ * v1088: the server-stamped end time of a shared curse cooldown (Jammed Door).
+ * Broadcast to every seeker on a fresh fail AND re-delivered per active cooldown
+ * when a seeker joins/resumes, so the wait survives a restart.
+ */
+export interface SMsgCurseCooldown {
+    t: "curseCooldown";
+    castId: number;
+    /** Unix ms (server clock) the cooldown ends. */
+    until: number;
+}
+
+/**
  * v950: the server VALIDATED an endgame claim and found the claiming seeker is
  * NOT at the hider's committed zone. A wrong claim does NOT arm the endgame
  * (so the seekers can re-try at the right station); instead this transient
@@ -698,6 +724,7 @@ export type ServerMessage =
     | SMsgCurseCleared
     | SMsgCurseProof
     | SMsgCurseFail
+    | SMsgCurseCooldown
     | SMsgEndgameDenied;
 
 /* ────────────────── Shared payload types ────────────────── */

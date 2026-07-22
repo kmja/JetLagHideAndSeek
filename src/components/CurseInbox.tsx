@@ -50,8 +50,13 @@ import {
     reportCurseFail,
     sendCurseCleared,
     sendCurseProof,
+    startCurseCooldown,
 } from "@/lib/multiplayer/store";
-import { type ReceivedCurse, receivedCurses } from "@/lib/seekerInbound";
+import {
+    curseCooldownUntil,
+    type ReceivedCurse,
+    receivedCurses,
+} from "@/lib/seekerInbound";
 import { cn } from "@/lib/utils";
 import type { WritableAtom } from "nanostores";
 import { toast } from "react-toastify";
@@ -121,10 +126,10 @@ export function CurseInbox({
     const [dialogCurse, setDialogCurse] = useState<ReceivedCurse | null>(null);
     // v1032: Jammed Door doorway cooldown — Unix ms until the seekers may
     // re-roll a failed doorway (5 min S / 10 min M / 15 min L, rulebook p396).
-    // Local to this device: it's a real-world doorway attempt, not synced.
-    const [jammedCooldownUntil, setJammedCooldownUntil] = useState<
-        number | null
-    >(null);
+    // v1093: SERVER-SHARED + persisted (keyed by the curse's castId), so the
+    // wait is shared across the seek team and can't be reset by restarting the
+    // app.
+    const $cooldowns = useStore(curseCooldownUntil);
     // v1041: Curse of the Bird Guide — the seekers must film a bird for at least
     // the hider's time before clearing. Holds the seconds they've filmed in the
     // in-dialog viewfinder; the Clear button is gated on it meeting the target.
@@ -184,9 +189,11 @@ export function CurseInbox({
     const anyTimed = $curses.some(
         (c) => !c.dismissed && meta(c).expiresAt != null,
     );
-    // Also tick while a Jammed Door doorway cooldown is counting down.
-    const jammedCoolingDown =
-        jammedCooldownUntil != null && jammedCooldownUntil > Date.now();
+    // Also tick while any Jammed Door doorway cooldown is counting down.
+    const nowMs = Date.now();
+    const jammedCoolingDown = Object.values($cooldowns).some(
+        (until) => until > nowMs,
+    );
     const now = useNow(anyTimed || jammedCoolingDown);
 
     // Auto-clear time-limited curses the moment their timer runs out — a
@@ -878,10 +885,12 @@ export function CurseInbox({
                         (() => {
                             const isJammed =
                                 resolvedDialog.name === CURSE_JAMMED_DOOR;
-                            const coolingMs =
-                                isJammed && jammedCooldownUntil != null
-                                    ? jammedCooldownUntil - now
-                                    : 0;
+                            const cid = resolvedDialog.castId;
+                            const until =
+                                isJammed && cid != null
+                                    ? $cooldowns[String(cid)]
+                                    : undefined;
+                            const coolingMs = until != null ? until - now : 0;
                             const onCooldown = coolingMs > 0;
                             return (
                                 <div className="space-y-2">
@@ -893,18 +902,17 @@ export function CurseInbox({
                                         onSettle={
                                             isJammed
                                                 ? (total) => {
-                                                      if (total < 7) {
-                                                          setJammedCooldownUntil(
-                                                              Date.now() +
-                                                                  jammedDoorCooldownMs(
-                                                                      $gameSize,
-                                                                  ),
+                                                      // A failed doorway roll
+                                                      // (<7) starts the SHARED,
+                                                      // restart-proof cooldown
+                                                      // (server-stamped in MP).
+                                                      if (total < 7)
+                                                          startCurseCooldown(
+                                                              cid,
+                                                              jammedDoorCooldownMs(
+                                                                  $gameSize,
+                                                              ),
                                                           );
-                                                      } else {
-                                                          setJammedCooldownUntil(
-                                                              null,
-                                                          );
-                                                      }
                                                   }
                                                 : undefined
                                         }

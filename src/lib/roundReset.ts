@@ -67,7 +67,11 @@ import {
 } from "@/lib/gameSetup";
 import { curseBonusResolved } from "@/lib/curseBonus";
 import { resetHiderRoundState, roundFoundAt } from "@/lib/hiderRole";
-import { castCurses, receivedCurses } from "@/lib/seekerInbound";
+import {
+    castCurses,
+    curseCooldownUntil,
+    receivedCurses,
+} from "@/lib/seekerInbound";
 
 /**
  * Reset every atom that is scoped to a single round. Does NOT touch:
@@ -102,6 +106,8 @@ export function resetCurseState(): void {
     activeBlockingCurseCastAt.set(null);
     // v1087: per-round curse-bonus settlement (souvenir/egg/lemon/water/die-hit).
     curseBonusResolved.set({});
+    // v1088: per-round Jammed Door shared cooldowns.
+    curseCooldownUntil.set({});
 }
 
 export function resetSharedRoundState(): void {
