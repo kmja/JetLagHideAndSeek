@@ -737,11 +737,18 @@ export function HiderBackgroundMap() {
                             if (Number.isFinite(lat) && Number.isFinite(lng)) {
                                 const props = (f.properties ?? {}) as {
                                     name?: string;
+                                    mode?: string;
                                 };
                                 selectedMapStation.set({
                                     lat,
                                     lng,
                                     name: props.name,
+                                    // v1105: carry the mode so the station card
+                                    // shows the right transit glyph on a direct
+                                    // dot tap (was pin-only).
+                                    modes: props.mode
+                                        ? [props.mode]
+                                        : undefined,
                                 });
                             }
                         }

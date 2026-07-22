@@ -432,6 +432,32 @@ bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
 build stamp. Current: `v1069`. Use `git log` for the per-version detail;
 
+**v1105 — hiding-zone overlay tap-selection fixes (both roles).** Two live-testing
+bugs on the hiding-zone overlay:
+- **Seeker: tapping anywhere in a zone now selects it, not just the centre dot.**
+  The shaded zone FILL (`hiding-zones-fill`) is now a tap target in
+  `STATION_TAP_LAYERS` (`Map.tsx`). A hit on the fill is NOT a direct station hit
+  (the fill is one unioned polygon with no per-station data — its centroid is "out
+  at sea"), so `handleStationTap` routes it through the resolver chain: the
+  `direct` find is limited to the new `DIRECT_STATION_TAP_LAYERS` (dots/labels
+  only), so a fill hit falls through to `nearestZoneStation` (capped) →
+  `findZoneAtPoint` (the hider's containment resolver) → a LAST-RESORT
+  `nearestZoneStation(e.lngLat, false)` (UNCAPPED — new `capToRadius` param) so a
+  shaded-zone tap can never do nothing even at a radius/candidate-set edge. v1091
+  wired the resolver chain but a fill tap never REACHED it because the fill wasn't
+  interactive; this makes the whole zone the hit area, matching the hider map.
+- **Hider: subway/train stations get the right transit glyph on a direct dot
+  tap.** The hider reach-overlay point features (`HiderReachOverlay.stationPoints`)
+  carried only `{stopId, name}` — no `mode` — so `HiderBackgroundMap`'s Tier-1 tap
+  (a direct hit on a dot) set `selectedMapStation` with NO `modes`, giving the
+  generic `MapPin` fallback (only the Tier-2 tap-in-empty-space path via
+  `findZoneAtPoint` carried `station.mode`, which is why tram/others sometimes
+  looked right). Now `stationPoints` includes `mode: s.mode` and the Tier-1 handler
+  reads `props.mode` → `modes: [props.mode]`, so `StationTransitCard`'s
+  `modeIconFor` shows the correct subway/train/tram/ferry/bus icon on every tap.
+  (`AreaStation.mode` from `inferMode` folds light_rail→tram, so it's always a
+  valid `TRANSIT_ICONS` key.)
+
 **v1104 — transit-routes payload trimmed further (way members + unused tags
 stripped).** Follow-up to v1103: the stops-only body still carried WAY members
 (we draw straight lines between stops, never using them) and every stop node's

@@ -212,9 +212,24 @@ const RASTER_SOURCES: Record<
 const STATION_TAP_LAYERS = [
     "hiding-zones-hit",
     "hiding-zones-points",
+    // v1105: the shaded zone FILL is a tap target too, so tapping ANYWHERE in a
+    // zone selects it (not just the centre dot). The stations-style fill is a
+    // single unioned polygon with no per-station data, so a fill hit routes
+    // through `findZoneAtPoint` (the containment resolver) instead of the
+    // polygon centroid — see `handleStationTap`.
+    "hiding-zones-fill",
     "travel-times-dot",
     "travel-times-labels",
 ];
+/** Layer ids whose tap resolves DIRECTLY to a station (a dot / label). A hit
+ *  on the unioned zone FILL is NOT one of these — it falls through to the
+ *  containment resolver. */
+const DIRECT_STATION_TAP_LAYERS = new Set([
+    "hiding-zones-hit",
+    "hiding-zones-points",
+    "travel-times-dot",
+    "travel-times-labels",
+]);
 
 /** Resolve the tapped overlay feature to a station `{ lat, lng, name }`.
  *  Point features (station dots, travel-time labels) use their geometry;
@@ -1720,13 +1735,12 @@ export function Map({ className }: MapProps) {
     // the station points already in the overlay).
     const nearestZoneStation = (
         lngLat: maplibregl.LngLat,
+        capToRadius = true,
     ): { lat: number; lng: number; name?: string; modes?: string[] } | null => {
         if (!$showHidingZones || !$hidingZones?.features?.length) return null;
-        const radiusM = turf.convertLength(
-            $hidingRadius,
-            $hidingRadiusUnits,
-            "meters",
-        );
+        const radiusM = capToRadius
+            ? turf.convertLength($hidingRadius, $hidingRadiusUnits, "meters")
+            : Infinity;
         const click = turf.point([lngLat.lng, lngLat.lat]);
         let best: {
             d: number;
@@ -1766,8 +1780,15 @@ export function Map({ className }: MapProps) {
         e: maplibregl.MapLayerMouseEvent | maplibregl.MapMouseEvent,
     ) => {
         const features = (e as maplibregl.MapLayerMouseEvent).features;
-        if (features && features.length > 0) {
-            const station = stationFromFeature(features[0], e.lngLat);
+        // A direct hit on a station dot/label resolves immediately. A hit on
+        // the unioned zone FILL is NOT direct — skip it here and let the
+        // containment resolver below pick the specific station the tap is in
+        // (the fill has no per-station data → its centroid is "out at sea").
+        const direct = features?.find((f) =>
+            DIRECT_STATION_TAP_LAYERS.has(f.layer?.id ?? ""),
+        );
+        if (direct) {
+            const station = stationFromFeature(direct, e.lngLat);
             if (station) {
                 selectedMapStation.set(station);
                 return;
@@ -1797,18 +1818,33 @@ export function Map({ className }: MapProps) {
             "meters",
         );
         const { lat: tapLat, lng: tapLng } = e.lngLat;
+        // Did the tap land on the shaded zone FILL? If so, the user clearly
+        // meant "this zone", so we ALWAYS resolve it to a station below.
+        const hitFill = !!features?.some(
+            (f) => f.layer?.id === "hiding-zones-fill",
+        );
         void (async () => {
             const station = await findZoneAtPoint(tapLat, tapLng, {
                 allowed: allowedTransit.get(),
                 radiusMeters,
             }).catch(() => null);
-            if (station)
+            if (station) {
                 selectedMapStation.set({
                     lat: station.lat,
                     lng: station.lng,
                     name: station.name,
                     modes: [station.mode],
                 });
+                return;
+            }
+            // Last resort: a tap on the shaded fill that neither resolver
+            // caught (radius/containment edge, or the candidate set differs
+            // from the displayed one) — select the nearest DISPLAYED station
+            // uncapped so a shaded-zone tap never does nothing.
+            if (hitFill) {
+                const near = nearestZoneStation(e.lngLat, false);
+                if (near) selectedMapStation.set(near);
+            }
         })();
     };
 

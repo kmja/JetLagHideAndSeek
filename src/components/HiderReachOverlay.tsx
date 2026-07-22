@@ -240,7 +240,11 @@ function stationPoints(stations: AreaStation[]): GeoJSON.Feature[] {
     return stations.map((s) => ({
         type: "Feature",
         geometry: { type: "Point", coordinates: [s.lng, s.lat] },
-        properties: { stopId: String(s.id), name: s.name },
+        // v1105: carry the station's transit mode so a DIRECT tap on the dot
+        // (HiderBackgroundMap Tier 1) can show the right glyph (subway/train/
+        // tram/…). Without it, a direct-dot tap fell back to the generic pin —
+        // only the tap-in-empty-space path (findZoneAtPoint) had the mode.
+        properties: { stopId: String(s.id), name: s.name, mode: s.mode },
     }));
 }
 
