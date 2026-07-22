@@ -477,6 +477,25 @@ build stamp. Current: `v1069`. Use `git log` for the per-version detail;
 - **NEXT: a SINGLE station producer shared by seeker + hider** (shipped in
   v1115 below).
 
+**v1123 — station dedup covers same-COMPLEX different-name nodes (token
+containment), both roles.** NYC showed a station complex split into several
+dots the name-keyed dedup couldn't merge: "Grand Central" / "Grand Central
+Terminal" / "Grand Central–42 St" three abreast, "Union Sq" beside "14th St–
+Union Sq". `mergeDuplicateStation` (`stationManipulations.ts`, the ONE shared
+seeker+hider dedup since v1115) gained a third pass that merges two NAMED
+stations within a tight `NAME_CONTAIN_MERGE_M` (300 m) when one name's tokens
+are a strict SUBSET of the other's — union-find still chains, so the three Grand
+Central nodes collapse through the bare "Grand Central" node. Guarded so
+GENUINELY DIFFERENT nearby stations never merge: the shorter name needs ≥2
+tokens AND ≥1 **significant** token (`significantTokenCount` — all-letters, ≥3
+chars, not a street-type word), so "42 St" / "5 Ave" (number + type only) can't
+anchor a merge (numbered streets/avenues stay distinct — "5 Av 53 St" vs
+"5 Av 59 St" aren't subsets of each other anyway), and the tight distance gate
+keeps far-apart same-named corridors apart. Unit-tested (`tests/
+stationManipulations.test.ts` +5: Grand Central 3→1, Union Sq, the numbered-
+street/avenue negatives, and the too-far negative). Because it's the shared
+dedup, the seeker map, hider map, and every zone lookup all improve together.
+
 **v1122 — seeker/hider dedup review, batch 2 (C3 + C4): shared leaderboard rank
 badge + bottom-nav primitives; lobby row wraps as a group.**
 - **C3 — one leaderboard placement ramp.** The seeker map's `HiderTimer`

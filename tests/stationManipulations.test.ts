@@ -310,6 +310,130 @@ describe("mergeDuplicateStation", () => {
         expect(mergeDuplicateStation(places, 0.5, "kilometers")).toHaveLength(2);
     });
 
+    // v1123: token-CONTAINMENT merge — same complex, different names.
+    it("merges the three Grand Central nodes (name is a token subset) into one", () => {
+        const places: StationPlace[] = [
+            {
+                type: "Feature",
+                geometry: {
+                    type: "Point",
+                    coordinates: [-73.977, 40.752],
+                },
+                properties: { id: "1", name: "Grand Central" },
+            },
+            {
+                type: "Feature",
+                geometry: {
+                    type: "Point",
+                    coordinates: [-73.9755, 40.7523],
+                },
+                properties: { id: "2", name: "Grand Central Terminal" },
+            },
+            {
+                type: "Feature",
+                geometry: {
+                    type: "Point",
+                    coordinates: [-73.9758, 40.751],
+                },
+                properties: { id: "3", name: "Grand Central–42 St" },
+            },
+        ];
+        // "grand central" ⊆ both longer names → all three chain into one.
+        expect(mergeDuplicateStation(places, 0.5, "kilometers")).toHaveLength(1);
+    });
+
+    it("merges 'Union Sq' into '14th St–Union Sq'", () => {
+        const places: StationPlace[] = [
+            {
+                type: "Feature",
+                geometry: {
+                    type: "Point",
+                    coordinates: [-73.9906, 40.7349],
+                },
+                properties: { id: "1", name: "14th St–Union Sq" },
+            },
+            {
+                type: "Feature",
+                geometry: {
+                    type: "Point",
+                    coordinates: [-73.9908, 40.7343],
+                },
+                properties: { id: "2", name: "Union Sq" },
+            },
+        ];
+        expect(mergeDuplicateStation(places, 0.5, "kilometers")).toHaveLength(1);
+    });
+
+    it("does NOT merge a bare numbered street into a longer name (no significant token)", () => {
+        const places: StationPlace[] = [
+            {
+                type: "Feature",
+                geometry: {
+                    type: "Point",
+                    coordinates: [-73.977, 40.752],
+                },
+                properties: { id: "1", name: "42 St" },
+            },
+            {
+                type: "Feature",
+                geometry: {
+                    type: "Point",
+                    coordinates: [-73.9758, 40.7515],
+                },
+                properties: { id: "2", name: "Grand Central 42 St" },
+            },
+        ];
+        // "42 st" ⊆ "grand central 42 st" but has NO significant token, so the
+        // ambiguous numbered street stays its own zone.
+        expect(mergeDuplicateStation(places, 0.5, "kilometers")).toHaveLength(2);
+    });
+
+    it("keeps numbered-avenue stations with different cross-streets distinct", () => {
+        const places: StationPlace[] = [
+            {
+                type: "Feature",
+                geometry: {
+                    type: "Point",
+                    coordinates: [-73.9752, 40.7599],
+                },
+                properties: { id: "1", name: "5 Av 53 St" },
+            },
+            {
+                type: "Feature",
+                geometry: {
+                    type: "Point",
+                    coordinates: [-73.9732, 40.7625],
+                },
+                properties: { id: "2", name: "5 Av 59 St" },
+            },
+        ];
+        // Neither name is a subset of the other (53 vs 59) → distinct.
+        expect(mergeDuplicateStation(places, 0.5, "kilometers")).toHaveLength(2);
+    });
+
+    it("does NOT merge a token-subset name that is too far away", () => {
+        const places: StationPlace[] = [
+            {
+                type: "Feature",
+                geometry: {
+                    type: "Point",
+                    coordinates: [-73.977, 40.752],
+                },
+                properties: { id: "1", name: "Grand Central" },
+            },
+            {
+                type: "Feature",
+                geometry: {
+                    // ~600 m east — beyond the 300 m containment gate.
+                    type: "Point",
+                    coordinates: [-73.9698, 40.752],
+                },
+                properties: { id: "2", name: "Grand Central Terminal" },
+            },
+        ];
+        expect(mergeDuplicateStation(places, 0.5, "kilometers")).toHaveLength(2);
+    });
+
     it("unions transit modes across same-name nodes", () => {
         const places: StationPlace[] = [
             {

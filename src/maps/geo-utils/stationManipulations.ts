@@ -24,6 +24,72 @@ function normalizeStationName(raw: string | undefined | null): string {
         .trim();
 }
 
+/**
+ * Street/place TYPE words + a few common non-English equivalents. A token in
+ * this set is never "significant" — so a name whose only content is a
+ * street-type + a number ("42 St", "5 Ave") can't anchor a token-containment
+ * merge, which is what keeps numbered streets/avenues from collapsing.
+ */
+const STATION_TYPE_WORDS = new Set([
+    "ave",
+    "avenue",
+    "av",
+    "st",
+    "street",
+    "rd",
+    "road",
+    "blvd",
+    "boulevard",
+    "sq",
+    "square",
+    "pl",
+    "place",
+    "plaza",
+    "ln",
+    "lane",
+    "dr",
+    "drive",
+    "ct",
+    "court",
+    "pkwy",
+    "parkway",
+    "hwy",
+    "highway",
+    "ter",
+    "terrace",
+    "way",
+    "gate",
+    "gata",
+    "gaten",
+    "vei",
+    "veien",
+    "strasse",
+    "straat",
+    "plass",
+]);
+
+/**
+ * Count the "significant" tokens in a normalised name — all-letters, ≥3 chars,
+ * and NOT a street-type word. "union"/"grand"/"central" are significant;
+ * "sq"/"st"/"ave" (type words), "42"/"14th" (contain digits) are not. A
+ * containment merge requires the SHORTER name to carry ≥1 of these, so a merge
+ * is always anchored on a real place word, never on a bare number + type.
+ */
+function significantTokenCount(tokens: Set<string>): number {
+    let c = 0;
+    for (const t of tokens) {
+        if (t.length >= 3 && /^[a-z]+$/.test(t) && !STATION_TYPE_WORDS.has(t))
+            c++;
+    }
+    return c;
+}
+
+/** True iff every token of `smaller` is present in `larger`. */
+function tokensSubset(smaller: Set<string>, larger: Set<string>): boolean {
+    for (const t of smaller) if (!larger.has(t)) return false;
+    return true;
+}
+
 /** Infer a transit mode from a station node's OSM tags. Order matters:
  *  subway nodes are also tagged `railway=station`, so check the specific
  *  modes first. Returns null when nothing recognisable. */
@@ -77,6 +143,12 @@ function approxMeters(a: number[], b: number[]): number {
  * selectable — merging by distance risks hiding a real station the hider
  * went to. Clusters form by union-find so a chain of same-named
  * near-duplicates collapses to a single station.
+ *
+ * v1123 also merges same-COMPLEX stations whose names are a token-SUBSET of
+ * one another within a tight distance ("Grand Central" / "Grand Central
+ * Terminal" / "Grand Central–42 St"; "Union Sq" / "14th St–Union Sq") —
+ * guarded so numbered streets/avenues and North/South-style pairs never
+ * collapse (see the NAME_CONTAIN_MERGE_M pass below).
  *
  * @param places  Array of unmerged station point features
  * @param radius  Hiding-zone radius
@@ -135,6 +207,72 @@ export function mergeDuplicateStation(
                 // Same normalised name + reasonably near → duplicate stop.
                 if (approxMeters(coords[i], coords[j]) <= sameNameMergeM)
                     union(i, j);
+            }
+        }
+    }
+
+    // v1123: merge same-COMPLEX stations whose names are a token-SUBSET of one
+    // another within a TIGHT distance — the "different name for the same hub"
+    // case the same-name rule misses. NYC examples: "Grand Central" ⊂
+    // "Grand Central Terminal" ⊂-siblings "Grand Central–42 St" (all chain
+    // through the bare node); "Union Sq" ⊂ "14th St–Union Sq". Guards that keep
+    // GENUINELY DIFFERENT nearby stations apart:
+    //   • strict token SUBSET (every token of the shorter name is in the
+    //     longer) — so "23 St" and "28 St" (differ) never match;
+    //   • the shorter name needs ≥2 tokens AND ≥1 SIGNIFICANT token (a real
+    //     place word, not a number/type) — so "42 St" / "5 Ave" can't anchor a
+    //     merge (numbered streets/avenues stay distinct);
+    //   • a tight `NAME_CONTAIN_MERGE_M` gate — real distinct stations that also
+    //     happen to share a containing name are rarely this close.
+    // Union-find still chains, so the three Grand Central nodes collapse to one.
+    const NAME_CONTAIN_MERGE_M = 300;
+    const tokenSets = names.map((nm) =>
+        nm ? new Set(nm.split(" ").filter(Boolean)) : new Set<string>(),
+    );
+    const sigCounts = tokenSets.map(significantTokenCount);
+    {
+        const CELL_DEG = 0.0025; // ~278 m lat; ±2 cells covers 300 m at any lat
+        const key = (lng: number, lat: number) =>
+            `${Math.round(lng / CELL_DEG)}:${Math.round(lat / CELL_DEG)}`;
+        // Grid only the candidates: named, ≥2 tokens.
+        const grid = new Map<string, number[]>();
+        for (let i = 0; i < n; i++) {
+            if (tokenSets[i].size < 2) continue;
+            const k = key(coords[i][0], coords[i][1]);
+            const g = grid.get(k);
+            if (g) g.push(i);
+            else grid.set(k, [i]);
+        }
+        for (let i = 0; i < n; i++) {
+            if (tokenSets[i].size < 2) continue;
+            const cx = Math.round(coords[i][0] / CELL_DEG);
+            const cy = Math.round(coords[i][1] / CELL_DEG);
+            for (let dx = -2; dx <= 2; dx++) {
+                for (let dy = -2; dy <= 2; dy++) {
+                    const g = grid.get(`${cx + dx}:${cy + dy}`);
+                    if (!g) continue;
+                    for (const j of g) {
+                        if (j <= i) continue; // each pair once
+                        if (find(i) === find(j)) continue; // already one cluster
+                        const si = tokenSets[i];
+                        const sj = tokenSets[j];
+                        // Pick the strictly SMALLER token set; it must be a
+                        // subset of the larger (equal-size → same name, already
+                        // handled by the same-name pass).
+                        let smaller: number;
+                        if (si.size < sj.size && tokensSubset(si, sj))
+                            smaller = i;
+                        else if (sj.size < si.size && tokensSubset(sj, si))
+                            smaller = j;
+                        else continue;
+                        if (sigCounts[smaller] < 1) continue;
+                        if (
+                            approxMeters(coords[i], coords[j]) <=
+                            NAME_CONTAIN_MERGE_M
+                        )
+                            union(i, j);
+                    }
+                }
             }
         }
     }
