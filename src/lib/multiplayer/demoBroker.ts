@@ -33,6 +33,7 @@ import type {
     Participant,
     ServerMessage,
     SetupState,
+    SMsgHangmanState,
 } from "@protocol/index";
 
 import { getTransport } from "./transport";
@@ -64,6 +65,46 @@ const SEEKER_LOC_INTERVAL_MS = 10_000;
 // Bot names are picked at boot from the shared Jet Lag roster via
 // pickUniqueName(), so they never collide with each other or with the
 // human player's chosen name.
+
+/* ────────────────── Hidden Hangman (demo-local, v1096) ────────────────── */
+
+interface DemoHangman {
+    word: string;
+    guessed: string[];
+    wrong: number;
+    losses: number;
+    maxLosses: number;
+    status: "playing" | "lost" | "cleared";
+    cooldownUntil?: number;
+    final?: boolean;
+    won?: boolean;
+}
+const demoHangman = new Map<number, DemoHangman>();
+const DEMO_HANGMAN_WORDS = [
+    "APPLE", "RIVER", "TIGER", "OCEAN", "PIANO", "BREAD", "CLOUD", "LIGHT",
+    "MUSIC", "STONE", "TRAIN", "WHALE", "GRAPE", "HOUSE", "NIGHT", "FLAME",
+];
+function pickDemoHangmanWord(): string {
+    return DEMO_HANGMAN_WORDS[
+        Math.floor(Math.random() * DEMO_HANGMAN_WORDS.length)
+    ];
+}
+function demoHangmanPublic(castId: number, g: DemoHangman): SMsgHangmanState {
+    return {
+        t: "hangmanState",
+        castId,
+        pattern: g.word.split("").map((ch) => (g.guessed.includes(ch) ? ch : "")),
+        guessed: g.guessed,
+        wrong: g.wrong,
+        maxWrong: 7,
+        losses: g.losses,
+        maxLosses: g.maxLosses,
+        status: g.status,
+        ...(g.cooldownUntil != null ? { cooldownUntil: g.cooldownUntil } : {}),
+        ...(g.final ? { final: true } : {}),
+        ...(g.won != null ? { won: g.won } : {}),
+    };
+}
 
 /* ────────────────── Broker state ────────────────── */
 
@@ -517,6 +558,66 @@ function handleClientMessage(msg: ClientMessage) {
             // report / shared cooldown to — no-op. (`startCurseCooldown` already
             // applied the cooldown locally before sending.)
             return;
+        case "hangmanStart": {
+            // v1096: local adjudication for the single-device demo — the broker
+            // owns the secret word + judges guesses, mirroring the real server.
+            const g: DemoHangman = {
+                word: pickDemoHangmanWord(),
+                guessed: [],
+                wrong: 0,
+                losses: 0,
+                maxLosses: Math.min(Math.max(msg.maxLosses, 1), 3),
+                status: "playing",
+            };
+            demoHangman.set(msg.castId, g);
+            inject(demoHangmanPublic(msg.castId, g));
+            return;
+        }
+        case "hangmanGuess": {
+            const g = demoHangman.get(msg.castId);
+            if (!g || g.status !== "playing") return;
+            const L = String(msg.letter || "").toUpperCase();
+            if (!/^[A-Z]$/.test(L) || g.guessed.includes(L)) return;
+            g.guessed.push(L);
+            if (!g.word.includes(L)) g.wrong++;
+            if (g.word.split("").every((c) => g.guessed.includes(c))) {
+                g.status = "cleared";
+                g.won = true;
+                inject(demoHangmanPublic(msg.castId, g));
+                demoHangman.delete(msg.castId);
+                inject({ t: "curseCleared", castId: msg.castId });
+            } else if (g.wrong >= 7) {
+                g.losses++;
+                g.final = g.losses >= g.maxLosses;
+                g.status = "lost";
+                g.cooldownUntil = Date.now() + 10 * 60_000;
+                inject(demoHangmanPublic(msg.castId, g));
+            } else {
+                inject(demoHangmanPublic(msg.castId, g));
+            }
+            return;
+        }
+        case "hangmanContinue": {
+            const g = demoHangman.get(msg.castId);
+            if (!g || g.status !== "lost") return;
+            if (g.cooldownUntil != null && Date.now() < g.cooldownUntil) return;
+            if (g.final) {
+                g.status = "cleared";
+                g.won = false;
+                inject(demoHangmanPublic(msg.castId, g));
+                demoHangman.delete(msg.castId);
+                inject({ t: "curseCleared", castId: msg.castId });
+            } else {
+                g.word = pickDemoHangmanWord();
+                g.guessed = [];
+                g.wrong = 0;
+                g.status = "playing";
+                g.cooldownUntil = undefined;
+                g.final = undefined;
+                inject(demoHangmanPublic(msg.castId, g));
+            }
+            return;
+        }
         case "loc":
         case "hiderLoc":
         case "ping":

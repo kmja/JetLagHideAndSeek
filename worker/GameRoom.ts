@@ -48,6 +48,7 @@ import {
     type RoundProgressShare,
     type ServerMessage,
     type SetupState,
+    type SMsgHangmanState,
 } from "@protocol/index";
 import { parseVapidKeys, sendWebPush } from "./webpush";
 
@@ -159,6 +160,60 @@ interface PersistedRoom {
     seekingStartPushedFor?: number | null;
     /** v1088: shared Jammed Door cooldowns (castId → end ms). */
     curseCooldowns?: Record<number, number>;
+    /** v1096: Hidden Hangman games (castId → game). Includes the secret word —
+     *  server-side storage only, never sent to clients. */
+    hangmanGames?: Record<number, HangmanGame>;
+}
+
+/** v1096: server-side Hidden Hangman game state. The `word` is SECRET. */
+interface HangmanGame {
+    /** The current round's secret word, 5 uppercase letters. */
+    word: string;
+    /** Letters guessed this round (uppercase). */
+    guessed: string[];
+    /** Wrong-guess count this round. */
+    wrong: number;
+    /** Completed losses this curse. */
+    losses: number;
+    /** Losses that end the curse (1 S / 2 M / 3 L). */
+    maxLosses: number;
+    status: "playing" | "lost" | "cleared";
+    /** When `lost`, Unix ms the 10-min re-challenge cooldown ends. */
+    cooldownUntil?: number;
+    /** True when the loss was the FINAL one (curse clears after cooldown). */
+    final?: boolean;
+    /** On `cleared`, whether the seekers WON. */
+    won?: boolean;
+}
+
+/** Wrong guesses allowed before a Hidden Hangman loss (head, body, 2 arms, 2
+ *  legs, hat = 7). */
+const HANGMAN_MAX_WRONG = 7;
+/** 10-minute re-challenge cooldown after a Hidden Hangman loss. */
+const HANGMAN_COOLDOWN_MS = 10 * 60_000;
+
+/** Common, inoffensive 5-letter words the server draws Hidden Hangman rounds
+ *  from (server-adjudicated — the hider doesn't hand-pick the word). */
+const HANGMAN_WORDS: readonly string[] = [
+    "APPLE", "BRAVE", "CHAIR", "DANCE", "EAGLE", "FLAME", "GRAPE", "HOUSE",
+    "IVORY", "JUICE", "KOALA", "LEMON", "MANGO", "NIGHT", "OCEAN", "PIANO",
+    "QUILT", "RIVER", "STONE", "TIGER", "UNITY", "VOICE", "WATER", "XENON",
+    "YACHT", "ZEBRA", "BREAD", "CLOUD", "DREAM", "EARTH", "FROST", "GLASS",
+    "HONEY", "IGLOO", "JELLY", "KNIFE", "LIGHT", "MUSIC", "NORTH", "OLIVE",
+    "PEARL", "QUEEN", "ROBOT", "SUGAR", "TRAIN", "URBAN", "VIVID", "WHALE",
+    "YOUTH", "ZESTY", "AMBER", "BEACH", "CRANE", "DAISY", "EMBER", "FABLE",
+    "GIANT", "HEART", "INDEX", "JOKER", "KAYAK", "LUNAR", "MAPLE", "NOBLE",
+    "ONION", "PLANT", "QUICK", "RADAR", "SMILE", "TABLE", "ULTRA", "VAULT",
+    "WAGON", "YEARN", "BLOOM", "CABIN", "DELTA", "EQUAL", "FERRY", "GLIDE",
+    "HAPPY", "INPUT", "JUMBO", "KNOCK", "LATCH", "MEDAL", "NURSE", "ORBIT",
+    "PRIZE", "QUOTA", "RIDGE", "SPARK", "TULIP", "UNZIP", "VOTER", "WRIST",
+];
+
+/** Pick a random word using the crypto RNG (always available in a Worker). */
+function pickHangmanWord(): string {
+    const buf = new Uint32Array(1);
+    crypto.getRandomValues(buf);
+    return HANGMAN_WORDS[buf[0] % HANGMAN_WORDS.length];
 }
 
 /* ────────────────── Connection bookkeeping ────────────────── */
@@ -253,6 +308,13 @@ export class GameRoom {
      */
     private curseCooldowns: Record<number, number> = {};
 
+    /**
+     * v1096: server-adjudicated Hidden Hangman games, keyed by curse castId. The
+     * `word` is SECRET (never sent to clients — only the revealed pattern is).
+     * Persisted (round-reset) + re-delivered on rejoin.
+     */
+    private hangmanGames: Record<number, HangmanGame> = {};
+
     /** Per-participant Web Push subscriptions. Keyed by participant id. */
     private pushSubscriptions: Map<string, PushSubscriptionData> = new Map();
 
@@ -315,6 +377,7 @@ export class GameRoom {
                 this.castCurses = stored.castCurses ?? [];
                 this.curseCastSeq = stored.curseCastSeq ?? 0;
                 this.curseCooldowns = stored.curseCooldowns ?? {};
+                this.hangmanGames = stored.hangmanGames ?? {};
                 this.pushSubscriptions = new Map(
                     stored.pushSubscriptions ?? [],
                 );
@@ -355,6 +418,7 @@ export class GameRoom {
                 castCurses: this.castCurses,
                 curseCastSeq: this.curseCastSeq,
                 curseCooldowns: this.curseCooldowns,
+                hangmanGames: this.hangmanGames,
                 pushSubscriptions: [...this.pushSubscriptions],
                 idleSince: this.idleSince,
                 seekingStartPushedFor: this.seekingStartPushedFor,
@@ -495,6 +559,7 @@ export class GameRoom {
             this.castCurses = [];
             this.curseCastSeq = 0;
             this.curseCooldowns = {};
+            this.hangmanGames = {};
             this.closingSample.clear();
             this.closingPushed = false;
             this.pushSubscriptions.clear();
@@ -713,6 +778,16 @@ export class GameRoom {
                     msg.castId,
                     msg.durationMs,
                 );
+            case "hangmanStart":
+                return this.handleHangmanStart(
+                    socket,
+                    msg.castId,
+                    msg.maxLosses,
+                );
+            case "hangmanGuess":
+                return this.handleHangmanGuess(socket, msg.castId, msg.letter);
+            case "hangmanContinue":
+                return this.handleHangmanContinue(socket, msg.castId);
             case "subscribePush":
                 return this.handleSubscribePush(socket, msg.subscription);
             case "ping":
@@ -984,6 +1059,9 @@ export class GameRoom {
         // reconnect / a fresh device (restart-proof).
         if (existing && existing.role === "seeker")
             this.deliverActiveCooldowns(socket);
+        // v1096: re-deliver active Hidden Hangman games.
+        if (existing && (existing.role === "seeker" || existing.role === "hider"))
+            this.deliverActiveHangman(socket);
         this.broadcastPresence();
     }
 
@@ -1021,6 +1099,9 @@ export class GameRoom {
         }
         // v1093: deliver active Jammed Door cooldowns to a just-claimed seeker.
         if (effRole === "seeker") this.deliverActiveCooldowns(socket);
+        // v1096: deliver active Hidden Hangman games to a just-claimed player.
+        if (effRole === "seeker" || effRole === "hider")
+            this.deliverActiveHangman(socket);
     }
 
     private handleSetHideZone(
@@ -2036,6 +2117,8 @@ export class GameRoom {
         this.curseCastSeq = 0;
         // v1093: Jammed Door cooldowns are per-round too.
         this.curseCooldowns = {};
+        // v1096: Hidden Hangman games are per-round too.
+        this.hangmanGames = {};
         this.closingSample.clear();
         this.closingPushed = false;
         // Per-participant location-update timestamps are per-round
@@ -2202,6 +2285,144 @@ export class GameRoom {
             });
         }
         if (changed) void this.persist();
+    }
+
+    /* ────────────────── Hidden Hangman (v1096) ────────────────── */
+
+    /** Build the PUBLIC state (never leaks the word — only revealed positions). */
+    private hangmanPublic(castId: number, g: HangmanGame): SMsgHangmanState {
+        return {
+            t: "hangmanState",
+            castId,
+            pattern: g.word
+                .split("")
+                .map((ch) => (g.guessed.includes(ch) ? ch : "")),
+            guessed: g.guessed,
+            wrong: g.wrong,
+            maxWrong: HANGMAN_MAX_WRONG,
+            losses: g.losses,
+            maxLosses: g.maxLosses,
+            status: g.status,
+            ...(g.cooldownUntil != null ? { cooldownUntil: g.cooldownUntil } : {}),
+            ...(g.final ? { final: true } : {}),
+            ...(g.won != null ? { won: g.won } : {}),
+        };
+    }
+
+    /** Fan a hangman game's public state to every seeker + hider. */
+    private broadcastHangman(castId: number, g: HangmanGame) {
+        const msg = this.hangmanPublic(castId, g);
+        for (const [pid, c] of this.conns.entries()) {
+            const cp = this.game.participants.find((q) => q.id === pid);
+            if (cp?.role !== "seeker" && cp?.role !== "hider") continue;
+            this.sendTo(c.socket, msg);
+        }
+    }
+
+    /** The hider casts Hidden Hangman → start a game with a fresh secret word. */
+    private handleHangmanStart(
+        socket: WebSocket,
+        castId: number,
+        maxLosses: number,
+    ) {
+        const conn = this.lookupConn(socket);
+        if (!conn) return;
+        const ml = Math.min(Math.max(Math.round(maxLosses) || 1, 1), 3);
+        const g: HangmanGame = {
+            word: pickHangmanWord(),
+            guessed: [],
+            wrong: 0,
+            losses: 0,
+            maxLosses: ml,
+            status: "playing",
+        };
+        this.hangmanGames[castId] = g;
+        this.broadcastHangman(castId, g);
+        void this.persist();
+    }
+
+    /** A seeker guesses a letter — the SERVER adjudicates hit/miss + win/loss. */
+    private handleHangmanGuess(
+        socket: WebSocket,
+        castId: number,
+        letter: string,
+    ) {
+        const conn = this.lookupConn(socket);
+        if (!conn) return;
+        // Only SEEKERS play — the hider casts + watches (never guesses).
+        const p = this.game.participants.find((q) => q.id === conn.participantId);
+        if (p?.role !== "seeker") return;
+        const g = this.hangmanGames[castId];
+        if (!g || g.status !== "playing") return;
+        const L = String(letter || "").toUpperCase();
+        if (!/^[A-Z]$/.test(L) || g.guessed.includes(L)) return;
+        g.guessed.push(L);
+        if (!g.word.includes(L)) g.wrong++;
+
+        const solved = g.word.split("").every((ch) => g.guessed.includes(ch));
+        if (solved) {
+            // The seekers beat the hider → the curse clears immediately.
+            g.status = "cleared";
+            g.won = true;
+            this.broadcastHangman(castId, g);
+            delete this.hangmanGames[castId];
+            this.clearCurseByCastId(castId);
+        } else if (g.wrong >= HANGMAN_MAX_WRONG) {
+            g.losses++;
+            g.final = g.losses >= g.maxLosses;
+            g.status = "lost";
+            g.cooldownUntil = Date.now() + HANGMAN_COOLDOWN_MS;
+            this.broadcastHangman(castId, g);
+        } else {
+            this.broadcastHangman(castId, g);
+        }
+        void this.persist();
+    }
+
+    /** After a loss cooldown: start the next round (fresh word) or, if that was
+     *  the FINAL loss, clear the curse. */
+    private handleHangmanContinue(socket: WebSocket, castId: number) {
+        const conn = this.lookupConn(socket);
+        if (!conn) return;
+        const p = this.game.participants.find((q) => q.id === conn.participantId);
+        if (p?.role !== "seeker") return;
+        const g = this.hangmanGames[castId];
+        if (!g || g.status !== "lost") return;
+        if (g.cooldownUntil != null && Date.now() < g.cooldownUntil) return;
+        if (g.final) {
+            g.status = "cleared";
+            g.won = false;
+            this.broadcastHangman(castId, g);
+            delete this.hangmanGames[castId];
+            this.clearCurseByCastId(castId);
+        } else {
+            g.word = pickHangmanWord();
+            g.guessed = [];
+            g.wrong = 0;
+            g.status = "playing";
+            delete g.cooldownUntil;
+            delete g.final;
+            this.broadcastHangman(castId, g);
+        }
+        void this.persist();
+    }
+
+    /** Drop a curse from the backlog + relay `curseCleared` to everyone (used
+     *  when a Hidden Hangman game resolves). */
+    private clearCurseByCastId(castId: number) {
+        this.castCurses = this.castCurses.filter((c) => c.castId !== castId);
+        for (const [, c] of this.conns.entries()) {
+            this.sendTo(c.socket, { t: "curseCleared", castId });
+        }
+        void this.persist();
+    }
+
+    /** Re-deliver active hangman games to a (re)joining seeker/hider. */
+    private deliverActiveHangman(socket: WebSocket) {
+        for (const [k, g] of Object.entries(this.hangmanGames)) {
+            if (g.status === "cleared") continue;
+            this.sendTo(socket, this.hangmanPublic(Number(k), g));
+        }
     }
 
     private handleSubscribePush(socket: WebSocket, subscription: PushSubscriptionData) {

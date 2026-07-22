@@ -396,6 +396,30 @@ export interface CMsgCurseCooldownStart {
     durationMs: number;
 }
 
+/**
+ * v1096 — Curse of the Hidden Hangman, server-adjudicated. The hider casts the
+ * curse; the SERVER owns a secret random 5-letter word per round, judges every
+ * seeker letter guess, and enforces the loss / 10-min-cooldown / max-losses
+ * rules. `maxLosses` = 1 (S) / 2 (M) / 3 (L).
+ */
+export interface CMsgHangmanStart {
+    t: "hangmanStart";
+    castId: number;
+    maxLosses: number;
+}
+/** A seeker guesses a letter (A–Z). The server adjudicates + broadcasts state. */
+export interface CMsgHangmanGuess {
+    t: "hangmanGuess";
+    castId: number;
+    letter: string;
+}
+/** After a non-final loss cooldown, start the next round (fresh word); after the
+ *  FINAL loss cooldown, clear the curse. */
+export interface CMsgHangmanContinue {
+    t: "hangmanContinue";
+    castId: number;
+}
+
 /** Client registers its Web Push subscription so the server can notify it offline. */
 export interface CMsgSubscribePush {
     t: "subscribePush";
@@ -431,6 +455,9 @@ export type ClientMessage =
     | CMsgCurseProof
     | CMsgCurseFail
     | CMsgCurseCooldownStart
+    | CMsgHangmanStart
+    | CMsgHangmanGuess
+    | CMsgHangmanContinue
     | CMsgSubscribePush;
 
 /* ────────────────── Server → Client ────────────────── */
@@ -679,6 +706,36 @@ export interface SMsgCurseCooldown {
 }
 
 /**
+ * v1096 — the public state of a Hidden Hangman game (server-adjudicated). The
+ * word itself is NEVER sent; `pattern` reveals only the correctly-guessed
+ * letters in position. Broadcast to seekers (+ hiders for visibility) on every
+ * guess / round transition, and re-delivered on rejoin.
+ */
+export interface SMsgHangmanState {
+    t: "hangmanState";
+    castId: number;
+    /** Length-5, each slot a revealed letter or "" (unrevealed). */
+    pattern: string[];
+    /** Every letter guessed this round (for the grid's disabled/colour state). */
+    guessed: string[];
+    /** Wrong-guess count this round. */
+    wrong: number;
+    /** Wrong guesses allowed before a loss (7 — the full gallows). */
+    maxWrong: number;
+    /** Completed losses this curse. */
+    losses: number;
+    /** Losses that end the curse: 1 (S) / 2 (M) / 3 (L). */
+    maxLosses: number;
+    status: "playing" | "lost" | "cleared";
+    /** When `status:"lost"`, Unix ms the 10-min re-challenge cooldown ends. */
+    cooldownUntil?: number;
+    /** True when this loss was the FINAL one — the curse clears after cooldown. */
+    final?: boolean;
+    /** On `status:"cleared"`, whether the seekers WON (beat the hider). */
+    won?: boolean;
+}
+
+/**
  * v950: the server VALIDATED an endgame claim and found the claiming seeker is
  * NOT at the hider's committed zone. A wrong claim does NOT arm the endgame
  * (so the seekers can re-try at the right station); instead this transient
@@ -725,6 +782,7 @@ export type ServerMessage =
     | SMsgCurseProof
     | SMsgCurseFail
     | SMsgCurseCooldown
+    | SMsgHangmanState
     | SMsgEndgameDenied;
 
 /* ────────────────── Shared payload types ────────────────── */

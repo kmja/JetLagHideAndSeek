@@ -430,6 +430,42 @@ bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
 build stamp. Current: `v1069`. Use `git log` for the per-version detail;
 
+**v1096 — Curse of the Hidden Hangman: a real, server-adjudicated mini-game.**
+The last big specced curse. When the hider casts Hidden Hangman (discard-2 cost),
+the SERVER runs the game: it owns a secret random 5-letter word per round, judges
+every seeker letter guess, and enforces the loss / 10-min-cooldown / max-losses
+(1 S / 2 M / 3 L) rules. The seekers play on a **letter grid**; winning (all
+letters revealed) clears the curse immediately, and losing enough times clears it
+after the final cooldown — so the curse always resolves, winning is just the fast
+path.
+- **Protocol:** `CMsgHangmanStart {castId, maxLosses}` / `CMsgHangmanGuess
+  {castId, letter}` / `CMsgHangmanContinue {castId}` (client→server) +
+  `SMsgHangmanState` (server→seekers+hiders) — carries the revealed `pattern`
+  (never the word), guessed letters, wrong count, losses, status, and any loss
+  `cooldownUntil`.
+- **Worker (`GameRoom`):** `hangmanGames` (castId → game with the SECRET word),
+  hydrated/persisted/round-reset + re-delivered on rejoin (`deliverActiveHangman`).
+  `handleHangmanGuess` (SEEKERS only) reveals/marks-wrong, wins on a full solve
+  (clears the curse via `clearCurseByCastId` + relays `curseCleared`), or on 7
+  wrong records a loss with a 10-min cooldown (`final` at max losses).
+  `handleHangmanContinue` starts a fresh-word round or clears the curse.
+  `pickHangmanWord()` draws from a bundled ~96-word list via `crypto.getRandomValues`.
+- **Client:** `hangmanGames` atom + `setHangmanState` (`seekerInbound.ts`, reset
+  per round); `sendHangmanStart/Guess/Continue` (store); `CastCurseDialog` fires
+  `sendHangmanStart` on casting; a win/final-clear fires a `notify()`. New
+  `HangmanBoard` in `CurseInbox` — word blanks, an SVG gallows that fills with the
+  wrong count, and an A–Z grid (correct=green, wrong=struck red); the loss state
+  shows the countdown then "Play again" / "Clear the curse". The HIDER sees it
+  read-only (watches; only seekers guess — also enforced server-side). Demo broker
+  adjudicates locally for single-device testing.
+- **Design note:** server-PICKS the word (not the hider) — the cleanest
+  server-adjudicated translation; it removes the hider-online dependency and makes
+  each post-loss round a genuinely fresh challenge (a hider-picked word can't
+  support the rulebook's multi-loss structure without re-prompting or the seekers
+  learning it). This supersedes the earlier "self-attested + block-asking-until-
+  cleared" handling for Hidden Hangman (that enforcement stays for the OTHER task
+  curses).
+
 **v1095 — casting-cost location constraints enforced WITH a manual override +
 Water Weight added.** Follow-up to v1094 (per user: "enforce them but allow for
 manual override"). The location casting-cost constraints now block the cast by

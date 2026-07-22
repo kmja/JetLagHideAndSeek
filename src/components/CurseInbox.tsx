@@ -50,10 +50,15 @@ import {
     reportCurseFail,
     sendCurseCleared,
     sendCurseProof,
+    sendHangmanContinue,
+    sendHangmanGuess,
     startCurseCooldown,
 } from "@/lib/multiplayer/store";
+import { CURSE_HIDDEN_HANGMAN } from "@/lib/castingConstraint";
 import {
     curseCooldownUntil,
+    type HangmanState,
+    hangmanGames,
     type ReceivedCurse,
     receivedCurses,
 } from "@/lib/seekerInbound";
@@ -130,6 +135,8 @@ export function CurseInbox({
     // wait is shared across the seek team and can't be reset by restarting the
     // app.
     const $cooldowns = useStore(curseCooldownUntil);
+    // v1096: server-adjudicated Hidden Hangman game states, keyed by castId.
+    const $hangman = useStore(hangmanGames);
     // v1041: Curse of the Bird Guide — the seekers must film a bird for at least
     // the hider's time before clearing. Holds the seconds they've filmed in the
     // in-dialog viewfinder; the Clear button is gated on it meeting the target.
@@ -189,12 +196,19 @@ export function CurseInbox({
     const anyTimed = $curses.some(
         (c) => !c.dismissed && meta(c).expiresAt != null,
     );
-    // Also tick while any Jammed Door doorway cooldown is counting down.
+    // Also tick while any Jammed Door doorway cooldown OR a Hidden Hangman loss
+    // cooldown is counting down.
     const nowMs = Date.now();
     const jammedCoolingDown = Object.values($cooldowns).some(
         (until) => until > nowMs,
     );
-    const now = useNow(anyTimed || jammedCoolingDown);
+    const hangmanCoolingDown = Object.values($hangman).some(
+        (h) =>
+            h.status === "lost" &&
+            h.cooldownUntil != null &&
+            h.cooldownUntil > nowMs,
+    );
+    const now = useNow(anyTimed || jammedCoolingDown || hangmanCoolingDown);
 
     // Auto-clear time-limited curses the moment their timer runs out — a
     // duration curse ("for the next N minutes") shouldn't linger needing a
@@ -744,11 +758,23 @@ export function CurseInbox({
                     )}
 
                     {/* ── Enforced-curse controls ──
+                        Hidden Hangman is a server-adjudicated letter game;
                         Spotty Memory rolls a d6 → disabled category;
                         Urban Explorer toggles the on-transit block;
                         Drained Brain shows its locked-out categories.
                         Other dice curses get the plain roller. */}
-                    {resolvedDialog?.name === CURSE_SPOTTY_MEMORY ? (
+                    {resolvedDialog?.name === CURSE_HIDDEN_HANGMAN ? (
+                        <HangmanBoard
+                            castId={resolvedDialog.castId}
+                            game={
+                                resolvedDialog.castId != null
+                                    ? $hangman[String(resolvedDialog.castId)]
+                                    : undefined
+                            }
+                            now={now}
+                            readOnly={!isSeekerView}
+                        />
+                    ) : resolvedDialog?.name === CURSE_SPOTTY_MEMORY ? (
                         <div className="space-y-2">
                             <DiceRoller
                                 size="lg"
@@ -997,6 +1023,169 @@ export function CurseInbox({
                 </DialogContent>
             </Dialog>
         </>
+    );
+}
+
+/**
+ * v1096 — the seeker-facing Hidden Hangman board (server-adjudicated). Shows the
+ * word blanks (revealed letters in position), a gallows drawn from the wrong
+ * count, and an A–Z grid to guess. On a loss it shows the 10-min cooldown, then
+ * "Play again" (fresh word) or "Clear curse" (after the final loss).
+ */
+function HangmanBoard({
+    castId,
+    game,
+    now,
+    readOnly = false,
+}: {
+    castId?: number;
+    game?: HangmanState;
+    now: number;
+    /** The HIDER watches read-only — only seekers guess/continue. */
+    readOnly?: boolean;
+}) {
+    if (castId == null || !game) {
+        return (
+            <p className="text-xs text-muted-foreground text-center py-2">
+                Starting the hangman game…
+            </p>
+        );
+    }
+    const coolingMs =
+        game.status === "lost" && game.cooldownUntil != null
+            ? game.cooldownUntil - now
+            : 0;
+    const onCooldown = coolingMs > 0;
+    const left = Math.max(0, game.maxWrong - game.wrong);
+
+    if (game.status === "lost") {
+        return (
+            <div className="space-y-3">
+                <HangmanFigure wrong={game.wrong} maxWrong={game.maxWrong} />
+                {onCooldown ? (
+                    <p className="text-xs text-destructive font-semibold text-center tabular-nums">
+                        You lost this round ({game.losses}/{game.maxLosses}).{" "}
+                        {game.final
+                            ? "The curse clears in"
+                            : "You can try again in"}{" "}
+                        {formatCurseCountdown(coolingMs)}.
+                    </p>
+                ) : readOnly ? (
+                    <p className="text-xs text-muted-foreground text-center">
+                        Waiting for the seekers to play again…
+                    </p>
+                ) : (
+                    <Button
+                        size="sm"
+                        className="w-full"
+                        onClick={() => sendHangmanContinue(castId)}
+                    >
+                        {game.final
+                            ? "Clear the curse"
+                            : "Play again (new word)"}
+                    </Button>
+                )}
+            </div>
+        );
+    }
+
+    return (
+        <div className="space-y-3">
+            {/* Word blanks — revealed letters in position. */}
+            <div className="flex justify-center gap-1.5">
+                {game.pattern.map((ch, i) => (
+                    <span
+                        key={i}
+                        className="w-7 h-9 flex items-center justify-center rounded-sm border-b-2 border-foreground/60 text-xl font-black font-inter-tight uppercase"
+                    >
+                        {ch}
+                    </span>
+                ))}
+            </div>
+            <HangmanFigure wrong={game.wrong} maxWrong={game.maxWrong} />
+            {/* A–Z guessing grid. */}
+            <div className="grid grid-cols-7 gap-1">
+                {"ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("").map((L) => {
+                    const guessed = game.guessed.includes(L);
+                    const correct = guessed && game.pattern.includes(L);
+                    return (
+                        <button
+                            key={L}
+                            type="button"
+                            disabled={guessed || readOnly}
+                            onClick={() =>
+                                !readOnly && sendHangmanGuess(castId, L)
+                            }
+                            className={cn(
+                                "h-8 rounded-sm text-sm font-bold transition-colors",
+                                !guessed &&
+                                    "bg-secondary hover:bg-accent text-foreground",
+                                guessed &&
+                                    correct &&
+                                    "bg-emerald-500/25 text-emerald-300",
+                                guessed &&
+                                    !correct &&
+                                    "bg-destructive/20 text-destructive/70 line-through",
+                            )}
+                        >
+                            {L}
+                        </button>
+                    );
+                })}
+            </div>
+            <p className="text-[11px] text-muted-foreground text-center">
+                {readOnly
+                    ? "The seekers are guessing your word."
+                    : `Guess the hider's 5-letter word — ${left} wrong ${
+                          left === 1 ? "guess" : "guesses"
+                      } left.`}
+                {game.losses > 0 &&
+                    ` Losses ${game.losses}/${game.maxLosses}.`}
+            </p>
+        </div>
+    );
+}
+
+/** Compact SVG gallows — reveals head, body, two arms, two legs, hat as the
+ *  wrong count climbs (7 parts total). */
+function HangmanFigure({ wrong, maxWrong }: { wrong: number; maxWrong: number }) {
+    const p = (n: number) => wrong >= n; // part n revealed?
+    const stroke = "currentColor";
+    return (
+        <svg
+            viewBox="0 0 80 90"
+            className={cn(
+                "mx-auto h-24 w-auto",
+                wrong >= maxWrong ? "text-destructive" : "text-foreground/80",
+            )}
+            fill="none"
+            stroke={stroke}
+            strokeWidth={2.5}
+            strokeLinecap="round"
+        >
+            {/* gallows */}
+            <line x1="6" y1="86" x2="46" y2="86" />
+            <line x1="16" y1="86" x2="16" y2="6" />
+            <line x1="16" y1="6" x2="52" y2="6" />
+            <line x1="52" y1="6" x2="52" y2="16" />
+            {/* head (1) */}
+            {p(1) && <circle cx="52" cy="24" r="8" />}
+            {/* body (2) */}
+            {p(2) && <line x1="52" y1="32" x2="52" y2="56" />}
+            {/* left arm (3) / right arm (4) */}
+            {p(3) && <line x1="52" y1="38" x2="42" y2="48" />}
+            {p(4) && <line x1="52" y1="38" x2="62" y2="48" />}
+            {/* left leg (5) / right leg (6) */}
+            {p(5) && <line x1="52" y1="56" x2="44" y2="70" />}
+            {p(6) && <line x1="52" y1="56" x2="60" y2="70" />}
+            {/* hat (7) */}
+            {p(7) && (
+                <>
+                    <line x1="44" y1="17" x2="60" y2="17" />
+                    <rect x="47" y="9" width="10" height="8" rx="1" />
+                </>
+            )}
+        </svg>
     );
 }
 

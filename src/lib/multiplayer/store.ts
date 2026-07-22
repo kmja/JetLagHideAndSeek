@@ -110,6 +110,7 @@ import {
     castCurses,
     receivedCurses,
     setCurseCooldown,
+    setHangmanState,
 } from "@/lib/seekerInbound";
 import {
     type Question,
@@ -774,6 +775,33 @@ export function startCurseCooldown(
     setCurseCooldown(castId, Date.now() + durationMs);
     if (!multiplayerEnabled.get()) return;
     getTransport()?.send({ t: "curseCooldownStart", castId, durationMs });
+}
+
+/* ────────────────── Hidden Hangman (v1096) ────────────────── */
+
+/** The hider casts Hidden Hangman — ask the server to start the game (it owns
+ *  the secret word + adjudicates). `maxLosses` = 1/2/3 by size. */
+export function sendHangmanStart(
+    castId: number | undefined,
+    maxLosses: number,
+): void {
+    if (castId == null || !multiplayerEnabled.get()) return;
+    getTransport()?.send({ t: "hangmanStart", castId, maxLosses });
+}
+
+/** A seeker guesses a letter — the server adjudicates + broadcasts new state. */
+export function sendHangmanGuess(
+    castId: number | undefined,
+    letter: string,
+): void {
+    if (castId == null || !multiplayerEnabled.get()) return;
+    getTransport()?.send({ t: "hangmanGuess", castId, letter });
+}
+
+/** After a loss cooldown: next round (fresh word) or clear the curse (final). */
+export function sendHangmanContinue(castId: number | undefined): void {
+    if (castId == null || !multiplayerEnabled.get()) return;
+    getTransport()?.send({ t: "hangmanContinue", castId });
 }
 
 /* ────────────────── Inbound dispatch ────────────────── */
@@ -1746,6 +1774,32 @@ function handleServerMessage(msg: ServerMessage) {
             // cooldown — adopt it so every seeker's clock agrees and the wait
             // survives a reconnect.
             setCurseCooldown(msg.castId, msg.until);
+            return;
+        }
+        case "hangmanState": {
+            // v1096: server-adjudicated Hidden Hangman state (never the word —
+            // only the revealed pattern + guess/loss bookkeeping).
+            if (msg.status === "cleared") {
+                notify({
+                    title: msg.won ? "Hangman: you win!" : "Hangman cleared",
+                    body: msg.won
+                        ? "You beat the hider — the curse is lifted."
+                        : "You've waited it out — the curse is lifted.",
+                    tag: "hangman",
+                });
+            }
+            setHangmanState(msg.castId, {
+                pattern: msg.pattern,
+                guessed: msg.guessed,
+                wrong: msg.wrong,
+                maxWrong: msg.maxWrong,
+                losses: msg.losses,
+                maxLosses: msg.maxLosses,
+                status: msg.status,
+                cooldownUntil: msg.cooldownUntil,
+                final: msg.final,
+                won: msg.won,
+            });
             return;
         }
         case "endgameDenied": {

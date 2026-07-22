@@ -70,6 +70,7 @@ import { resetHiderRoundState, roundFoundAt } from "@/lib/hiderRole";
 import {
     castCurses,
     curseCooldownUntil,
+    hangmanGames,
     receivedCurses,
 } from "@/lib/seekerInbound";
 
@@ -108,6 +109,8 @@ export function resetCurseState(): void {
     curseBonusResolved.set({});
     // v1088: per-round Jammed Door shared cooldowns.
     curseCooldownUntil.set({});
+    // v1096: per-round Hidden Hangman games.
+    hangmanGames.set({});
 }
 
 export function resetSharedRoundState(): void {

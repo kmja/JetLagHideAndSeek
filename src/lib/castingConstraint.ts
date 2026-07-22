@@ -28,6 +28,12 @@ import type { GameSize } from "@/lib/gameSetup";
 
 export const CURSE_BRIDGE_TROLL = "Curse of the Bridge Troll";
 export const CURSE_WATER_WEIGHT = "Curse of Water Weight";
+export const CURSE_HIDDEN_HANGMAN = "Curse of the Hidden Hangman";
+
+/** Hidden Hangman: losses that end the curse (1 S / 2 M / 3 L, rulebook). */
+export function hangmanMaxLosses(size: GameSize): number {
+    return size === "small" ? 1 : size === "medium" ? 2 : 3;
+}
 
 /** Bridge Troll: minimum seeker→hider distance, in kilometres, by game size.
  *  Metric-canonical rulebook values (the card DISPLAY converts to the unit

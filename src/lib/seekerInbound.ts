@@ -1,5 +1,5 @@
 import { persistentAtom } from "@nanostores/persistent";
-import type { WritableAtom } from "nanostores";
+import { atom, type WritableAtom } from "nanostores";
 
 import type { SharedCursePayload } from "./shareLinks";
 
@@ -127,6 +127,40 @@ export function setCurseCooldown(castId: number, until: number): void {
     if (until > Date.now()) next[String(castId)] = until;
     else delete next[String(castId)];
     curseCooldownUntil.set(next);
+}
+
+/**
+ * v1096: server-adjudicated Hidden Hangman game state, keyed by curse `castId`.
+ * The word is NEVER here — only the revealed `pattern` + guess/loss bookkeeping.
+ * Ephemeral (re-delivered by the server on rejoin), so a plain atom; cleared per
+ * round in `resetCurseState`.
+ */
+export interface HangmanState {
+    pattern: string[];
+    guessed: string[];
+    wrong: number;
+    maxWrong: number;
+    losses: number;
+    maxLosses: number;
+    status: "playing" | "lost" | "cleared";
+    cooldownUntil?: number;
+    final?: boolean;
+    won?: boolean;
+}
+const HANGMAN_KEY = "__jlhs_hangmanGames";
+if (!g[HANGMAN_KEY]) {
+    g[HANGMAN_KEY] = atom<Record<string, HangmanState>>({});
+}
+export const hangmanGames = g[HANGMAN_KEY] as WritableAtom<
+    Record<string, HangmanState>
+>;
+
+/** Apply a server hangman-state update (drops the entry once cleared). */
+export function setHangmanState(castId: number, state: HangmanState): void {
+    const next = { ...hangmanGames.get() };
+    if (state.status === "cleared") delete next[String(castId)];
+    else next[String(castId)] = state;
+    hangmanGames.set(next);
 }
 
 /** Record a curse the hider just cast so it shows in the hider's active-curse

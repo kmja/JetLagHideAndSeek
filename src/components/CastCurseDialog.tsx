@@ -42,8 +42,10 @@ import {
 } from "@/lib/castingCost";
 import {
     CURSE_BRIDGE_TROLL,
+    CURSE_HIDDEN_HANGMAN,
     CURSE_WATER_WEIGHT,
     evaluateBridgeTroll,
+    hangmanMaxLosses,
     WATER_WEIGHT_WITHIN_M,
 } from "@/lib/castingConstraint";
 import { lastKnownPosition } from "@/lib/context";
@@ -70,7 +72,7 @@ import {
     multiplayerEnabled,
     seekerLocations,
 } from "@/lib/multiplayer/session";
-import { hiderCastCurse } from "@/lib/multiplayer/store";
+import { hiderCastCurse, sendHangmanStart } from "@/lib/multiplayer/store";
 import { recordCastCurse } from "@/lib/seekerInbound";
 import { encodeCurseLink, shareOrCopy } from "@/lib/shareLinks";
 import { cn } from "@/lib/utils";
@@ -860,6 +862,10 @@ export function CastCurseDialog({
         // In multiplayer the curse travels over the WebSocket — no link needed.
         if ($multiplayer) {
             hiderCastCurse(payload);
+            // v1096: Hidden Hangman is server-adjudicated — kick off the game
+            // (the server picks the secret word + judges the seekers' guesses).
+            if (card.name === CURSE_HIDDEN_HANGMAN)
+                sendHangmanStart(payload.castId, hangmanMaxLosses($gameSize));
             recordCastCurse(payload);
             payCostDiscards();
             discardCard(card.id);
