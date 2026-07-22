@@ -432,6 +432,22 @@ bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
 build stamp. Current: `v1069`. Use `git log` for the per-version detail;
 
+**v1110 — "curse cleared!" celebration.** When a curse is cleared, a
+full-screen celebration plays: the curse banner slides in, its skull-and-
+crossbones FLASHES TWICE (the Jet Lag show's beat), then the banner fades up and
+a big green **"CURSE CLEARED!"** bursts in with a confetti pop + an expanding
+green ring + a check badge, then auto-dismisses (or tap). New
+`src/lib/curseCleared.ts` (`curseCleared` volatile atom + `triggerCurseCleared`)
++ `CurseClearedOverlay.tsx` (all motion is `curseCleared*` CSS keyframes in
+`globals.css`, `motion-reduce`-gated). Mounted app-level in `App.tsx`; renders
+nothing unless the atom is set, so it fires on WHICHEVER device cleared or
+received the clear — the seekers' win AND the hide team's "your curse was
+beaten" feedback. Triggered from `CurseInbox.dismiss` (manual clear + Bird Guide
+auto-clear) + the auto-expire effect (seeker side) and the multiplayer
+`curseCleared` inbound handler (co-seekers + hide team via the relay). NOT the
+`curseBacklog` recovery path (a silent resync). Debug button "Play 'curse
+cleared' celebration" added for testing.
+
 **v1109 — wizard adjacent-area add/remove animation + curse-star water look +
 Bird Guide hundredths timer.**
 - **Wizard adjacent areas animate in/out** (`PlayAreaExtensions`). Each "added

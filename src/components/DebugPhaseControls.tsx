@@ -49,6 +49,7 @@ import {
 } from "@/lib/multiplayer/session";
 import { getTransport } from "@/lib/multiplayer/transport";
 import { endHidingPeriodEarly } from "@/lib/roundActions";
+import { triggerCurseCleared } from "@/lib/curseCleared";
 import { triggerCurseReveal } from "@/lib/curseReveal";
 import { receivedCurses } from "@/lib/seekerInbound";
 import { encodeQuestionForHider } from "@/lib/shareLinks";
@@ -947,6 +948,16 @@ export function DebugPhaseControls(_props: { floating?: DebugFloating } = {}) {
                         through untimed / timed / dice-roll curses so you can
                         test the CurseInbox UI on demand.
                     </p>
+                    <DebugButton
+                        onClick={() =>
+                            triggerCurseCleared(
+                                DEBUG_TEST_CURSES[0]?.name ??
+                                    "Curse of the Cairn",
+                            )
+                        }
+                    >
+                        Play &quot;curse cleared&quot; celebration
+                    </DebugButton>
                 </Section>
 
                 <Section title="Build / cache">

@@ -431,6 +431,43 @@ div.leaflet-control-attribution.leaflet-control {
     100% { opacity: 0; }
 }
 
+/* ── Curse CLEARED celebration (v1110) ──────────────────────────────
+ * The curse banner slides in, its skull flashes TWICE (the show's beat),
+ * then the banner fades up-and-out while a big green "CURSE CLEARED!"
+ * bursts in with confetti. */
+@keyframes curseClearedBackdrop {
+    0%   { opacity: 0; }
+    100% { opacity: 1; }
+}
+@keyframes curseClearedBannerIn {
+    0%   { opacity: 0; transform: translateY(14px) scale(0.9); }
+    100% { opacity: 1; transform: translateY(0)    scale(1); }
+}
+/* Two clean flashes of the skull (dim → bright, twice). */
+@keyframes curseClearedSkullFlash {
+    0%, 100% { opacity: 1;    transform: scale(1); }
+    12%, 52% { opacity: 0.12; transform: scale(1.18); }
+    28%, 70% { opacity: 1;    transform: scale(1); }
+}
+@keyframes curseClearedBannerOut {
+    0%   { opacity: 1; transform: translateY(0)     scale(1); }
+    100% { opacity: 0; transform: translateY(-22px) scale(0.86); }
+}
+@keyframes curseClearedBurst {
+    0%   { opacity: 0; transform: scale(0.4); }
+    55%  { opacity: 1; transform: scale(1.14); }
+    72%  { transform: scale(0.97); }
+    100% { opacity: 1; transform: scale(1); }
+}
+@keyframes curseClearedRing {
+    0%   { opacity: 0.55; transform: scale(0.3); }
+    100% { opacity: 0;    transform: scale(2.6); }
+}
+@keyframes curseClearedOut {
+    0%   { opacity: 1; }
+    100% { opacity: 0; transform: scale(0.94); }
+}
+
 /* Reference-point marker + label used on the configure-dialog inline
  * map for matching/measuring questions. The marker itself is rendered
  * via Leaflet DivIcon (see `buildReferenceIcon` in InlineLocationPicker)

@@ -27,6 +27,7 @@ import {
     spottyCategoryForRoll,
     spottyMemoryCategory,
 } from "@/lib/curseEnforcement";
+import { triggerCurseCleared } from "@/lib/curseCleared";
 import {
     curseDiceCount,
     curseDurationMs,
@@ -235,6 +236,8 @@ export function CurseInbox({
                         : c,
                 ),
         );
+        // v1110: celebrate an auto-expired curse (one celebration for the batch).
+        triggerCurseCleared(expired[0]?.name);
         // v1022: propagate the clear so the hide team + other seekers drop it
         // (seeker-side only — the hider's mirror is informational).
         if (playerRole.get() === "seeker") {
@@ -268,6 +271,8 @@ export function CurseInbox({
                         : c,
                 ),
         );
+        // v1110: celebrate the cleared curse (skull flash → "CURSE CLEARED!").
+        triggerCurseCleared(target?.name);
         // v1022: propagate the clear to the hide team + other seekers.
         if (playerRole.get() === "seeker") sendCurseCleared(target?.castId);
         // v1100: if the HIDER clears the active one-at-a-time blocker from their

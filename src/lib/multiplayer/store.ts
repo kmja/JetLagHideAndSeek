@@ -108,6 +108,7 @@ import {
     activeBlockingCurse,
     activeBlockingCurseCastAt,
 } from "@/lib/curseEnforcement";
+import { triggerCurseCleared } from "@/lib/curseCleared";
 import { triggerCurseReveal } from "@/lib/curseReveal";
 import { appendRoundResult } from "@/lib/roundLeaderboard";
 import {
@@ -1755,15 +1756,18 @@ function handleServerMessage(msg: ServerMessage) {
             // can cast the next blocking curse. Without this, a Hidden Hangman
             // the seekers already beat kept blocking every new curse until
             // round end (the reported bug). Match by the cleared castId's name.
-            const clearedName = castCurses
-                .get()
-                .find((c) => c.castId === msg.castId)?.name;
+            const clearedName =
+                castCurses.get().find((c) => c.castId === msg.castId)?.name ??
+                receivedCurses.get().find((c) => c.castId === msg.castId)?.name;
             if (clearedName && activeBlockingCurse.get() === clearedName) {
                 activeBlockingCurse.set(null);
                 activeBlockingCurseCastAt.set(null);
             }
             markCleared(receivedCurses);
             markCleared(castCurses);
+            // v1110: celebrate on this device too (a co-seeker's clear, or the
+            // hide team learning their curse was beaten).
+            triggerCurseCleared(clearedName);
             return;
         }
         case "curseProof": {

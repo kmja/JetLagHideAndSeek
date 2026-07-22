@@ -14,6 +14,7 @@ import { BetaGate } from "@/components/BetaGate";
 import { GoGoGoOverlay } from "@/components/GoGoGoOverlay";
 import { MapErrorBoundary } from "@/components/MapErrorBoundary";
 import { PWAUpdatePrompt } from "@/components/PWAUpdatePrompt";
+import { CurseClearedOverlay } from "@/components/CurseClearedOverlay";
 import { CurseRevealOverlay } from "@/components/CurseRevealOverlay";
 import { ReconnectingBanner } from "@/components/ReconnectingBanner";
 import { RouteTransitionCurtain } from "@/components/RouteTransitionCurtain";
@@ -289,6 +290,10 @@ export function App() {
                 any seeker screen; renders nothing unless its atom is set
                 (only ever on the seeker). */}
             <CurseRevealOverlay />
+            {/* v1110: "curse cleared!" celebration — skull flashes twice then a
+                green burst. App-level; fires on whichever device cleared/
+                received the clear (seeker win + hider feedback). */}
+            <CurseClearedOverlay />
             {/* v1044: the rulebook drawer is a SINGLETON here, driven by the
                 shared `rulebookTarget` atom, so any surface (settings, or a
                 "learn more" link on a question / curse / power-up card) can open
