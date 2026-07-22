@@ -430,6 +430,32 @@ bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
 build stamp. Current: `v1069`. Use `git log` for the per-version detail;
 
+**v1091 — seeker/hider hiding-zone overlay parity (station set + tap-anywhere).**
+Two real discrepancies between the seeker's and hider's hiding-zone overlays:
+- **Seeker was missing bus (and other) stations the hider showed.** The HIDER
+  fetches candidate stations straight from `allowedTransit`; the SEEKER goes
+  through a separate per-device `displayHidingZonesOptions` list gated by
+  `hidingZonesAutoFromTransit`. A stale `auto=false` from a past session (or the
+  rail-only default) left the seeker stuck fetching only `[railway=station]` — so
+  subway/train showed but bus stops didn't, while the hider showed the full
+  field. Bumped the `hidingZonesAutoFromTransit` persistent key (`…2`, default
+  true) so everyone resets to auto-track allowed transit and the sync repopulates
+  the options from `allowedTransit` (bus included) — matching the hider out of the
+  box. (A user can still re-customise the set per session in the Zone sidebar.)
+- **Seeker could only select a zone by tapping its centre dot; the hider could
+  tap anywhere in the zone.** The hider resolves a miss via `findZoneAtPoint`
+  (nearest station whose hiding-radius circle CONTAINS the tap, over the full
+  candidate set); the seeker only had `nearestZoneStation` over the displayed
+  post-elimination point set, which could miss. `handleStationTap` (`Map.tsx`)
+  now falls through to the SAME `findZoneAtPoint` resolver as the hider after its
+  sync attempt, so a tap anywhere inside a zone selects it on both roles.
+- **The shaded fill is NOT a bug**: both overlays draw the same `safeUnion`-ed
+  extent fill at the same faint opacity. The seeker's reads as a distinct blob
+  because its union is post-elimination (small); the hider's covers ~the whole
+  play area (full candidate field) so it looks like a uniform wash. That
+  difference is inherent to the two roles (the seeker's overlay narrows as
+  questions are answered; the hider's is a full-field planning aid).
+
 **v1090 — lobby polish: team-switch pop, aligned in-game settings row, rocket/
 send icons dropped.**
 - **In-game lobby settings row aligned** (`GameLobbyDialog`, `isMidGame`): the

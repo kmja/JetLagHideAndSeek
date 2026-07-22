@@ -54,6 +54,7 @@ import {
     mapLibreViewport,
 } from "@/lib/featureFlags";
 import {
+    allowedTransit,
     endgameStartedAt,
     endgameZone,
     hidingPeriodEndsAt,
@@ -69,6 +70,7 @@ import { satelliteView } from "@/lib/gameSetup";
 import { stationLabelMaxChars } from "@/lib/debugState";
 import { playerRole, roundFoundAt } from "@/lib/hiderRole";
 import { selectedMapStation, travelTimesFC } from "@/lib/journey/state";
+import { findZoneAtPoint } from "@/lib/journey/stations";
 import { shortenStationLabel } from "@/lib/stationLabel";
 import {
     multiplayerEnabled,
@@ -1776,7 +1778,38 @@ export function Map({ className }: MapProps) {
         // placing geometry, not picking a station).
         if ($drawingQuestionKey !== null) return;
         const nearest = nearestZoneStation(e.lngLat);
-        if (nearest) selectedMapStation.set(nearest);
+        if (nearest) {
+            selectedMapStation.set(nearest);
+            return;
+        }
+        // v1091: parity with the hider map — a tap ANYWHERE inside a zone
+        // selects it, not just on the centre dot. `nearestZoneStation` scans
+        // the currently-DISPLAYED (post-elimination) point set, which can miss
+        // a tap that lands in a zone whose centre dot was culled/labelled off
+        // or sits just past the sync radius. Fall through to the SAME
+        // containment resolver the hider uses (`findZoneAtPoint` — nearest
+        // station whose hiding-radius circle contains the tap, over the game's
+        // full candidate set), so both roles behave identically.
+        if (!$showHidingZones) return;
+        const radiusMeters = turf.convertLength(
+            $hidingRadius,
+            $hidingRadiusUnits,
+            "meters",
+        );
+        const { lat: tapLat, lng: tapLng } = e.lngLat;
+        void (async () => {
+            const station = await findZoneAtPoint(tapLat, tapLng, {
+                allowed: allowedTransit.get(),
+                radiusMeters,
+            }).catch(() => null);
+            if (station)
+                selectedMapStation.set({
+                    lat: station.lat,
+                    lng: station.lng,
+                    name: station.name,
+                    modes: [station.mode],
+                });
+        })();
     };
 
     // Live blue "you are here" dot, always shown on the seeker map (like

@@ -441,8 +441,15 @@ export const displayHidingZonesOptions = persistentAtom<string[]>(
  * touches the MultiSelect in the Zone Sidebar; flipped back to true
  * when they tap the "Match allowed transit" reset action.
  */
+// v1091: key bumped (`…2`). The seeker's hiding-zone station set derives from
+// this + `displayHidingZonesOptions`, while the HIDER fetches straight from
+// `allowedTransit` — so a stale `auto=false` from a past session left the seeker
+// stuck on the rail-only default (no bus stops) while the hider showed the full
+// field (the reported seeker/hider mismatch). Bumping resets everyone to
+// auto-track allowed transit, so the two roles' station sets match out of the
+// box; a user can still re-customise per session.
 export const hidingZonesAutoFromTransit = persistentAtom<boolean>(
-    "hidingZonesAutoFromTransit",
+    "hidingZonesAutoFromTransit2",
     true,
     {
         encode: JSON.stringify,
