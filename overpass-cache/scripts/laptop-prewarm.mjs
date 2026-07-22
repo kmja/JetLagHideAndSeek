@@ -2631,7 +2631,17 @@ async function processMetroRoutes(city, extent) {
  */
 function transitRoutesQuery(extent) {
     const tuple = transitBboxTuple(extent);
-    // v1081: include `ferry` (byte-identical to overpass-cache/src/index.ts).
+    // v1103: STOPS-ONLY (out body; node(r); out body) — no way geometry, so
+    // even Paris fits under the store cap. Byte-identical to
+    // overpass-cache/src/index.ts.
+    return `\n[out:json][timeout:180][bbox:${tuple}];\nrelation["type"="route"]["route"~"^(subway|train|light_rail|tram|monorail|ferry)$"];\nout body;\nnode(r);\nout body;\n`;
+}
+
+/** PRE-v1103 full-geom rail query — kept ONLY to check whether an OLD entry is
+ *  already cached (so a re-run doesn't re-fetch when the serve path can migrate
+ *  it lazily). Byte-identical to overpass-cache/src/index.ts. */
+function transitRoutesQueryFull(extent) {
+    const tuple = transitBboxTuple(extent);
     return `\n[out:json][timeout:180][bbox:${tuple}];\nrelation["type"="route"]["route"~"^(subway|train|light_rail|tram|monorail|ferry)$"];\nout tags geom;\n>;\nout tags;\n`;
 }
 
@@ -2640,6 +2650,13 @@ async function processTransitRoutes(city, extent) {
     const q = transitRoutesQuery(extent);
     if (await isFresh(q, "transit-routes")) {
         console.log(`  ⤼ transit routes already cached — skipping`);
+        return;
+    }
+    // v1103: if the PRE-v1103 full-geom entry is still cached, DON'T re-fetch —
+    // the serve path migrates it to the slim shape lazily (no Overpass). Only a
+    // city with neither entry (or a previously over-cap city) fetches fresh.
+    if (await isFresh(transitRoutesQueryFull(extent), "transit-routes")) {
+        console.log(`  ⤼ transit routes (old full entry) — serve-path migrates`);
         return;
     }
     const res = await fetchOverpass(q, "transit routes");
@@ -2675,6 +2692,13 @@ async function processTransitRoutes(city, extent) {
  */
 function busTransitRoutesQuery(extent) {
     const tuple = transitBboxTuple(extent);
+    // v1103: stops-only (byte-identical to overpass-cache/src/index.ts).
+    return `\n[out:json][timeout:180][bbox:${tuple}];\nrelation["type"="route"]["route"="bus"];\nout body;\nnode(r);\nout body;\n`;
+}
+
+/** PRE-v1103 full-geom bus query — old-entry existence check only. */
+function busTransitRoutesQueryFull(extent) {
+    const tuple = transitBboxTuple(extent);
     return `\n[out:json][timeout:180][bbox:${tuple}];\nrelation["type"="route"]["route"="bus"];\nout tags geom;\n>;\nout tags;\n`;
 }
 
@@ -2683,6 +2707,10 @@ async function processBusTransitRoutes(city, extent) {
     const q = busTransitRoutesQuery(extent);
     if (await isFresh(q, "transit-routes-bus")) {
         console.log(`  ⤼ bus routes already cached — skipping`);
+        return;
+    }
+    if (await isFresh(busTransitRoutesQueryFull(extent), "transit-routes-bus")) {
+        console.log(`  ⤼ bus routes (old full entry) — serve-path migrates`);
         return;
     }
     const res = await fetchOverpass(q, "bus routes");

@@ -4130,6 +4130,39 @@ async function handleTransitRoutesByRelation(
         );
         if (served) return served;
     }
+    // v1103: LAZY MIGRATION — the slim query changed the R2 key, so an
+    // already-cached PRE-v1103 full-geometry entry misses under the new key.
+    // Rather than re-fetch from Overpass, transform that old entry into the
+    // slim shape in place and store it under the new key. Costs one R2 read +
+    // a JSON transform, no upstream.
+    const fullQuery =
+        mode === "bus"
+            ? busTransitRoutesQueryFull(ext)
+            : transitRoutesQueryFull(ext);
+    const fullKey = await r2KeyForQuery(fullQuery);
+    try {
+        const oldObj = await env.CACHE.get(`overpass/${fullKey}`);
+        if (oldObj) {
+            const oldText = await readR2BodyText(oldObj);
+            const slim = oldText ? slimTransitRoutesBody(oldText) : null;
+            if (slim) {
+                await compressAndStoreString(env, cacheKey, slim, {
+                    kind:
+                        mode === "bus"
+                            ? "transit-routes-bus"
+                            : "transit-routes",
+                    warmedBy: "slim-migration",
+                    sourceRelationId: String(relationId),
+                });
+                return jsonResponse(JSON.parse(slim), 200, {
+                    ...cors,
+                    "X-Serve": "slim-migrated",
+                });
+            }
+        }
+    } catch (e) {
+        console.warn(`transit-routes slim-migration r${relationId}:`, e);
+    }
     return jsonResponse({ elements: [], cache: "miss" }, 200, cors);
 }
 
@@ -4680,26 +4713,118 @@ function transitRoutesQuery(
     extent: [number, number, number, number],
 ): string {
     const tuple = transitBboxTuple(extent);
-    // v1081: include `ferry` — ferry route relations are few (light), so the
-    // "Transit line" picker is Overpass-free for ferry too (was firing a LIVE
-    // `around:` query for it in ferry-allowed games, e.g. Stockholm Large).
-    // Bus is deliberately still EXCLUDED (hundreds of heavy-geometry relations
-    // per metro would time out the combined query — same lesson as area-stations).
+    // v1103: STOPS-ONLY payload — `out body` gives the route relations' member
+    // list (no way geometry) + `node(r); out body` the member STOP nodes. The
+    // client draws the line as straight segments between stops, so the huge
+    // way geometry (Paris rail was 80 MB, over the 60 MB store cap → silently
+    // skipped) is gone and even the densest metro fits. Includes `ferry`
+    // (v1081). Newline framing is load-bearing to the R2 key — keep in lockstep
+    // with the laptop copy.
+    return `\n[out:json][timeout:180][bbox:${tuple}];\nrelation["type"="route"]["route"~"^(subway|train|light_rail|tram|monorail|ferry)$"];\nout body;\nnode(r);\nout body;\n`;
+}
+
+/** The PRE-v1103 full-geometry rail query. Kept ONLY to derive the OLD R2 key
+ *  so the serve path can transform an already-cached full-geom entry into the
+ *  slim shape without re-fetching from Overpass. Not used to fetch. */
+function transitRoutesQueryFull(
+    extent: [number, number, number, number],
+): string {
+    const tuple = transitBboxTuple(extent);
     return `\n[out:json][timeout:180][bbox:${tuple}];\nrelation["type"="route"]["route"~"^(subway|train|light_rail|tram|monorail|ferry)$"];\nout tags geom;\n>;\nout tags;\n`;
 }
 
 /** Byte-identical to `busTransitRoutesQuery` in laptop-prewarm.mjs. The BUS
  *  variant of the "Transit line" route set (v1102), kept ISOLATED from the
- *  rail+ferry query above — a metro's bus route relations are hundreds of
- *  heavy-geometry lines that would time the combined query out (the
- *  area-stations / body-of-water lesson). Served by
- *  `/api/transit-routes/<id>?mode=bus`. Newline framing is load-bearing to the
- *  R2 key — keep in lockstep with the laptop copy. */
+ *  rail+ferry query above (a metro's bus routes are far heavier). Stops-only
+ *  (v1103). Served by `/api/transit-routes/<id>?mode=bus`. Newline framing is
+ *  load-bearing to the R2 key — keep in lockstep with the laptop copy. */
 function busTransitRoutesQuery(
     extent: [number, number, number, number],
 ): string {
     const tuple = transitBboxTuple(extent);
+    return `\n[out:json][timeout:180][bbox:${tuple}];\nrelation["type"="route"]["route"="bus"];\nout body;\nnode(r);\nout body;\n`;
+}
+
+/** PRE-v1103 full-geom bus query — OLD-key derivation for the serve-path
+ *  transform only (see transitRoutesQueryFull). */
+function busTransitRoutesQueryFull(
+    extent: [number, number, number, number],
+): string {
+    const tuple = transitBboxTuple(extent);
     return `\n[out:json][timeout:180][bbox:${tuple}];\nrelation["type"="route"]["route"="bus"];\nout tags geom;\n>;\nout tags;\n`;
+}
+
+/**
+ * v1103: transform a PRE-v1103 full-geometry transit-routes body into the
+ * SLIM stops-only shape (route relations with member lists stripped of way
+ * geometry + only the stop NODES). Lets the serve path migrate an existing R2
+ * entry to the new key WITHOUT re-fetching from Overpass. Returns null if the
+ * body can't be parsed or has no route relations. The output shape matches a
+ * fresh slim Overpass fetch closely enough for the client parser (relations
+ * with `members`, plus stop `node` elements with lat/lon/tags).
+ */
+function slimTransitRoutesBody(text: string): string | null {
+    let json: { elements?: any[] };
+    try {
+        json = JSON.parse(text);
+    } catch {
+        return null;
+    }
+    const els = Array.isArray(json?.elements) ? json.elements : [];
+    const relations = els.filter(
+        (e) => e?.type === "relation" && e?.tags?.route,
+    );
+    if (relations.length === 0) return null;
+    // Collect stop nodes = the direct NODE MEMBERS of the route relations.
+    // COORDS come from the member's inline lat/lon (present because the old
+    // body was `out geom`); TAGS (names) come from the top-level node dump.
+    const stops = new Map<
+        number,
+        { lat?: number; lon?: number; tags?: any }
+    >();
+    for (const r of relations) {
+        for (const m of r.members ?? []) {
+            if (m?.type !== "node" || typeof m.ref !== "number") continue;
+            const cur = stops.get(m.ref) ?? {};
+            if (typeof m.lat === "number") cur.lat = m.lat;
+            if (typeof m.lon === "number") cur.lon = m.lon;
+            stops.set(m.ref, cur);
+        }
+    }
+    for (const e of els) {
+        if (e?.type === "node" && stops.has(e.id)) {
+            const cur = stops.get(e.id)!;
+            if (typeof e.lat === "number") cur.lat = e.lat;
+            if (typeof e.lon === "number") cur.lon = e.lon;
+            if (e.tags) cur.tags = e.tags;
+        }
+    }
+    const out: any[] = [];
+    for (const r of relations) {
+        // Keep the relation + its member list, but drop per-member geometry.
+        out.push({
+            type: "relation",
+            id: r.id,
+            tags: r.tags,
+            members: (r.members ?? []).map((m: any) => ({
+                type: m.type,
+                ref: m.ref,
+                role: m.role,
+            })),
+        });
+    }
+    for (const [id, info] of stops) {
+        if (typeof info.lat !== "number" || typeof info.lon !== "number")
+            continue; // no coords → can't place the stop, drop it
+        out.push({
+            type: "node",
+            id,
+            lat: info.lat,
+            lon: info.lon,
+            ...(info.tags ? { tags: info.tags } : {}),
+        });
+    }
+    return JSON.stringify({ elements: out });
 }
 
 /** Cron-side shard query. Same template as `transitRouteQuery`, with

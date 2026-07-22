@@ -1048,27 +1048,35 @@ function routeSummaryFromEl(el: any): TransitRouteSummary | null {
     return { id: `relation/${el.id}`, name, ref, mode };
 }
 
-/** All [lng,lat] vertices of a route relation's member ways. */
-function routeMemberCoords(el: any): [number, number][] {
+/**
+ * v1103: the [lng,lat] coords of a route relation's STOP nodes (its node
+ * members), resolved via a node-id map. The prewarm dropped way geometry
+ * (stops-only payload, so even a dense metro fits), so a route's spatial
+ * footprint IS its stops — which is also the right proximity signal (you
+ * board at a stop). Falls back to any lat/lon inline on the member (a
+ * live full-geom body still carries it).
+ */
+function routeStopCoords(
+    el: any,
+    nodeById: Map<number, any>,
+): [number, number][] {
     const coords: [number, number][] = [];
     for (const m of el?.members ?? []) {
-        if (m.type === "way" && Array.isArray(m.geometry)) {
-            for (const p of m.geometry) {
-                if (
-                    typeof p.lat === "number" &&
-                    typeof p.lon === "number"
-                )
-                    coords.push([p.lon, p.lat]);
-            }
-        } else if (
-            m.type === "node" &&
-            typeof m.lat === "number" &&
-            typeof m.lon === "number"
-        ) {
-            coords.push([m.lon, m.lat]);
-        }
+        if (m.type !== "node") continue;
+        const node = nodeById.get(m.ref);
+        const la = m.lat ?? node?.lat;
+        const ln = m.lon ?? node?.lon;
+        if (typeof la === "number" && typeof ln === "number")
+            coords.push([ln, la]);
     }
     return coords;
+}
+
+/** Build an id→node map from an Overpass element set (for stop lookup). */
+function nodeMapFrom(elements: any[]): Map<number, any> {
+    const m = new Map<number, any>();
+    for (const e of elements ?? []) if (e?.type === "node") m.set(e.id, e);
+    return m;
 }
 
 function dedupeRoutes(routes: TransitRouteSummary[]): TransitRouteSummary[] {
@@ -1110,10 +1118,11 @@ export const findTransitRoutesNear = async (
             : null;
         const near: TransitRouteSummary[] = [];
         const scan = (els: any[]) => {
+            const nodeById = nodeMapFrom(els);
             for (const el of els) {
                 const summary = routeSummaryFromEl(el);
                 if (!summary || !allowed.has(summary.mode)) continue;
-                const coords = routeMemberCoords(el);
+                const coords = routeStopCoords(el, nodeById);
                 const isNear = coords.some(
                     (c) =>
                         turf.distance(
@@ -1194,16 +1203,16 @@ export const fetchTransitRouteDetail = async (
         }
     }
     if (!rel) {
-        const query = `[out:json];relation(${relId});(._;>;);out geom;`;
+        // Live fallback (cold city / non-relation area) — SLIM query, stops
+        // only (v1103), matching the prewarm shape: relation members + stop
+        // nodes, no way geometry.
+        const query = `[out:json];relation(${relId});out body;node(r);out body;`;
         data = await getOverpassData(query);
         rel = (data.elements ?? []).find(
             (e: any) => e.type === "relation" && String(e.id) === String(relId),
         );
     }
-    const nodeById = new Map<number, any>();
-    for (const e of data.elements ?? []) {
-        if (e.type === "node") nodeById.set(e.id, e);
-    }
+    const nodeById = nodeMapFrom(data.elements ?? []);
     const isStopNode = (node: any, role: string): boolean => {
         if (/^(stop|platform)/.test(role)) return true;
         const t = (node?.tags ?? {}) as Record<string, string>;
@@ -1215,25 +1224,19 @@ export const fetchTransitRouteDetail = async (
         );
     };
     const rawStops: TransitRouteStop[] = [];
-    const geometry: number[][] = [];
     for (const m of rel?.members ?? []) {
-        if (m.type === "node") {
-            const node = nodeById.get(m.ref);
-            if (!isStopNode(node, m.role ?? "")) continue;
-            const la = m.lat ?? node?.lat;
-            const ln = m.lon ?? node?.lon;
-            if (!Number.isFinite(la) || !Number.isFinite(ln)) continue;
-            rawStops.push({ lat: la, lng: ln, name: node?.tags?.name });
-        } else if (m.type === "way" && Array.isArray(m.geometry)) {
-            for (const g of m.geometry) {
-                if (g && Number.isFinite(g.lat) && Number.isFinite(g.lon))
-                    geometry.push([g.lon, g.lat]);
-            }
-        }
+        if (m.type !== "node") continue;
+        const node = nodeById.get(m.ref);
+        if (!isStopNode(node, m.role ?? "")) continue;
+        const la = m.lat ?? node?.lat;
+        const ln = m.lon ?? node?.lon;
+        if (!Number.isFinite(la) || !Number.isFinite(ln)) continue;
+        rawStops.push({ lat: la, lng: ln, name: node?.tags?.name });
     }
     // De-dupe stops: a PTv2 route lists a stop_position node AND a platform
     // node for the same stop. Collapse points within ~60 m, preferring the
-    // one that carries a name.
+    // one that carries a name. Member order is preserved, so the surviving
+    // stops stay in travel order.
     const stops: TransitRouteStop[] = [];
     for (const s of rawStops) {
         const near = stops.find(
@@ -1250,6 +1253,9 @@ export const fetchTransitRouteDetail = async (
         }
         stops.push({ ...s });
     }
+    // v1103: the line is drawn as straight segments between consecutive stops
+    // (a schematic metro-map line) — the prewarm no longer ships way geometry.
+    const geometry: number[][] = stops.map((s) => [s.lng, s.lat]);
     return { stops, geometry };
 };
 

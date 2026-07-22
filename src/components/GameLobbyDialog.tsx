@@ -747,40 +747,47 @@ export function GameLobbyDialog() {
                         </div>
                         {/* v1085: read-only game settings (the game is running, so
                             they can't be edited from here) — play area, size, and
-                            allowed transit, mirroring the pre-game header. */}
-                        <div className="flex items-center gap-1.5 flex-wrap">
+                            allowed transit, mirroring the pre-game header. v1103:
+                            the play area gets its OWN row, with size + transit on
+                            the row below. */}
+                        <div className="flex flex-col gap-2">
                             {cityName && (
                                 <span
-                                    className="inline-flex h-10 items-center gap-1.5 rounded-md bg-secondary/60 border border-border px-3 text-sm font-medium text-foreground max-w-[45%] truncate"
+                                    className="inline-flex h-10 w-fit max-w-full items-center gap-1.5 rounded-md bg-secondary/60 border border-border px-3 text-sm font-medium text-foreground"
                                     title={cityName}
                                 >
                                     <MapPin className="w-4 h-4 shrink-0 text-muted-foreground" />
                                     <span className="truncate">{cityName}</span>
                                 </span>
                             )}
-                            <SizeBadge
-                                size={$size}
-                                className="text-sm px-3 h-10 shadow-sm"
-                            />
-                            {$allowedTransit.length === 0 ? (
-                                <span className="inline-flex h-10 items-center rounded-md bg-secondary/60 border border-border px-3 text-sm text-muted-foreground italic">
-                                    Walking only
-                                </span>
-                            ) : (
-                                $allowedTransit.map((m) => {
-                                    const Icon = TRANSIT_ICONS[m];
-                                    return (
-                                        <span
-                                            key={m}
-                                            className={cn(GLASS_PILL, "shadow-sm")}
-                                            title={TRANSIT_LABELS[m]}
-                                            aria-label={TRANSIT_LABELS[m]}
-                                        >
-                                            <Icon className="w-5 h-5" />
-                                        </span>
-                                    );
-                                })
-                            )}
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                                <SizeBadge
+                                    size={$size}
+                                    className="text-sm px-3 h-10 shadow-sm"
+                                />
+                                {$allowedTransit.length === 0 ? (
+                                    <span className="inline-flex h-10 items-center rounded-md bg-secondary/60 border border-border px-3 text-sm text-muted-foreground italic">
+                                        Walking only
+                                    </span>
+                                ) : (
+                                    $allowedTransit.map((m) => {
+                                        const Icon = TRANSIT_ICONS[m];
+                                        return (
+                                            <span
+                                                key={m}
+                                                className={cn(
+                                                    GLASS_PILL,
+                                                    "shadow-sm",
+                                                )}
+                                                title={TRANSIT_LABELS[m]}
+                                                aria-label={TRANSIT_LABELS[m]}
+                                            >
+                                                <Icon className="w-5 h-5" />
+                                            </span>
+                                        );
+                                    })
+                                )}
+                            </div>
                         </div>
                     </div>
                 ) : (

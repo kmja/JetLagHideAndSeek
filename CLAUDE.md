@@ -432,6 +432,40 @@ bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
 build stamp. Current: `v1069`. Use `git log` for the per-version detail;
 
+**v1103 — transit-routes prewarm slimmed to STOPS-ONLY (fixes the silent "over cap"
+skip for big metros) + client draws straight-line schematics + lobby row-break.**
+The transit-line prewarm query was `out tags geom` — every rail line's FULL way
+geometry. In a dense metro that's enormous: Paris rail was **80 MB**, over the
+60 MB store cap, so the laptop/worker SILENTLY SKIPPED it — the transit-line
+question fell back to LIVE Overpass for Paris (and London/Tokyo/… — any metro
+whose route geometry exceeds 60 MB). Everything else (refs/stations/water/…)
+stored fine; only this bucket, only the biggest cities.
+- **New query is stops-only:** `relation[…]; out body; node(r); out body;` — route
+  relations' member list + just the stop NODES, NO way geometry. Even the densest
+  metro now fits. Rail + bus builders (worker `transitRoutesQuery`/`busTransitRoutesQuery`
+  + laptop, byte-identical).
+- **The client draws the line as straight segments between consecutive stops** (a
+  schematic metro-map line) — the stops come out in travel order (member order),
+  so `fetchTransitRouteDetail` sets `geometry = stops.map(...)`. `routeStopCoords`
+  (via a node-id map) replaces the way-vertex proximity test in `findTransitRoutesNear`;
+  the live detail fallback uses the same slim query.
+- **Existing R2 entries migrate WITHOUT re-fetching from Overpass.** The slim query
+  changed the R2 key, so a PRE-v1103 full-geom entry misses under the new key.
+  `handleTransitRoutesByRelation` LAZY-MIGRATES on that miss: it reads the old
+  full-geom entry (old key via `transitRoutesQueryFull`), transforms it in place
+  (`slimTransitRoutesBody` — keeps relations + member lists stripped of geometry +
+  the stop nodes with coords from the old `out geom` member lat/lon), and stores it
+  under the new key. One R2 read + a JSON transform, zero upstream. So every already-
+  cached city self-migrates on first request; Paris (never stored) just gets a fresh —
+  now tiny — slim fetch. The laptop skips re-fetching a city whose old full entry is
+  still cached (the serve path migrates it). `X-Serve: slim-migrated` marks a migrated
+  response; inspect-encoding's `transit-routes` kind now uses the slim query.
+- **v1102's bus prewarm** would have hit the same 60 MB wall for big metros; the
+  stops-only query fixes bus too.
+- **Lobby (in-game settings row):** the play-area badge now sits on its OWN row with
+  the size badge + transit icons on the row below (`flex flex-col`), instead of
+  wrapping together.
+
 **v1102 — bus lines added to the "Transit line" prewarm (ISOLATED) + blocked-curse
 hand copy trimmed.**
 - **Bus routes are now prewarmed** for the transit-line question, so a bus-allowed
