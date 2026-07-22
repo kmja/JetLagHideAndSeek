@@ -42,13 +42,19 @@ export function HiderShell() {
             style={{
                 // Reserve the HiderHandFan's peek-strip height when a hand
                 // is held, so the bottom nav lands directly above the
-                // (still fixed) fan. The safe-area-inset-bottom is NOT added
-                // here — as container padding it lifted the nav and left a
-                // background gap below it (the iOS "empty space under the
-                // footer" bug); the nav owns that inset itself (like the
-                // seeker BottomNav), so its background fills to the screen
-                // edge with content padded up.
-                paddingBottom: hasCards ? `${FAN_HEIGHT_PX}px` : 0,
+                // (still fixed) fan. v1113: on iOS the fan's cards are lifted
+                // by `env(safe-area-inset-bottom)` (to clear the home
+                // indicator) and its backdrop grows to match, so the
+                // reservation MUST include the same inset — otherwise the
+                // lifted cards intrude into the nav's slot (they peeked ~34px
+                // further + overlapped the nav on iPhone). The inset is 0 off
+                // iOS, so Android/desktop are unchanged. Only added when a
+                // hand is held (the fan covers the bottom edge, so there's no
+                // "empty space under the footer" gap — that only happened for
+                // the no-cards nav, which still owns its own inset).
+                paddingBottom: hasCards
+                    ? `calc(${FAN_HEIGHT_PX}px + env(safe-area-inset-bottom))`
+                    : 0,
             }}
             header={<HiderTopBar />}
             footer={<HiderBottomNav />}

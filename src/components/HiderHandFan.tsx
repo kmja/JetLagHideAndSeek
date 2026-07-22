@@ -433,7 +433,13 @@ function Fan({
                 // edge); the peek-preview lifts the active card UP
                 // above the strip — overflow is intentionally visible
                 // so that gesture isn't clipped.
-                height: PEEK_OFFSET + 16,
+                // v1113: the strip height GROWS by the iOS safe-area inset so
+                // the backdrop fills to the screen edge (matching the
+                // paddingBottom that lifts the cards clear of the home
+                // indicator) and meets the nav, which reserves the SAME inset
+                // in HiderShell. The inset is 0 off iOS, so nothing changes on
+                // Android/desktop.
+                height: `calc(${PEEK_OFFSET + 16}px + env(safe-area-inset-bottom))`,
                 paddingBottom: "env(safe-area-inset-bottom)",
             }}
         >

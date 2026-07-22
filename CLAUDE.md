@@ -432,6 +432,18 @@ bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
 build stamp. Current: `v1069`. Use `git log` for the per-version detail;
 
+**v1113 — hider hand cards peek too far / overlap the nav on iPhone (safe-area
+fix).** Same safe-area family as the empty-footer bug. The `HiderHandFan` strip
+lifts its cards by `env(safe-area-inset-bottom)` (to clear the iOS home
+indicator), but `HiderShell` reserved a FIXED `FAN_HEIGHT_PX` (69px) with no
+inset — so on iPhone the ~34px-lifted cards peeked that much further AND
+intruded into the bottom nav's reserved slot. Fix: both the fan's strip
+`height` and the shell's has-cards `paddingBottom` reservation now add
+`env(safe-area-inset-bottom)` (the fan's backdrop grows to fill the inset + meet
+the nav; the nav sits above the taller fan). The inset is 0 off iOS, so
+Android/desktop are unchanged; only added when a hand is held (the fan covers
+the bottom edge, so no "empty space under the footer" gap).
+
 **v1112 — manual game pause is SYNCED to the whole room.** Pausing was
 device-LOCAL (`gamePause.ts`) — the pause state rode `RoundProgressShare`, which
 only fans to other HIDERS, so seekers' clocks kept running (the reported bug).
