@@ -165,7 +165,9 @@ Both endpoints are relation-id-keyed R2 reads (client `runBboxOverpassFetch` →
 - `satelliteView`, `showTransitLines` — boolean toggles for map overlays
 - `setupDialogOpen` — volatile, not persisted
 
-**Wizard defaults from play-area size (v760–v761).** Both wizards (`SetupPage` = first-time/new-game at `/setup`; `GameSetupDialog` = edit-settings) auto-default game size AND allowed transit from the play area, until the user overrides either by hand (tracked by `sizeManuallySet` / `transitManuallySet`, both init `true` in edit mode so a saved game isn't clobbered). The pure helpers live in **`src/lib/playAreaSize.ts`** (v761 — extracted from `GameSetupDialog` so the eager `AppSettingsDrawer` can measure the committed area without pulling the lazy setup dialog into its bundle): `sizeForAreaKm2(km2)` (rulebook S/M/L bands), `estimateAreaKm2`/`estimateTotalAreaKm2(primary, adjacents)` (bbox×`BBOX_FILL_FACTOR` estimate, summed over the primary + EVERY added `additionalMapGeoLocations` entry — so adjacents ARE counted toward the size, the previous gap), `exactTotalAreaKm2(primary, adjacents)` (**v761: the EXACT area** — `turf.area` over each area's real OSM relation boundary, already warmed by `PlayAreaPreviewMap`'s `fetchRawBoundaryPolygon`, memoised per relation id in `src/maps/api/boundaryArea.ts` `fetchExactAreaKm2`, bbox fallback per piece), `formatAreaLabel`, `inferTransitModes(size)`: **Small = bus+tram, Medium = tram+subway+train, Large = tram+subway+train+ferry** (bus dropped for M/L — too slow/local past a walkable metro core; walking always implicit), and `sameModes`. Two decoupled effects: (1) size — seeds synchronously from the bbox estimate then REFINES with the exact boundary area, deps `[draftFeature, additionalAreas, sizeManuallySet]` (NOT `draftSize`, so the async refine can't fight the sync seed); (2) transit — derives from the effective `draftSize` (so a manual size bump re-defaults the untouched transit set, e.g. Large pulls in ferry), guarded by `sameModes`.
+**Wizard defaults from play-area size (v760–v761).** Both wizards (`SetupPage` = first-time/new-game at `/setup`; `GameSetupDialog` = edit-settings) auto-default game size AND allowed transit from the play area, until the user overrides either by hand (tracked by `sizeManuallySet` / `transitManuallySet`, both init `true` in edit mode so a saved game isn't clobbered). The pure helpers live in **`src/lib/playAreaSize.ts`** (v761 — extracted from `GameSetupDialog` so the eager `AppSettingsDrawer` can measure the committed area without pulling the lazy setup dialog into its bundle): `sizeForAreaKm2(km2)` (rulebook S/M/L bands), `estimateAreaKm2`/`estimateTotalAreaKm2(primary, adjacents)` (bbox×`BBOX_FILL_FACTOR` estimate, summed over the primary + EVERY added `additionalMapGeoLocations` entry — so adjacents ARE counted toward the size, the previous gap), `exactTotalAreaKm2(primary, adjacents)` (**v761: the EXACT area** — `turf.area` over each area's real OSM relation boundary, already warmed by `PlayAreaPreviewMap`'s `fetchRawBoundaryPolygon`, memoised per relation id in `src/maps/api/boundaryArea.ts` `fetchExactAreaKm2`, bbox fallback per piece), `formatAreaLabel`, `inferTransitModes(size)`: **Small = bus+tram, Medium = tram+subway+train, Large = tram+subway+train+ferry** (bus dropped for M/L — too slow/local past a walkable metro core; walking always implicit), and `sameModes`. Two decoupled effects: (1) size — seeds synchronously from the bbox estimate then REFINES with the exact boundary area, deps `[draftFeature, additionalAreas, sizeManuallySet]` (NOT `draftSize`, so the async refine can't fight the sync seed); (2) transit — seeds synchronously from the size fallback then REFINES from the play area's ACTUAL modes (see the presence-aware section below), guarded by `sameModes`.
+
+**Presence-aware transit defaults (v1098).** Now that starred cities are prewarmed, the wizard defaults the allowed-transit set to the modes the play area ACTUALLY has, not a pure size guess. `detectAreaTransitCounts(relationIds)` (`journey/stations.ts`) counts candidate stations per mode from the prewarmed all-mode station field (`/api/area-stations/<id>` via `fetchPrewarmedStations`, Overpass-free for a warm city; `ids[0]` = primary, returns null when the primary is cold → size fallback, background-warms cold ids). `defaultTransitModes(size, counts)` (`playAreaSize.ts`, unit-tested `tests/transitDefaults.test.ts`): every rail mode present (subway/train/tram) defaults ON; ferry ON only if ferry stops exist (kills the landlocked "ferry on" default); **BUS is driven by rail DENSITY, not size** — a subway, OR a train network ≥ `TRAIN_HEAVY_STATION_COUNT` (12, catching a subway tagged as `train`), marks a rail-dense metro where bus is dropped; in a rail-light area (no subway, few/no trains) bus IS the backbone and stays on. `counts === null`/all-zero → the size-only `inferTransitModes(size)` fallback (Small = bus+tram, Medium = tram+subway+train, Large = +ferry). Both wizards' transit effect seeds the size fallback synchronously then refines once `detectAreaTransitCounts` resolves (deps now include `draftFeature` + `additionalAreas`; `playAreaRelationIds(primary, adjacents)` derives the ids pre-commit since the committed-atom `playAreaRelationIdsAll` can't be used yet). A manual toggle (`transitManuallySet`) still wins.
 
 **Preload estimate uses the committed area (v761 fix).** `AppSettingsDrawer`'s "Preload during hiding" panel rendered `PreloadChoicesPanel` with NO `areaKm2`, so it always showed the null-area fallback (~19 MB) regardless of city. It now passes `estimateTotalAreaKm2(mapGeoLocation, additionalMapGeoLocations)`; `GameSetupDialog`'s step-4 preload likewise now includes adjacents.
 
@@ -429,6 +431,32 @@ shown in the debug panel header (`DebugPhaseControls`) and the collapsed
 bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
 build stamp. Current: `v1069`. Use `git log` for the per-version detail;
+
+**v1098 — presence-aware wizard transit defaults (default to what the area
+actually has).** Now that most played cities are prewarmed, the setup wizard no
+longer guesses the allowed-transit set purely from game SIZE — it defaults to the
+modes that ACTUALLY have stops in the play area, read from the prewarmed all-mode
+station field (Overpass-free for a starred city).
+- **`detectAreaTransitCounts(relationIds)`** (`journey/stations.ts`) counts
+  candidate stations per mode from `/api/area-stations/<id>` (per-relation, so it
+  works at wizard DRAFT time before the play area is committed). `ids[0]` is the
+  primary; returns null when the primary isn't warmed yet (→ size fallback) and
+  background-warms cold ids so the next attempt is complete.
+- **`defaultTransitModes(size, counts)`** (`playAreaSize.ts`, unit-tested
+  `tests/transitDefaults.test.ts`): every rail mode present (subway/train/tram)
+  defaults ON; ferry ON only if ferry stops exist (no more landlocked "ferry on");
+  **bus is driven by rail DENSITY, not size** — a subway, or a heavy train network
+  (≥ `TRAIN_HEAVY_STATION_COUNT` = 12, catching a subway tagged as `train`), marks
+  a rail-dense metro where bus is dropped, while a rail-light area keeps bus as the
+  backbone (fixes bus-only US/AU metros previously defaulting to rail-only → NO
+  usable transit). `counts === null`/all-zero → the old size-only `inferTransitModes`
+  fallback for cold/custom areas.
+- **Both wizards** (`SetupPage`, `GameSetupDialog`) seed the size fallback
+  synchronously then refine from `detectAreaTransitCounts` once it resolves (deps
+  now include `draftFeature` + `additionalAreas`; `playAreaRelationIds` derives the
+  ids pre-commit). A manual toggle (`transitManuallySet`) still wins.
+- Design per user direction: rail-density (subway present OR many train stations),
+  not size, is the signal that bus would be too much.
 
 **v1097 — Hidden Hangman reworked to HIDER-ADJUDICATED (the hider picks the word
 each round + reveals every guess).** Per the user's revision of v1096 ("the hider

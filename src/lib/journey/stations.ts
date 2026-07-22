@@ -290,6 +290,50 @@ async function fetchPrewarmedStations(
 }
 
 /**
+ * Count the prewarmed candidate stations PER transit mode across a set of
+ * play-area OSM relations (v1098). The setup wizard uses this to DEFAULT
+ * the allowed-transit set to what the area ACTUALLY has, instead of
+ * guessing from game size. Reads the same prewarmed all-mode station
+ * endpoint the hiding-zones overlay uses, so it's Overpass-free for a
+ * starred city.
+ *
+ * `relationIds[0]` is treated as the primary: we return null (→ the caller
+ * falls back to the size heuristic) when the primary isn't warmed yet, or
+ * no relation ids were given. Cold ids are background-warmed so a later
+ * attempt succeeds. Not culled to the polygon — a rough per-mode count
+ * needs no exactness, and the wizard hasn't committed a polygon yet.
+ */
+export async function detectAreaTransitCounts(
+    relationIds: number[],
+): Promise<Record<TransitMode, number> | null> {
+    if (relationIds.length === 0) return null;
+    const results = await Promise.all(
+        relationIds.map((id) => fetchPrewarmedStations(id)),
+    );
+    // Background-warm any cold area so a later attempt is complete.
+    relationIds.forEach((id, i) => {
+        if (results[i] === null) requestStationWarm(id);
+    });
+    // Need the PRIMARY warm to trust the counts at all.
+    if (results[0] === null) return null;
+    const counts: Record<TransitMode, number> = {
+        subway: 0,
+        train: 0,
+        tram: 0,
+        bus: 0,
+        ferry: 0,
+    };
+    for (const els of results) {
+        if (!els) continue;
+        for (const el of els) {
+            const mode = inferMode(el.tags ?? {});
+            if (mode) counts[mode]++;
+        }
+    }
+    return counts;
+}
+
+/**
  * Fan the prewarmed station endpoint over EVERY play-area relation
  * (primary + each added adjacent area) and return the unioned,
  * play-area-culled elements — but ONLY when every area is warm. If ANY

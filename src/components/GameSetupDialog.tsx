@@ -65,14 +65,16 @@ import {
     reverseGeocodeCity,
 } from "@/maps/api";
 import {
+    defaultTransitModes,
     estimateTotalAreaKm2,
     exactTotalAreaKm2,
     formatAreaLabel,
     inferGameSize,
-    inferTransitModes,
+    playAreaRelationIds,
     sameModes,
     sizeForAreaKm2,
 } from "@/lib/playAreaSize";
+import { detectAreaTransitCounts } from "@/lib/journey/stations";
 import { commitPlayAreaChange } from "@/lib/playAreaCommit";
 import { triggerPolygonsOsmFrBuild } from "@/maps/api/polygonsOsmFr";
 import {
@@ -283,16 +285,30 @@ export function GameSetupDialog() {
         };
     }, [$open, draftFeature, $additionalAreas, sizeManuallySet]);
 
-    // Auto allowed-transit from the EFFECTIVE game size (`inferTransitModes`)
-    // unless the user toggled a mode by hand. Keyed on `draftSize`, so it
-    // re-derives whether the size changed via the auto-infer above OR a
-    // manual size pick (bumping to Large pulls in ferry). Guarded setter
-    // avoids a redundant write. `$open`-gated for the same reason as above.
+    // Auto allowed-transit — PRESENCE-AWARE (v1098). Seed synchronously from
+    // the size-only fallback so there's always a value, then REFINE from the
+    // play area's ACTUAL transit modes (the prewarmed station field, so it's
+    // Overpass-free for a starred city; cold/custom areas keep the fallback).
+    // `defaultTransitModes` drops bus in rail-dense metros (subway present, or
+    // a heavy `train` network likely a subway tagged as train) and never
+    // defaults a mode the area lacks (no more landlocked ferry). Skipped once
+    // the user toggles a mode by hand. `$open`-gated for the same reason as
+    // the size effect above.
     useEffect(() => {
         if (!$open || transitManuallySet) return;
-        const modes = inferTransitModes(draftSize);
-        setDraftTransit((prev) => (sameModes(prev, modes) ? prev : modes));
-    }, [$open, draftSize, transitManuallySet]);
+        let cancelled = false;
+        const fallback = defaultTransitModes(draftSize, null);
+        setDraftTransit((prev) => (sameModes(prev, fallback) ? prev : fallback));
+        const ids = playAreaRelationIds(draftFeature, $additionalAreas);
+        detectAreaTransitCounts(ids).then((counts) => {
+            if (cancelled || !counts) return;
+            const modes = defaultTransitModes(draftSize, counts);
+            setDraftTransit((prev) => (sameModes(prev, modes) ? prev : modes));
+        });
+        return () => {
+            cancelled = true;
+        };
+    }, [$open, draftSize, transitManuallySet, draftFeature, $additionalAreas]);
 
     // Clear picked neighbours only when the primary play area genuinely
     // CHANGES to a DIFFERENT area than the one the saved neighbours

@@ -140,21 +140,111 @@ export async function exactTotalAreaKm2(
     return any && total > 0 ? total : null;
 }
 
+/** Per-mode station counts for a play area (from the prewarmed station
+ *  field), used to default the allowed-transit set to what actually exists. */
+export type TransitCounts = Record<TransitMode, number>;
+
 /**
- * Default allowed transit modes for a recommended game size (walking is
- * always implicit). Larger play areas lean on rail — buses are too
- * slow/local to matter once the area outgrows a walkable metro core — so
- * the bus is dropped for Medium and Large:
- *   - Small  → bus + tram                 (local surface transit)
+ * A train-station count at or above this in the play area is taken as a
+ * heavy rail network — either genuine commuter rail, or (commonly) a
+ * subway/metro whose stops are tagged `railway=station`/`train` rather
+ * than `subway`. Either way it's a rail-dense metro where the bus is too
+ * slow/noisy to be a useful default. Tunable.
+ */
+export const TRAIN_HEAVY_STATION_COUNT = 12;
+
+/**
+ * Size-only fallback for the allowed transit set when we have no station
+ * data for the area (a cold/un-prewarmed city or a custom polygon). Larger
+ * areas lean on rail; the bus is dropped for Medium/Large:
+ *   - Small  → bus + tram
  *   - Medium → tram + subway + train
  *   - Large  → tram + subway + train + ferry
- * A seeded/edited game keeps its saved set; this only feeds the wizard's
- * auto-default, and the player can still toggle any mode by hand.
  */
 export function inferTransitModes(size: GameSize): TransitMode[] {
     if (size === "small") return ["bus", "tram"];
     if (size === "medium") return ["tram", "train", "subway"];
     return ["tram", "train", "subway", "ferry"];
+}
+
+/**
+ * Default allowed transit modes for a play area (walking is always
+ * implicit). PRESENCE-AWARE (v1098): now that starred cities are
+ * prewarmed, we default to the modes that ACTUALLY have stops in the area
+ * (from `detectAreaTransitCounts`), instead of guessing purely from game
+ * size. Policy:
+ *   - Every rail mode present (subway / train / tram) is defaulted ON —
+ *     that's the metro's backbone.
+ *   - Ferry ON only if ferry stops actually exist (kills the landlocked
+ *     "ferry on" default).
+ *   - BUS is the judgment call, driven by rail DENSITY, not size: a subway
+ *     — or a train network big enough (`TRAIN_HEAVY_STATION_COUNT`) that
+ *     it's likely a subway tagged as `train` — marks a rail-dense metro
+ *     where bus would be too much, so bus is dropped. In a rail-light area
+ *     (no subway, few/no trains) the bus IS the backbone and stays on.
+ *   - No station data at all → the size-only `inferTransitModes` fallback.
+ * A seeded/edited game keeps its saved set; this only feeds the wizard's
+ * auto-default, and the player can still toggle any mode by hand.
+ */
+export function defaultTransitModes(
+    size: GameSize,
+    counts: TransitCounts | null,
+): TransitMode[] {
+    if (!counts) return inferTransitModes(size);
+    const total =
+        counts.subway + counts.train + counts.tram + counts.bus + counts.ferry;
+    if (total === 0) return inferTransitModes(size); // no usable data → guess
+
+    const has = (m: TransitMode) => counts[m] > 0;
+    const heavyRail =
+        has("subway") || counts.train >= TRAIN_HEAVY_STATION_COUNT;
+
+    const modes: TransitMode[] = [];
+    if (has("subway")) modes.push("subway");
+    if (has("train")) modes.push("train");
+    if (has("tram")) modes.push("tram");
+    if (has("ferry")) modes.push("ferry");
+    // Bus only where the area isn't a rail-dense metro.
+    if (has("bus") && !heavyRail) modes.push("bus");
+
+    // Degenerate safety (unreachable when total > 0): always leave a mode on.
+    if (modes.length === 0) {
+        if (has("bus")) modes.push("bus");
+        else return inferTransitModes(size);
+    }
+    return modes;
+}
+
+/**
+ * Play-area OSM relation ids — primary first, then each added adjacent
+ * area that's a relation — from the wizard's DRAFT feature + adjacents
+ * (the committed-atom `playAreaRelationIdsAll` in stations.ts can't be
+ * used pre-commit). Feeds `detectAreaTransitCounts`; `ids[0]` is the
+ * primary. Includes any adjacent with a relation location, mirroring how
+ * `estimateTotalAreaKm2` counts them.
+ */
+export function playAreaRelationIds(
+    primary: OpenStreetMap | null,
+    adjacents: Array<{ location?: OpenStreetMap | null }>,
+): number[] {
+    const rid = (f?: OpenStreetMap | null): number | null => {
+        const p = f?.properties as
+            | { osm_id?: number; osm_type?: string }
+            | undefined;
+        return p?.osm_type === "R" &&
+            typeof p.osm_id === "number" &&
+            p.osm_id > 0
+            ? p.osm_id
+            : null;
+    };
+    const ids: number[] = [];
+    const pid = rid(primary);
+    if (pid !== null) ids.push(pid);
+    for (const a of adjacents) {
+        const id = rid(a?.location);
+        if (id !== null && !ids.includes(id)) ids.push(id);
+    }
+    return ids;
 }
 
 /** Order-insensitive transit-mode set comparison. */

@@ -9,12 +9,14 @@ import {
     TransitStep,
 } from "@/components/GameSetupDialog";
 import {
+    defaultTransitModes,
     estimateTotalAreaKm2,
     exactTotalAreaKm2,
-    inferTransitModes,
+    playAreaRelationIds,
     sameModes,
     sizeForAreaKm2,
 } from "@/lib/playAreaSize";
+import { detectAreaTransitCounts } from "@/lib/journey/stations";
 import { WizardStepper } from "@/components/WizardStepper";
 import { Button } from "@/components/ui/button";
 import {
@@ -130,14 +132,26 @@ export function SetupPage() {
         };
     }, [draftFeature, $additionalAreas, sizeManuallySet]);
 
-    // Auto allowed-transit from the effective game size, unless the user
-    // toggled a mode by hand. Re-derives on any size change (auto or a
-    // manual size pick).
+    // Auto allowed-transit — PRESENCE-AWARE (v1098). Seed synchronously from
+    // the size-only fallback, then REFINE from the play area's ACTUAL transit
+    // modes (prewarmed station field, Overpass-free for a starred city).
+    // `defaultTransitModes` drops bus in rail-dense metros and never defaults
+    // a mode the area lacks. Skipped once the user toggles a mode by hand.
     useEffect(() => {
         if (transitManuallySet) return;
-        const modes = inferTransitModes(draftSize);
-        setDraftTransit((prev) => (sameModes(prev, modes) ? prev : modes));
-    }, [draftSize, transitManuallySet]);
+        let cancelled = false;
+        const fallback = defaultTransitModes(draftSize, null);
+        setDraftTransit((prev) => (sameModes(prev, fallback) ? prev : fallback));
+        const ids = playAreaRelationIds(draftFeature, $additionalAreas);
+        detectAreaTransitCounts(ids).then((counts) => {
+            if (cancelled || !counts) return;
+            const modes = defaultTransitModes(draftSize, counts);
+            setDraftTransit((prev) => (sameModes(prev, modes) ? prev : modes));
+        });
+        return () => {
+            cancelled = true;
+        };
+    }, [draftSize, transitManuallySet, draftFeature, $additionalAreas]);
 
     // Wipe any adjacent picks when the primary area genuinely CHANGES
     // to a different area — stale neighbours from a different region
