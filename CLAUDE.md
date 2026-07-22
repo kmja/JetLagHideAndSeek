@@ -430,6 +430,16 @@ bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
 build stamp. Current: `v1069`. Use `git log` for the per-version detail;
 
+**v1092 — transit-line answer dialog marks the seeker's line + stops.** The
+hider's answer-comparison map (`HiderMap`) drew only the generic seeker pin for a
+`same-train-line` matching question, so the hider couldn't see which stations
+count as "on the line" (the answer is yes iff their zone is one of the route's
+selected stops). It now reads `question.data.transitRoute` and draws the line
+geometry (white casing + purple core) plus every selected STOP as a purple dot +
+name label (`Noto Sans Regular`, `minzoom 12`, overlap-culled). The one-shot
+fit-bounds (`collectFitPoints`) folds the stops in so the whole line frames next
+to the hider's pin. Purely additive — every other question type is unchanged.
+
 **v1091 — seeker/hider hiding-zone overlay parity (station set + tap-anywhere).**
 Two real discrepancies between the seeker's and hider's hiding-zone overlays:
 - **Seeker was missing bus (and other) stations the hider showed.** The HIDER

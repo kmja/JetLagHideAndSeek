@@ -388,6 +388,74 @@ export function HiderMap({
                     </Source>
                 )}
 
+                {/* Same-train-line: the seeker's transit line + its selected
+                    stops. The hider's zone is a "match" iff it's one of these
+                    stops, so drawing them makes the answer legible. */}
+                {overlay.routeLine && (
+                    <Source
+                        id="hm-route-line"
+                        type="geojson"
+                        data={overlay.routeLine}
+                    >
+                        <Layer
+                            id="hm-route-line-casing"
+                            type="line"
+                            layout={{ "line-cap": "round", "line-join": "round" }}
+                            paint={{
+                                "line-color": "#ffffff",
+                                "line-width": 6,
+                                "line-opacity": 0.85,
+                            }}
+                        />
+                        <Layer
+                            id="hm-route-line-core"
+                            type="line"
+                            layout={{ "line-cap": "round", "line-join": "round" }}
+                            paint={{ "line-color": "#7c3aed", "line-width": 3 }}
+                        />
+                    </Source>
+                )}
+                {overlay.routeStops && (
+                    <Source
+                        id="hm-route-stops"
+                        type="geojson"
+                        data={overlay.routeStops}
+                    >
+                        <Layer
+                            id="hm-route-stops-dot"
+                            type="circle"
+                            paint={{
+                                "circle-radius": 5,
+                                "circle-color": "#7c3aed",
+                                "circle-stroke-color": "#ffffff",
+                                "circle-stroke-width": 2,
+                            }}
+                        />
+                        <Layer
+                            id="hm-route-stops-label"
+                            type="symbol"
+                            minzoom={12}
+                            filter={["!=", ["get", "name"], ""]}
+                            layout={{
+                                "text-field": ["get", "name"],
+                                "text-size": 11,
+                                "text-offset": [0, 1.1],
+                                "text-anchor": "top",
+                                "text-font": ["Noto Sans Regular"],
+                                "text-optional": true,
+                                "text-allow-overlap": false,
+                            }}
+                            paint={{
+                                "text-color":
+                                    $theme === "dark" ? "#f8fafc" : "#0f172a",
+                                "text-halo-color":
+                                    $theme === "dark" ? "#0f172a" : "#f8fafc",
+                                "text-halo-width": 1.4,
+                            }}
+                        />
+                    </Source>
+                )}
+
                 {/* Dashed connection(s) from hider to seeker point(s) — hidden
                     when the reference comparison lines are shown instead. */}
                 {overlay.hiderConnections && !showRefComparison && (
@@ -518,6 +586,11 @@ interface Overlay {
     thermometerArrow: { lat: number; lng: number; bearing: number } | null;
     hiderConnections: GeoJSON.FeatureCollection<GeoJSON.LineString> | null;
     seekerPins: [number, number][];
+    // Same-train-line matching: the route the seekers are riding — its line
+    // geometry + every selected STOP, so the hider sees which stations count as
+    // "on the line" (their zone is a match iff it's one of these stops).
+    routeLine: GeoJSON.Feature<GeoJSON.LineString> | null;
+    routeStops: GeoJSON.FeatureCollection<GeoJSON.Point> | null;
 }
 
 /** Question-only geometry — no hider input. Memoised on
@@ -532,6 +605,8 @@ function buildQuestionGeometry(
         thermometerLine: null,
         thermometerArrow: null,
         seekerPins: [],
+        routeLine: null,
+        routeStops: null,
     };
     const d = question.data as Record<string, unknown>;
 
@@ -582,7 +657,50 @@ function buildQuestionGeometry(
     ) {
         const lat = d.lat as number;
         const lng = d.lng as number;
-        out.seekerPins.push([lng, lat]);
+        if (Number.isFinite(lat) && Number.isFinite(lng))
+            out.seekerPins.push([lng, lat]);
+        // Same-train-line: draw the seeker's line + its selected stops so the
+        // hider can see exactly which stations are "on the line".
+        if (question.id === "matching" && d.type === "same-train-line") {
+            const tr = d.transitRoute as
+                | {
+                      stops?: { lat: number; lng: number; name?: string }[];
+                      geometry?: number[][];
+                  }
+                | undefined;
+            const stops = (tr?.stops ?? []).filter(
+                (s) =>
+                    Number.isFinite(s.lat) &&
+                    Number.isFinite(s.lng) &&
+                    !(s.lat === 0 && s.lng === 0),
+            );
+            if (stops.length > 0) {
+                out.routeStops = {
+                    type: "FeatureCollection",
+                    features: stops.map((s) => ({
+                        type: "Feature",
+                        properties: { name: s.name ?? "" },
+                        geometry: {
+                            type: "Point",
+                            coordinates: [s.lng, s.lat],
+                        },
+                    })),
+                };
+            }
+            const geom = (tr?.geometry ?? []).filter(
+                (p) =>
+                    Array.isArray(p) &&
+                    Number.isFinite(p[0]) &&
+                    Number.isFinite(p[1]),
+            );
+            if (geom.length >= 2) {
+                out.routeLine = {
+                    type: "Feature",
+                    properties: {},
+                    geometry: { type: "LineString", coordinates: geom },
+                };
+            }
+        }
         return out;
     }
 
@@ -679,6 +797,22 @@ function collectFitPoints(
         pts.push([d.lngB as number, d.latB as number]);
     } else if (typeof d.lat === "number" && typeof d.lng === "number") {
         pts.push([d.lng, d.lat]);
+    }
+
+    // Same-train-line: frame the seeker's line stops too so the whole line is
+    // visible next to the hider's pin.
+    if (question.id === "matching" && d.type === "same-train-line") {
+        const tr = d.transitRoute as
+            | { stops?: { lat: number; lng: number }[] }
+            | undefined;
+        for (const s of tr?.stops ?? []) {
+            if (
+                Number.isFinite(s.lat) &&
+                Number.isFinite(s.lng) &&
+                !(s.lat === 0 && s.lng === 0)
+            )
+                pts.push([s.lng, s.lat]);
+        }
     }
 
     if (hiderPos) pts.push([hiderPos.lng, hiderPos.lat]);
