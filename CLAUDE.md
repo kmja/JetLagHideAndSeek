@@ -430,6 +430,22 @@ bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
 build stamp. Current: `v1069`. Use `git log` for the per-version detail;
 
+**v1094 — Bridge Troll casting-cost constraint is ENFORCED.** The location-based
+casting-cost CONSTRAINTS were only DISPLAYED (the cast dialog rendered the cost
+text) and left to self-attestation. Curse of the Bridge Troll's "the seekers
+must be at least 2 km (S) / 10 km (M) / 50 km (L) from you" is now ENFORCED: new
+`src/lib/castingConstraint.ts` (`evaluateBridgeTroll`, unit-tested) computes the
+nearest seeker's distance from the hider using the hider's own GPS
+(`lastKnownPosition`) + the seekers' last-shared positions (`seekerLocations`),
+and `CastCurseDialog` blocks the "Cast curse" button (with an explanatory banner
+naming the current distance + the required minimum) until the seekers are far
+enough. Fail-safe: when the data isn't available (no hider fix, no seeker has
+shared, solo/offline) the result is `unknown` → the cast is ALLOWED, so a
+legitimate cast is never false-blocked. The genuinely un-verifiable constraints
+(Water Weight's "near water", U-Turn's "heading the wrong way", Distant Cuisine's
+"at the restaurant", "must be outside") stay displayed + self-attested — GPS/water
+enforcement there risks false-blocking on fallible data.
+
 **v1093 — Jammed Door cooldown is SERVER-SHARED + restart-proof.** The Curse of
 the Jammed Door doorway cooldown (after a failed 2d6 roll the seekers wait
 5/10/15 min to re-roll, rulebook p396) was device-LOCAL (v1032) — a seeker could

@@ -40,6 +40,11 @@ import {
     eligibleForDiscardCost,
     parseDiscardCost,
 } from "@/lib/castingCost";
+import {
+    CURSE_BRIDGE_TROLL,
+    evaluateBridgeTroll,
+} from "@/lib/castingConstraint";
+import { lastKnownPosition } from "@/lib/context";
 import { preparePhotoForSend } from "@/lib/photo";
 import {
     activeBlockingCurse,
@@ -229,6 +234,22 @@ export function CastCurseDialog({
         if ($playArea) return { lat: $playArea.lat, lng: $playArea.lng };
         return { lat: 0, lng: 0 };
     }, [$seekerLocs, $playArea]);
+    // v1094: Bridge Troll casting-cost constraint — the seekers must be at
+    // least 2/10/50 km from the hider. Evaluated from the hider's own GPS +
+    // the seekers' last-shared positions; `unknown` (no fix / nobody has
+    // shared) → allowed, so a legitimate cast is never false-blocked on
+    // missing data. Kept ABOVE the `!card` early return for stable hook order.
+    const $hiderPos = useStore(lastKnownPosition);
+    const bridgeTroll = useMemo(() => {
+        if (!card || card.name !== CURSE_BRIDGE_TROLL) return null;
+        const seekerPts = Object.values($seekerLocs).map((l) => ({
+            lat: l.lat,
+            lng: l.lng,
+        }));
+        return evaluateBridgeTroll($gameSize, $hiderPos, seekerPts);
+    }, [card, $seekerLocs, $hiderPos, $gameSize]);
+    const bridgeTrollBlocked = bridgeTroll?.status === "blocked";
+
     const blockedByEndgame =
         $endgameStartedAt !== null &&
         !!card &&
@@ -568,6 +589,8 @@ export function CastCurseDialog({
         !blockedByActiveCurse &&
         // Card text: "cannot be played during the endgame".
         !blockedByEndgame &&
+        // Bridge Troll casting cost: the seekers must be far enough away.
+        !bridgeTrollBlocked &&
         // Cards with a fizzle rule need a SETTLED roll before the
         // action button enables; cards without can cast right away.
         (fizzleRule === undefined || settled !== null) &&
@@ -1628,6 +1651,28 @@ export function CastCurseDialog({
                         >
                             The endgame has begun — this curse can&apos;t be
                             played during the endgame (see the card text).
+                        </div>
+                    )}
+
+                    {/* v1094: Bridge Troll casting cost — the seekers are too
+                        close to the hider to cast it yet. */}
+                    {bridgeTrollBlocked && bridgeTroll?.minKm != null && (
+                        <div
+                            className={cn(
+                                "rounded-sm border px-3 py-2",
+                                "border-destructive/40 bg-destructive/10",
+                                "text-xs leading-snug",
+                            )}
+                            role="status"
+                        >
+                            The seekers are only about{" "}
+                            {bridgeTroll.nearestKm != null
+                                ? bridgeTroll.nearestKm < 1
+                                    ? `${Math.round(bridgeTroll.nearestKm * 1000)} m`
+                                    : `${bridgeTroll.nearestKm.toFixed(1)} km`
+                                : "—"}{" "}
+                            away — they must be at least {bridgeTroll.minKm} km
+                            from you to cast this curse.
                         </div>
                     )}
 
