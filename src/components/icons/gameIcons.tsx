@@ -17,14 +17,16 @@ import { createLucideIcon, type LucideIcon } from "lucide-react";
  * lobed ends. (Overrides Lucide's `fill:none` per element.)
  */
 export const SkullCrossbones: LucideIcon = createLucideIcon("SkullCrossbones", [
+    // ── Crossbones (behind the skull): two thick rounded bones forming an X in
+    //    the lower half, each with a knob at both ends. ──
     [
         "line",
         {
-            x1: "6",
-            y1: "17.5",
-            x2: "18",
-            y2: "22.5",
-            strokeWidth: "2.6",
+            x1: "5.5",
+            y1: "17.8",
+            x2: "18.5",
+            y2: "22.8",
+            strokeWidth: "2.8",
             strokeLinecap: "round",
             key: "bone-a",
         },
@@ -32,23 +34,46 @@ export const SkullCrossbones: LucideIcon = createLucideIcon("SkullCrossbones", [
     [
         "line",
         {
-            x1: "18",
-            y1: "17.5",
-            x2: "6",
-            y2: "22.5",
-            strokeWidth: "2.6",
+            x1: "18.5",
+            y1: "17.8",
+            x2: "5.5",
+            y2: "22.8",
+            strokeWidth: "2.8",
             strokeLinecap: "round",
             key: "bone-b",
         },
     ],
-    ["circle", { cx: "6", cy: "17.5", r: "1.35", fill: "currentColor", stroke: "none", key: "lobe-1" }],
-    ["circle", { cx: "18", cy: "17.5", r: "1.35", fill: "currentColor", stroke: "none", key: "lobe-2" }],
-    ["circle", { cx: "6", cy: "22.5", r: "1.35", fill: "currentColor", stroke: "none", key: "lobe-3" }],
-    ["circle", { cx: "18", cy: "22.5", r: "1.35", fill: "currentColor", stroke: "none", key: "lobe-4" }],
+    ["circle", { cx: "5.5", cy: "17.8", r: "1.5", fill: "currentColor", stroke: "none", key: "knob-1" }],
+    ["circle", { cx: "18.5", cy: "17.8", r: "1.5", fill: "currentColor", stroke: "none", key: "knob-2" }],
+    ["circle", { cx: "5.5", cy: "22.8", r: "1.5", fill: "currentColor", stroke: "none", key: "knob-3" }],
+    ["circle", { cx: "18.5", cy: "22.8", r: "1.5", fill: "currentColor", stroke: "none", key: "knob-4" }],
+    // ── Skull (one evenodd path: outer cranium+jaw outline, then the eye
+    //    sockets, nose, and two tooth gaps cut out as holes). ──
     [
         "path",
         {
-            d: "M12 2.2C7.4 2.2 4 5.7 4 10.1c0 2.5 1.2 4.6 3 5.9v1.6c0 .5.2.9.6 1.2q.7 1.2 1.4 0 .7 1.2 1.4 0 .7 1.2 1.4 0 .7 1.2 1.4 0c.4-.3.6-.7.6-1.2V16c1.8-1.3 3-3.4 3-5.9 0-4.4-3.4-7.9-8-7.9ZM8.7 7.6a2 2 0 1 1 0 4 2 2 0 0 1 0-4Zm6.6 0a2 2 0 1 1 0 4 2 2 0 0 1 0-4ZM12 12.6l1.3 2.4h-2.6Z",
+            d: [
+                // Outer outline (symmetric about x=12): rounded cranium tapering
+                // to a jaw.
+                "M12 2.6",
+                "C16 2.6 19.4 5.6 19.4 10",
+                "C19.4 12.8 18.2 14.4 16.2 15.4",
+                "L16 17.3",
+                "C16 18.3 15.3 18.9 14.4 18.9",
+                "L9.6 18.9",
+                "C8.7 18.9 8 18.3 8 17.3",
+                "L7.8 15.4",
+                "C5.8 14.4 4.6 12.8 4.6 10",
+                "C4.6 5.6 8 2.6 12 2.6 Z",
+                // Left + right eye sockets (round holes).
+                "M7.3 10.3 a2 2 0 1 0 4 0 a2 2 0 1 0 -4 0 Z",
+                "M12.7 10.3 a2 2 0 1 0 4 0 a2 2 0 1 0 -4 0 Z",
+                // Nose (inverted triangle hole).
+                "M12 12.4 L11 14.2 L13 14.2 Z",
+                // Two tooth gaps in the lower jaw.
+                "M10.7 17.7 L11.2 17.7 L11.2 18.6 L10.7 18.6 Z",
+                "M12.8 17.7 L13.3 17.7 L13.3 18.6 L12.8 18.6 Z",
+            ].join(" "),
             fill: "currentColor",
             stroke: "none",
             fillRule: "evenodd",

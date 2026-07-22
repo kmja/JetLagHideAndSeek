@@ -432,6 +432,14 @@ bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
 build stamp. Current: `v1069`. Use `git log` for the per-version detail;
 
+**v1111 — skull-and-crossbones icon redraw.** Reworked the custom
+`SkullCrossbones` glyph (`gameIcons.tsx`, the curse mark used everywhere): a
+cleaner symmetric filled skull — rounded cranium tapering to a jaw, two big
+round eye sockets, an inverted-triangle nose, and two tooth gaps (all cut as
+`fillRule evenodd` holes in one path) — over a chunkier crossed-bones X (thicker
+rounded bones with knob ends). Replaces the v1040 skull whose awkward
+`q`-curve jaw read poorly.
+
 **v1110 — "curse cleared!" celebration.** When a curse is cleared, a
 full-screen celebration plays: the curse banner slides in, its skull-and-
 crossbones FLASHES TWICE (the Jet Lag show's beat), then the banner fades up and
