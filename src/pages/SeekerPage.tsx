@@ -45,6 +45,7 @@ import {
 import { SidebarProvider as SidebarProviderR } from "@/components/ui/sidebar-r";
 import { ZoneSidebar } from "@/components/ZoneSidebar";
 import { useSeekerLocationBroadcast } from "@/hooks/useSeekerLocationBroadcast";
+import { useHidingPhase } from "@/hooks/useHidingPhase";
 import {
     gameStartCelebrationAt,
     gameStartOverLobby,
@@ -172,23 +173,7 @@ export function SeekerPage() {
     // v616: during the hiding period the HiderTimer sits bottom-LEFT, so
     // the bottom-left Map-options chip is pushed up above it. A one-shot
     // timeout flips this at the deadline (no per-second tick).
-    const [inHidingPeriod, setInHidingPeriod] = useState(
-        () => $hidingEndsAt != null && Date.now() < $hidingEndsAt,
-    );
-    useEffect(() => {
-        if ($hidingEndsAt == null) {
-            setInHidingPeriod(false);
-            return;
-        }
-        const ms = $hidingEndsAt - Date.now();
-        if (ms <= 0) {
-            setInHidingPeriod(false);
-            return;
-        }
-        setInHidingPeriod(true);
-        const t = window.setTimeout(() => setInHidingPeriod(false), ms);
-        return () => window.clearTimeout(t);
-    }, [$hidingEndsAt]);
+    const { inHidingPeriod } = useHidingPhase();
 
     // (The lobby→in-game swap could leave a stuck `body{pointer-events:none}`
     // when the lobby drawer/dialog unmounted without closing — now cleared

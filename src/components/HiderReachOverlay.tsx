@@ -20,6 +20,7 @@ import {
     showHiderReach,
 } from "@/lib/journey/state";
 import { type AreaStation, fetchAreaStations } from "@/lib/journey/stations";
+import { encodeStationModes } from "@/lib/stationModes";
 
 /**
  * Hider's "Hiding zones" overlay — the mirror of the seeker's
@@ -252,7 +253,7 @@ function stationPoints(stations: AreaStation[]): GeoJSON.Feature[] {
             stopId: String(s.id),
             name: s.name,
             mode: s.mode,
-            modes: s.modes.join("|"),
+            modes: encodeStationModes(s.modes),
         },
     }));
 }

@@ -1,6 +1,9 @@
 import { describe, it, expect } from "vitest";
 
-import { mergeDuplicateStation } from "../src/maps/geo-utils/stationManipulations";
+import {
+    inferStationMode,
+    mergeDuplicateStation,
+} from "../src/maps/geo-utils/stationManipulations";
 
 describe("mergeDuplicateStation", () => {
     it("merges duplicates in the eastern hemisphere", () => {
@@ -399,5 +402,31 @@ describe("checkIfStationsShareZones", () => {
             units,
         );
         expect(result).false;
+    });
+});
+
+describe("inferStationMode — the canonical station classifier (v1120)", () => {
+    // The prewarm-element filter (`inferMode` in stations.ts) now DELEGATES to
+    // this, so these pin the edge cases the two used to DISAGREE on.
+    it("classifies a light_rail node (was dropped by the old prewarm filter)", () => {
+        expect(inferStationMode({ railway: "light_rail" })).toBe("light_rail");
+    });
+    it("prefers bus over train on a multi-tag node (bus checked first)", () => {
+        // A node tagged BOTH railway=station and bus=yes: the old prewarm
+        // filter said train, the dedup said bus — now both say bus.
+        expect(inferStationMode({ railway: "station", bus: "yes" })).toBe(
+            "bus",
+        );
+    });
+    it("recognises the legacy platform=ferry tag", () => {
+        expect(inferStationMode({ platform: "ferry" })).toBe("ferry");
+    });
+    it("classifies the standard modes", () => {
+        expect(inferStationMode({ station: "subway" })).toBe("subway");
+        expect(inferStationMode({ railway: "tram_stop" })).toBe("tram");
+        expect(inferStationMode({ railway: "station" })).toBe("train");
+        expect(inferStationMode({ amenity: "ferry_terminal" })).toBe("ferry");
+        expect(inferStationMode({ highway: "bus_stop" })).toBe("bus");
+        expect(inferStationMode({ shop: "bakery" })).toBeNull();
     });
 });

@@ -27,6 +27,7 @@ import { MapOverlayLoadingToasts } from "@/components/MapOverlayLoadingToasts";
 import { TransitRouteLayers } from "@/components/TransitRouteLayers";
 import { usePlayAreaBoundary } from "@/hooks/usePlayAreaBoundary";
 import { useSelfPositionWatch } from "@/hooks/useSelfPositionWatch";
+import { useHidingPhase } from "@/hooks/useHidingPhase";
 import { useTransitRouteOverlays } from "@/hooks/useTransitRouteOverlays";
 import {
     followMe,
@@ -45,6 +46,7 @@ import {
 } from "@/lib/gameSetup";
 import { hidingSpot, hidingZone, scoutedSpots } from "@/lib/hiderRole";
 import { shortenStationLabel } from "@/lib/stationLabel";
+import { decodeStationModes } from "@/lib/stationModes";
 import {
     hiderReachFC,
     selectedMapStation,
@@ -175,23 +177,7 @@ export function HiderBackgroundMap() {
     // where MapNavControls dodges — so the two never overlap. One-shot
     // timeout (no per-second tick) flips it exactly when the clock ends,
     // mirroring the seeker map's Map.tsx approach.
-    const [seekingStarted, setSeekingStarted] = useState(
-        () => $hidingEndsAt !== null && Date.now() >= $hidingEndsAt,
-    );
-    useEffect(() => {
-        if ($hidingEndsAt === null) {
-            setSeekingStarted(false);
-            return;
-        }
-        const delta = $hidingEndsAt - Date.now();
-        if (delta <= 0) {
-            setSeekingStarted(true);
-            return;
-        }
-        setSeekingStarted(false);
-        const t = setTimeout(() => setSeekingStarted(true), delta);
-        return () => clearTimeout(t);
-    }, [$hidingEndsAt]);
+    const { seekingStarted } = useHidingPhase();
     // Transit-route overlays — same hook the seeker map uses, so the
     // hider's identical mode toggles actually fetch + render routes
     // (previously they were dead on the hider map).
@@ -740,17 +726,17 @@ export function HiderBackgroundMap() {
                                     mode?: string;
                                     modes?: string;
                                 };
+                                // v1120: shared `decodeStationModes` (same as the
+                                // seeker's tap reader) — carry the FULL mode set
+                                // so the station card shows every transit glyph on
+                                // a direct dot tap; fall back to the single `mode`.
+                                const decoded = decodeStationModes(props.modes);
                                 selectedMapStation.set({
                                     lat,
                                     lng,
                                     name: props.name,
-                                    // v1105/v1115: carry the FULL mode set so
-                                    // the station card shows every transit glyph
-                                    // on a direct dot tap (was pin-only / single
-                                    // mode). `modes` is pipe-joined in the point
-                                    // feature; fall back to the single `mode`.
-                                    modes: props.modes
-                                        ? props.modes.split("|")
+                                    modes: decoded.length
+                                        ? decoded
                                         : props.mode
                                           ? [props.mode]
                                           : undefined,

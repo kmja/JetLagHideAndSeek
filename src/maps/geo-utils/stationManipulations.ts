@@ -36,7 +36,11 @@ export function inferStationMode(
     if (s("railway") === "tram_stop" || s("tram") === "yes") return "tram";
     if (s("railway") === "light_rail" || s("light_rail") === "yes")
         return "light_rail";
-    if (s("amenity") === "ferry_terminal" || s("ferry") === "yes")
+    if (
+        s("amenity") === "ferry_terminal" ||
+        s("ferry") === "yes" ||
+        s("platform") === "ferry" // legacy non-standard tag, kept for the rare city
+    )
         return "ferry";
     if (s("highway") === "bus_stop" || s("bus") === "yes") return "bus";
     if (

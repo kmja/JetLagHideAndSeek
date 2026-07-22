@@ -38,7 +38,10 @@ import { haversineMeters } from "@/lib/geo";
 import type { StationPlace } from "@/maps/api";
 import { safeJsonFromCachedResponse } from "@/maps/api/cache";
 import { AREA_STATIONS_BY_RELATION_BASE } from "@/maps/api/constants";
-import { mergeDuplicateStation } from "@/maps/geo-utils/stationManipulations";
+import {
+    inferStationMode,
+    mergeDuplicateStation,
+} from "@/maps/geo-utils/stationManipulations";
 import { findPlacesInZone, overpassFailureCount } from "@/maps/api/overpass";
 
 
@@ -531,20 +534,22 @@ function modesForExactOptions(options: string[]): TransitMode[] | null {
 }
 
 /**
- * Seeker `ZoneSidebar` entry point (v668, fan-out v669): serve the
- * DEFAULT hiding-zone station set from the prewarmed
- * `/api/area-stations/<id>` endpoint — fanned over EVERY play-area
- * relation (primary + added adjacent areas) and unioned — when the
- * seeker's `displayHidingZonesOptions` map cleanly to transit modes (the
- * common auto-tracking case). Zero live Overpass on a warm city. Returns
- * an Overpass-shaped `{ elements }` (all requested modes, culled to the
- * combined play area) so the caller feeds it straight to `osmtogeojson`,
- * exactly like the poly query's result. Returns null — caller falls back
- * to its live poly query — for a custom/partial-mode selection, a
- * non-relation play area, no loaded polygon (can't cull), or any cold
- * area (which is background-warmed by `fetchPrewarmedStationsUnion`).
+ * Internal fast-path for `fetchStationElements` (v668, fan-out v669; made
+ * private v1120 — the seeker `ZoneSidebar` now goes through
+ * `fetchStationElements`, so this is no longer an external entry point):
+ * serve the DEFAULT hiding-zone station set from the prewarmed
+ * `/api/area-stations/<id>` endpoint — fanned over EVERY play-area relation
+ * (primary + added adjacent areas) and unioned — when the given filter
+ * `options` map cleanly to transit modes (the common auto-tracking case).
+ * Zero live Overpass on a warm city. Returns an Overpass-shaped
+ * `{ elements }` (all requested modes, culled to the combined play area) so
+ * the caller feeds it straight to `osmtogeojson`, exactly like the poly
+ * query's result. Returns null — caller falls back to the live poly query —
+ * for a custom/partial-mode selection, a non-relation play area, no loaded
+ * polygon, or any cold area (background-warmed by
+ * `fetchPrewarmedStationsUnion`).
  */
-export async function fetchPrewarmedHidingZoneStations(
+async function fetchPrewarmedHidingZoneStations(
     options: string[],
 ): Promise<{ elements: OverpassElement[] } | null> {
     const modes = modesForExactOptions(options);
@@ -634,53 +639,15 @@ interface OverpassElement {
     tags?: Record<string, string>;
 }
 
-/** Classify an element returned by the HIDING_ZONE_FILTERS_BY_MODE
- *  selectors into our mode enum. Order matters: subway/light-rail flags
- *  override the generic railway=station/halt classification. */
+/** Classify a station element's tags into our 5-mode `TransitMode` enum.
+ *  v1120: DELEGATES to the SHARED `inferStationMode` (the exact classifier the
+ *  dedup `mergeDuplicateStation` uses), folded via `foldToTransitMode`, so the
+ *  prewarm-element filter and the dedup can no longer DISAGREE. They used to:
+ *  a `railway=light_rail` node was dropped here but kept (as tram) by the dedup,
+ *  and a multi-tag `railway=station`+`bus=yes` node classified train here but
+ *  bus there — the exact "two roles classify the same OSM node differently"
+ *  drift the v1115 unification set out to kill. */
 function inferMode(tags: Record<string, string>): TransitMode | null {
-    if (tags.subway === "yes" || tags.station === "subway") return "subway";
-    if (tags.railway === "tram_stop" || tags.light_rail === "yes" || tags.tram === "yes")
-        return "tram";
-    if (tags.railway === "station" || tags.railway === "halt" || tags.train === "yes")
-        return "train";
-    if (
-        tags.amenity === "ferry_terminal" ||
-        tags.platform === "ferry" ||
-        tags.ferry === "yes"
-    )
-        return "ferry";
-    if (tags.highway === "bus_stop" || tags.bus === "yes") return "bus";
-    return null;
+    return foldToTransitMode(inferStationMode(tags) ?? "");
 }
 
-/**
- * Normalise a stop name for duplicate detection. Strips diacritics,
- * bracketed qualifiers, mode/direction words, and normalises common
- * street suffixes, THEN sorts the remaining tokens so that
- * differently-ordered names for the same intersection collapse together
- * ("Nanaimo St at East Hastings St" ≡ "East Hastings St at Nanaimo St").
- * Deliberately aggressive for bus stops, whose directional/ordering
- * variants otherwise read as a wall of duplicates.
- */
-const STOP_NOISE_WORDS =
-    /\b(station|stn|stop|platform|nb|sb|eb|wb|north|south|east|west|northbound|southbound|eastbound|westbound|bay|at)\b/g;
-export function normaliseName(name: string): string {
-    return name
-        .toLocaleLowerCase()
-        .normalize("NFD")
-        .replace(/[̀-ͯ]/g, "") // strip diacritics
-        .replace(/[[(][^\])]*[\])]/g, " ") // drop (..) / [..]
-        .replace(/\bstreet\b/g, "st")
-        .replace(/\bavenue\b/g, "ave")
-        .replace(/\bdrive\b/g, "dr")
-        .replace(/\broad\b/g, "rd")
-        .replace(/\bboulevard\b/g, "blvd")
-        .replace(/\bplace\b/g, "pl")
-        .replace(STOP_NOISE_WORDS, " ")
-        .replace(/[^a-z0-9]+/g, " ")
-        .trim()
-        .split(/\s+/)
-        .filter(Boolean)
-        .sort()
-        .join(" ");
-}

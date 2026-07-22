@@ -477,6 +477,34 @@ build stamp. Current: `v1069`. Use `git log` for the per-version detail;
 - **NEXT: a SINGLE station producer shared by seeker + hider** (shipped in
   v1115 below).
 
+**v1120 — seeker/hider dedup review, batch 1: kill drift + dead code + shared chrome.**
+First of three batches from a 4-agent seeker/hider architecture review.
+- **A1 — one station classifier.** `stations.ts`'s private `inferMode` (the
+  prewarm-element filter) DELEGATES to the shared `inferStationMode` (the dedup's
+  classifier) via `foldToTransitMode`, so the two can no longer DISAGREE — they
+  used to: a `railway=light_rail` node was dropped by the filter but kept (tram)
+  by the dedup, and a multi-tag `railway=station`+`bus=yes` node classified train
+  vs bus. `inferStationMode` gained the legacy `platform=ferry` tag so it's the
+  complete canonical classifier. Parity-tested (`stationManipulations.test.ts`).
+- **A2 — one modes encoding.** `src/lib/stationModes.ts` (`encodeStationModes`/
+  `decodeStationModes`) single-sources the map point-feature `modes` property,
+  which was encoded THREE ways (seeker array / hider `"a|b"` string / MapLibre
+  JSON-string) and parsed differently per role. Both roles' tap readers now
+  decode identically.
+- **B1 — dead code.** Deleted the aggressive `normaliseName` + `STOP_NOISE_WORDS`
+  (unused in prod since v1115 — the bus-90m proximity collapse replaced it) and
+  its orphaned `tests/stationDedupe.test.ts` (coverage preserved in
+  `stationManipulations.test.ts`). **B2:** un-exported `fetchPrewarmedHidingZoneStations`
+  (now internal to `fetchStationElements`) + fixed its stale "ZoneSidebar entry
+  point" docstring.
+- **C5 — one hiding-phase hook.** `src/hooks/useHidingPhase.ts` replaces three
+  hand-copied useState+useEffect one-shot-timeout blocks (`Map`, `SeekerPage`,
+  and the inverted `seekingStarted` in `HiderBackgroundMap`); returns
+  `{inHidingPeriod, seekingStarted}` (not complements — both false with no clock).
+- **C1 — one top bar.** `AppTopBar` is the single source; `SeekerTopBar`/
+  `HiderTopBar` are thin wrappers (they were ~90% identical, differing only in
+  z-index / `md:hidden` / fullscreen-hide).
+
 **v1119 — transit-line direction row is fully clickable to reverse.**
 `TransitRoutePicker`'s "Toward <terminus>" direction section was a plain row with
 a small separate reverse icon button; now the WHOLE row is a `<button>` that

@@ -72,6 +72,8 @@ import { playerRole, roundFoundAt } from "@/lib/hiderRole";
 import { selectedMapStation, travelTimesFC } from "@/lib/journey/state";
 import { findZoneAtPoint } from "@/lib/journey/stations";
 import { shortenStationLabel } from "@/lib/stationLabel";
+import { decodeStationModes } from "@/lib/stationModes";
+import { useHidingPhase } from "@/hooks/useHidingPhase";
 import {
     multiplayerEnabled,
     participants,
@@ -255,20 +257,14 @@ function stationFromFeature(
 
     // Transit modes (aggregated in the merge). On point features they sit
     // on `properties.modes`; on circle polygons they're under the nested
-    // place's properties. MapLibre may stringify the array.
-    const rawModes =
+    // place's properties. v1120: the SHARED `decodeStationModes` handles every
+    // historical encoding (array / pipe-string / JSON-string) so both roles
+    // parse identically.
+    const decoded = decodeStationModes(
         (props.modes as unknown) ??
-        (nested?.properties as { modes?: unknown } | undefined)?.modes;
-    let modes: string[] | undefined;
-    if (Array.isArray(rawModes)) modes = rawModes as string[];
-    else if (typeof rawModes === "string") {
-        try {
-            const p = JSON.parse(rawModes);
-            if (Array.isArray(p)) modes = p as string[];
-        } catch {
-            /* ignore */
-        }
-    }
+            (nested?.properties as { modes?: unknown } | undefined)?.modes,
+    );
+    const modes: string[] | undefined = decoded.length ? decoded : undefined;
 
     // Coordinates.
     if (f.geometry?.type === "Point") {
@@ -641,23 +637,7 @@ export function Map({ className }: MapProps) {
     // deadline — no 1 Hz tick needed.
     const $hidingEndsAt = useStore(hidingPeriodEndsAt);
     const $revealedStation = useStore(revealedStation);
-    const [inHidingPeriod, setInHidingPeriod] = useState(
-        () => $hidingEndsAt != null && Date.now() < $hidingEndsAt,
-    );
-    useEffect(() => {
-        if ($hidingEndsAt == null) {
-            setInHidingPeriod(false);
-            return;
-        }
-        const ms = $hidingEndsAt - Date.now();
-        if (ms <= 0) {
-            setInHidingPeriod(false);
-            return;
-        }
-        setInHidingPeriod(true);
-        const t = window.setTimeout(() => setInHidingPeriod(false), ms);
-        return () => window.clearTimeout(t);
-    }, [$hidingEndsAt]);
+    const { inHidingPeriod } = useHidingPhase();
     // v241: rebuild style when the resolved PMTiles URL flips (e.g.
     // fallback from our worker to the demo bucket on tile error).
     const $pmtilesUrl = useStore(pmtilesUrl);
@@ -1765,9 +1745,10 @@ export function Map({ className }: MapProps) {
                     lng,
                     name:
                         typeof props.name === "string" ? props.name : undefined,
-                    modes: Array.isArray(props.modes)
-                        ? (props.modes as string[])
-                        : undefined,
+                    modes: (() => {
+                        const m = decodeStationModes(props.modes);
+                        return m.length ? m : undefined;
+                    })(),
                 };
             }
         }
