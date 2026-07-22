@@ -45,7 +45,10 @@ import { playMovePowerup } from "@/lib/roundActions";
 import { cn } from "@/lib/utils";
 
 import { CardTile } from "./CardTile";
+import { curseNeedsCastAction } from "@/lib/curseCast";
+
 import { CastCurseDialog } from "./CastCurseDialog";
+import { QuickCastCurseDialog } from "./QuickCastCurseDialog";
 import { HandCardPicker } from "./HandCardPicker";
 import { SectionPill } from "./JetLagLogo";
 
@@ -98,6 +101,9 @@ export function HiderHandPanel() {
     const [pickerAction, setPickerAction] =
         useState<PendingPickerAction>(null);
     const [castCurse, setCastCurse] = useState<CurseCard | null>(null);
+    const [quickCastCurse, setQuickCastCurse] = useState<CurseCard | null>(
+        null,
+    );
 
     const onPlayPowerup = async (card: PowerupCard) => {
         const hand = hiderHand.get();
@@ -333,7 +339,11 @@ export function HiderHandPanel() {
                                                           : undefined
                                                 }
                                                 onClick={() =>
-                                                    setCastCurse(card)
+                                                    curseNeedsCastAction(card)
+                                                        ? setCastCurse(card)
+                                                        : setQuickCastCurse(
+                                                              card,
+                                                          )
                                                 }
                                                 className="flex-1 gap-1 h-7 px-2 text-[10px]"
                                             >
@@ -438,6 +448,15 @@ export function HiderHandPanel() {
                     if (!o) setCastCurse(null);
                 }}
                 card={castCurse}
+            />
+
+            {/* v1108: no-action curses cast through a lightweight confirm. */}
+            <QuickCastCurseDialog
+                open={quickCastCurse !== null}
+                onOpenChange={(o) => {
+                    if (!o) setQuickCastCurse(null);
+                }}
+                card={quickCastCurse}
             />
         </section>
     );

@@ -31,6 +31,7 @@ import {
     DialogTitle,
 } from "@/components/ui/dialog";
 import { CATEGORIES, type CategoryId } from "@/lib/categories";
+import { nextClientCastId } from "@/lib/curseCast";
 import { curseCastSummary } from "@/lib/curseCastSummary";
 import { openRulebookAt, RULEBOOK_ANCHORS } from "@/lib/rulebook";
 import {
@@ -128,19 +129,6 @@ function fmtKm(km: number | undefined): string {
  * rollable curse" button) can identify which curses trigger the
  * dice-roll flow without duplicating the list.
  */
-/**
- * A unique client-side `castId` for a curse (v1037). Time-based + a monotonic
- * counter so two casts in the same millisecond never collide; the huge value
- * can't clash with the server's small monotonic seq (used for older clients).
- * Both the hider's `castCurses` mirror and the seekers' `receivedCurses` entry
- * carry this SAME id, so a seeker's `curseCleared` relay matches on the hider.
- */
-let castIdCounter = 0;
-function nextClientCastId(): number {
-    castIdCounter = (castIdCounter + 1) % 1000;
-    return Date.now() * 1000 + castIdCounter;
-}
-
 /** mm:ss (or h:mm:ss) from a whole-second count, for the film timer. */
 function formatClock(totalSeconds: number): string {
     const s = Math.max(0, Math.floor(totalSeconds));

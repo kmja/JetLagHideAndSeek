@@ -432,6 +432,32 @@ bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
 build stamp. Current: `v1069`. Use `git log` for the per-version detail;
 
+**v1108 — no-action curses play straight from the hand via a lightweight
+confirm.** A curse that needs NO hider action in the cast dialog (no map pick /
+photo / film / rock count / secret word / question-disable picks / fizzle dice /
+location constraint) now plays through a compact CONFIRMATION dialog when the
+hider taps Play/Cast in the hand, instead of the full `CastCurseDialog`. New
+`src/lib/curseCast.ts`:
+- **`curseNeedsCastAction(card)`** — true (→ full `CastCurseDialog`) for Travel
+  Agent (destination), photo/image curses, Bird Guide (film), Cairn (rock),
+  Hidden Hangman (word), Drained Brain (pick 3), Bridge Troll / Water Weight (a
+  location constraint that must be surfaced with the "Cast anyway" override), and
+  the fizzle-dice curses (Endless Tumble / Gambler's Feet). Everything else is
+  "no action" → quick confirm.
+- **`performNoActionCurseCast(card, multiplayer, discardIds)`** — the shared
+  casting core, IDENTICAL to `CastCurseDialog.cast` for these curses (no photo/
+  destination/etc. params to enforce): builds the payload, delivers it
+  (WebSocket in multiplayer, share/copy link otherwise), pays the discard cost
+  with the chosen cards, discards the curse card, and fires the land side effects
+  (blocking-curse gate, Overflowing Chalice, Impressionable Consumer free
+  question). `nextClientCastId` moved here so both paths share the counter.
+New `QuickCastCurseDialog` (AlertDialog) shows the curse name + short
+`curseCastSummary` + casting cost + Cast/Cancel + a Rules deep-link; if the curse
+has a count-based discard cost it opens the shared `HandCardPicker` to choose
+which cards, then casts. Wired into both `HiderHandFan` and `HiderHandPanel` Play/
+Cast buttons (routed by `curseNeedsCastAction`); the dialog is mounted at the
+hand level so it survives the carousel close.
+
 **v1107 — Mediocre Travel Agent destination picker overhaul + "too far" bug
 fix.** The destination picker (`DestinationPicker`, used by the Travel Agent
 curse) was a bare map with a generic "S" pin and no guidance. Now it shows

@@ -40,7 +40,10 @@ import { playMovePowerup } from "@/lib/roundActions";
 import { cn } from "@/lib/utils";
 
 import { CardTile } from "./CardTile";
+import { curseNeedsCastAction } from "@/lib/curseCast";
+
 import { CastCurseDialog } from "./CastCurseDialog";
+import { QuickCastCurseDialog } from "./QuickCastCurseDialog";
 import { HandCardPicker } from "./HandCardPicker";
 
 /**
@@ -76,8 +79,18 @@ export function HiderHandFan() {
     // dialogs survive the carousel close.
     const [pickerAction, setPickerAction] = useState<PickerAction>(null);
     const [castCurse, setCastCurse] = useState<CurseCard | null>(null);
+    // v1108: no-action curses play through a lightweight confirm instead of
+    // the full CastCurseDialog.
+    const [quickCastCurse, setQuickCastCurse] = useState<CurseCard | null>(
+        null,
+    );
 
-    if ($hand.length === 0 && pickerAction === null && castCurse === null) {
+    if (
+        $hand.length === 0 &&
+        pickerAction === null &&
+        castCurse === null &&
+        quickCastCurse === null
+    ) {
         // Empty hand: nothing to fan and no in-flight dialog flow to
         // finish. Unmount cleanly. Once a dialog is open we keep
         // ourselves mounted until it dismisses so the cast / pick
@@ -107,6 +120,7 @@ export function HiderHandFan() {
                     initialIndex={initialIndex}
                     setPickerAction={setPickerAction}
                     setCastCurse={setCastCurse}
+                    setQuickCastCurse={setQuickCastCurse}
                 />
             )}
 
@@ -192,6 +206,14 @@ export function HiderHandFan() {
                     if (!o) setCastCurse(null);
                 }}
                 card={castCurse}
+            />
+
+            <QuickCastCurseDialog
+                open={quickCastCurse !== null}
+                onOpenChange={(o) => {
+                    if (!o) setQuickCastCurse(null);
+                }}
+                card={quickCastCurse}
             />
 
             {/* v303: hand-cap enforcer. Watches hand vs limit; pops a
@@ -560,6 +582,7 @@ function HandCarousel({
     initialIndex,
     setPickerAction,
     setCastCurse,
+    setQuickCastCurse,
 }: {
     open: boolean;
     onOpenChange: (next: boolean) => void;
@@ -573,6 +596,7 @@ function HandCarousel({
      *  v300 comment). */
     setPickerAction: (action: PickerAction) => void;
     setCastCurse: (card: CurseCard | null) => void;
+    setQuickCastCurse: (card: CurseCard | null) => void;
 }) {
     // Which card is centred. The action buttons below act on it. Driven
     // directly by swipe / tap / dots — no scroll-snap, so it's always
@@ -856,6 +880,7 @@ function HandCarousel({
                                     onPickerOpen={() => onOpenChange(false)}
                                     setPickerAction={setPickerAction}
                                     setCastCurse={setCastCurse}
+                                    setQuickCastCurse={setQuickCastCurse}
                                     onActionTaken={() => {
                                         // If we just discarded the last
                                         // card, close the sheet — fan
@@ -905,6 +930,7 @@ function CardActions({
     onActionTaken,
     setPickerAction,
     setCastCurse,
+    setQuickCastCurse,
 }: {
     card: Card;
     onPickerOpen: () => void;
@@ -914,6 +940,7 @@ function CardActions({
      *  carousel-Content unmount. */
     setPickerAction: (action: PickerAction) => void;
     setCastCurse: (card: CurseCard | null) => void;
+    setQuickCastCurse: (card: CurseCard | null) => void;
 }) {
     const onPlayPowerup = async (c: PowerupCard) => {
         const hand = hiderHand.get();
@@ -1090,7 +1117,15 @@ function CardActions({
                                 onPlayPowerup(card);
                             } else if (card.kind === "curse") {
                                 onPickerOpen();
-                                setCastCurse(card);
+                                // v1108: a no-action curse (no map/photo/film/
+                                // word/dice/constraint) plays through a
+                                // lightweight confirm; the rest keep the full
+                                // cast dialog.
+                                if (curseNeedsCastAction(card)) {
+                                    setCastCurse(card);
+                                } else {
+                                    setQuickCastCurse(card);
+                                }
                             }
                         }}
                         className="flex-1 h-12 text-base font-semibold"
