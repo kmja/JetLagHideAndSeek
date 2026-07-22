@@ -135,6 +135,55 @@ export function mergeDuplicateStation(
         }
     }
 
+    // v1089: absorb a NAMELESS node into a NEARBY NAMED station. OSM tags the
+    // named `railway=station` node but leaves the same station's platform /
+    // entrance / stop_position nodes untagged, so each named station carried a
+    // separate nameless companion zone right beside it — a "Selected station"
+    // dot with no name (glaringly visible once the transit-line question
+    // filtered the field down to the route's stops). A nameless node within a
+    // tight distance of a named node is almost certainly part of that station,
+    // so union it in. A nameless node FAR from any named node still stands
+    // alone (a genuine unnamed stop, e.g. a lone bus stop), and two nameless
+    // nodes never merge with each other. Grid the named nodes for a cheap
+    // nearest lookup so this stays ~O(n), not O(n²), on a dense metro.
+    const absorbM = Math.min(radiusM, 150);
+    if (absorbM > 0) {
+        const CELL_DEG = 0.0025; // ~278 m of latitude
+        const cellKey = (lng: number, lat: number) =>
+            `${Math.round(lng / CELL_DEG)}:${Math.round(lat / CELL_DEG)}`;
+        const namedGrid = new Map<string, number[]>();
+        for (let i = 0; i < n; i++) {
+            if (names[i] === "") continue;
+            const k = cellKey(coords[i][0], coords[i][1]);
+            const g = namedGrid.get(k);
+            if (g) g.push(i);
+            else namedGrid.set(k, [i]);
+        }
+        for (let i = 0; i < n; i++) {
+            if (names[i] !== "") continue; // only nameless nodes get absorbed
+            const cx = Math.round(coords[i][0] / CELL_DEG);
+            const cy = Math.round(coords[i][1] / CELL_DEG);
+            let bestJ = -1;
+            let bestD = Infinity;
+            // ±3 cells covers absorbM even where longitude cells shrink at
+            // high latitude; approxMeters is the true distance gate.
+            for (let dx = -3; dx <= 3; dx++) {
+                for (let dy = -3; dy <= 3; dy++) {
+                    const g = namedGrid.get(`${cx + dx}:${cy + dy}`);
+                    if (!g) continue;
+                    for (const j of g) {
+                        const d = approxMeters(coords[i], coords[j]);
+                        if (d <= absorbM && d < bestD) {
+                            bestD = d;
+                            bestJ = j;
+                        }
+                    }
+                }
+            }
+            if (bestJ >= 0) union(i, bestJ);
+        }
+    }
+
     // Group by cluster root, then average each cluster to one station.
     const groups = new Map<number, number[]>();
     for (let i = 0; i < n; i++) {

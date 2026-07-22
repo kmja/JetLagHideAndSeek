@@ -16,6 +16,7 @@ import {
     endgameStartedAt,
     formatTimeRemaining,
     gameSize,
+    hiddenCreditMs,
     hidingPeriodEndsAt,
     zoneLockedCallout,
 } from "@/lib/gameSetup";
@@ -96,6 +97,13 @@ export function HiderMapTimer() {
     const $hand = useStore(hiderHand);
     const $gameSize = useStore(gameSize);
     const inHandBonusMin = tallyTimeBonusMinutes($hand, $gameSize);
+    // v1089: banked bonus time already awarded THIS round — Move powerup credit
+    // + curse rewards (e.g. Water Weight, Egg Partner) that funnel into
+    // `hiddenCreditMs`. This is added to the round score at the end but isn't in
+    // the live counter, so surface it on the same "+Nm" pill as in-hand cards so
+    // an awarded curse bonus is visible to the hider (was invisible before).
+    const $creditMs = useStore(hiddenCreditMs);
+    const bonusMin = inHandBonusMin + Math.round($creditMs / 60000);
     const $roundLog = useStore(roundLog);
     const $zoneCallout = useStore(zoneLockedCallout);
 
@@ -387,13 +395,13 @@ export function HiderMapTimer() {
                         </span>
                         <span className="font-inter-tight font-black tabular-nums text-3xl leading-none text-[#1F2F3F]">
                             {formatTimeRemaining(remainingMs)}
-                            {inHandBonusMin > 0 && (
+                            {bonusMin > 0 && (
                                 <span
                                     className="ml-1.5 inline-flex items-center gap-0.5 rounded-full bg-[#1F2F3F]/15 px-1.5 py-0.5 text-[10px] font-poppins font-bold text-[#1F2F3F] align-middle"
-                                    title={`+${inHandBonusMin} min from time-bonus cards in your hand`}
+                                    title={`+${bonusMin} min bonus (curse rewards, powerups, and time-bonus cards in your hand)`}
                                 >
                                     <Hourglass className="w-2.5 h-2.5" />+
-                                    {inHandBonusMin}m
+                                    {bonusMin}m
                                 </span>
                             )}
                         </span>

@@ -430,6 +430,29 @@ bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
 build stamp. Current: `v1069`. Use `git log` for the per-version detail;
 
+**v1089 — nameless "Selected station" companion dots removed + curse bonus
+visible on the hider timer.**
+- **Every named station showed a nameless duplicate "Selected station" dot
+  beside it.** OSM tags the named `railway=station` node but leaves the same
+  station's platform / entrance / stop_position nodes untagged, so each named
+  station carried a separate NAMELESS hiding-zone companion. `mergeDuplicateStation`
+  (`stationManipulations.ts`) deliberately never merged unnamed nodes (to keep
+  distinct nameless bus stops apart), so those companions stayed separate zones —
+  glaringly visible once the v1088 transit-line question filtered the field down
+  to just the route's stops (the "Skanstull + Selected station" duplicate). Added
+  a second merge pass that ABSORBS a nameless node into a NEARBY NAMED station
+  (within `min(radius, 150 m)`, via a spatial grid so it stays ~O(n)): a nameless
+  node that close is almost certainly that station's platform/entrance. A nameless
+  node far from any named node still stands alone (a genuine unnamed stop), and
+  two nameless nodes never merge with each other. Fixes the duplicates globally
+  (seeker + hider overlays).
+- **Curse-reward bonus time was invisible on the hider timer.** A curse the
+  seekers fail (Water Weight, Egg Partner, …) banks minutes into `hiddenCreditMs`
+  mid-round (v1087), but the `HiderMapTimer`'s "+Nm" pill only showed in-hand
+  time-bonus cards (`tallyTimeBonusMinutes`), so an awarded curse bonus showed
+  nothing. The pill now folds in `hiddenCreditMs` (banked Move + curse credit) so
+  the awarded minutes are visible next to the timer, as the user expected.
+
 **v1088 — live-testing fixes: lobby Overpass spam, transit-line elimination,
 endgame button, multi-hider timer names.**
 - **Stockholm lobby fired live Overpass (`/api/interpreter` 502/504) before the
