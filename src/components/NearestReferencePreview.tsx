@@ -681,7 +681,7 @@ async function fetchNearestCoastline(
  * elimination clips to (a 3° pad), so an inland city doesn't show a distant
  * coast.
  */
-async function fetchNearestWater(
+export async function fetchNearestWater(
     lat: number,
     lng: number,
 ): Promise<NearestRef | null> {

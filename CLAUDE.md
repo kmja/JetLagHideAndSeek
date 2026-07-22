@@ -430,6 +430,25 @@ bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
 build stamp. Current: `v1069`. Use `git log` for the per-version detail;
 
+**v1095 — casting-cost location constraints enforced WITH a manual override +
+Water Weight added.** Follow-up to v1094 (per user: "enforce them but allow for
+manual override"). The location casting-cost constraints now block the cast by
+default but the hider can **"Cast anyway"** when the app's data is wrong (GPS
+noise, water not mapped in OSM, a seeker who hasn't shared a fresh fix):
+- **Water Weight** ("the seekers must be within 300 m of a body of water") is
+  now enforced too — a `useEffect` in `CastCurseDialog` dynamic-imports
+  `fetchNearestWater` (now exported from `NearestReferencePreview`) and measures
+  the freshest seeker's distance to water; > 300 m blocks the cast. Dynamic
+  import keeps the water/map deps out of the dialog's base bundle (a new lazy
+  chunk). Any lookup failure / no seeker fix → allowed (never false-block).
+- **Override:** both location blocks (Bridge Troll distance + Water Weight
+  near-water) now share ONE `constraintOverride` state — the red banner carries a
+  **"Cast anyway"** button that clears the block; reset whenever the open card
+  changes. The HARD rulebook blocks (can't stack an ask-blocker, can't cast
+  during the endgame) are NOT overridable — only the fallible location checks.
+- The still-un-verifiable constraints (U-Turn's "heading the wrong way", Distant
+  Cuisine's "at the restaurant", "must be outside") stay self-attested.
+
 **v1094 — Bridge Troll casting-cost constraint is ENFORCED.** The location-based
 casting-cost CONSTRAINTS were only DISPLAYED (the cast dialog rendered the cost
 text) and left to self-attestation. Curse of the Bridge Troll's "the seekers

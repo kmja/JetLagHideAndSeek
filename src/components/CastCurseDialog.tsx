@@ -42,7 +42,9 @@ import {
 } from "@/lib/castingCost";
 import {
     CURSE_BRIDGE_TROLL,
+    CURSE_WATER_WEIGHT,
     evaluateBridgeTroll,
+    WATER_WEIGHT_WITHIN_M,
 } from "@/lib/castingConstraint";
 import { lastKnownPosition } from "@/lib/context";
 import { preparePhotoForSend } from "@/lib/photo";
@@ -234,12 +236,13 @@ export function CastCurseDialog({
         if ($playArea) return { lat: $playArea.lat, lng: $playArea.lng };
         return { lat: 0, lng: 0 };
     }, [$seekerLocs, $playArea]);
-    // v1094: Bridge Troll casting-cost constraint — the seekers must be at
-    // least 2/10/50 km from the hider. Evaluated from the hider's own GPS +
-    // the seekers' last-shared positions; `unknown` (no fix / nobody has
-    // shared) → allowed, so a legitimate cast is never false-blocked on
-    // missing data. Kept ABOVE the `!card` early return for stable hook order.
+    // v1094/v1095: location-based CASTING-COST constraints, ENFORCED but
+    // OVERRIDABLE. Evaluated from the hider's own GPS + the seekers' last-shared
+    // positions; `unknown` (no fix / nobody has shared / a geo lookup fails) →
+    // allowed, so a legitimate cast is never false-blocked on missing data. Kept
+    // ABOVE the `!card` early return for stable hook order.
     const $hiderPos = useStore(lastKnownPosition);
+    // Bridge Troll — the seekers must be at least 2/10/50 km from the hider.
     const bridgeTroll = useMemo(() => {
         if (!card || card.name !== CURSE_BRIDGE_TROLL) return null;
         const seekerPts = Object.values($seekerLocs).map((l) => ({
@@ -249,6 +252,57 @@ export function CastCurseDialog({
         return evaluateBridgeTroll($gameSize, $hiderPos, seekerPts);
     }, [card, $seekerLocs, $hiderPos, $gameSize]);
     const bridgeTrollBlocked = bridgeTroll?.status === "blocked";
+    // Water Weight — the seekers must be within 300 m of a body of water.
+    // Async (a water lookup at the freshest seeker's position); the fetcher is
+    // dynamic-imported so its map deps stay out of this dialog's base bundle.
+    // `null` = allowed (in range / no seeker fix / lookup failed).
+    const [waterFarM, setWaterFarM] = useState<number | null>(null);
+    useEffect(() => {
+        if (!card || card.name !== CURSE_WATER_WEIGHT) {
+            setWaterFarM(null);
+            return;
+        }
+        const locs = Object.values($seekerLocs);
+        if (locs.length === 0) {
+            setWaterFarM(null);
+            return;
+        }
+        const freshest = locs.reduce((a, b) => (b.ts > a.ts ? b : a));
+        let cancelled = false;
+        void (async () => {
+            try {
+                const { fetchNearestWater } = await import(
+                    "@/components/NearestReferencePreview"
+                );
+                const nr = await fetchNearestWater(
+                    freshest.lat,
+                    freshest.lng,
+                );
+                if (cancelled) return;
+                setWaterFarM(
+                    nr && nr.distanceMeters > WATER_WEIGHT_WITHIN_M
+                        ? nr.distanceMeters
+                        : null,
+                );
+            } catch {
+                if (!cancelled) setWaterFarM(null);
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, [card, $seekerLocs]);
+    const waterBlocked = waterFarM != null;
+
+    // The hider can OVERRIDE a location block ("Cast anyway") when the app's
+    // GPS/water data is wrong — GPS noise, water not mapped in OSM, a seeker who
+    // hasn't shared a fresh fix. Reset whenever the open card changes.
+    const [constraintOverride, setConstraintOverride] = useState(false);
+    useEffect(() => {
+        setConstraintOverride(false);
+    }, [card?.id, open]);
+    const locationBlocked = bridgeTrollBlocked || waterBlocked;
+    const castBlockedByLocation = locationBlocked && !constraintOverride;
 
     const blockedByEndgame =
         $endgameStartedAt !== null &&
@@ -589,8 +643,9 @@ export function CastCurseDialog({
         !blockedByActiveCurse &&
         // Card text: "cannot be played during the endgame".
         !blockedByEndgame &&
-        // Bridge Troll casting cost: the seekers must be far enough away.
-        !bridgeTrollBlocked &&
+        // Location casting-cost constraints (Bridge Troll distance / Water
+        // Weight near-water) — enforced, but the hider can override.
+        !castBlockedByLocation &&
         // Cards with a fizzle rule need a SETTLED roll before the
         // action button enables; cards without can cast right away.
         (fizzleRule === undefined || settled !== null) &&
@@ -1654,25 +1709,44 @@ export function CastCurseDialog({
                         </div>
                     )}
 
-                    {/* v1094: Bridge Troll casting cost — the seekers are too
-                        close to the hider to cast it yet. */}
-                    {bridgeTrollBlocked && bridgeTroll?.minKm != null && (
+                    {/* v1094/v1095: location casting-cost constraint blocked —
+                        the seekers are too close (Bridge Troll) or too far from
+                        water (Water Weight). Enforced, but the hider can Cast
+                        anyway when the app's GPS/water data is wrong. */}
+                    {castBlockedByLocation && (
                         <div
                             className={cn(
-                                "rounded-sm border px-3 py-2",
+                                "rounded-sm border px-3 py-2 flex flex-col gap-2",
                                 "border-destructive/40 bg-destructive/10",
                                 "text-xs leading-snug",
                             )}
                             role="status"
                         >
-                            The seekers are only about{" "}
-                            {bridgeTroll.nearestKm != null
-                                ? bridgeTroll.nearestKm < 1
-                                    ? `${Math.round(bridgeTroll.nearestKm * 1000)} m`
-                                    : `${bridgeTroll.nearestKm.toFixed(1)} km`
-                                : "—"}{" "}
-                            away — they must be at least {bridgeTroll.minKm} km
-                            from you to cast this curse.
+                            <span>
+                                {bridgeTrollBlocked && bridgeTroll?.minKm != null
+                                    ? `The seekers are only about ${
+                                          bridgeTroll.nearestKm != null
+                                              ? bridgeTroll.nearestKm < 1
+                                                  ? `${Math.round(bridgeTroll.nearestKm * 1000)} m`
+                                                  : `${bridgeTroll.nearestKm.toFixed(1)} km`
+                                              : "—"
+                                      } away — they must be at least ${bridgeTroll.minKm} km from you to cast this curse.`
+                                    : `The seekers' last position is about ${
+                                          waterFarM != null
+                                              ? waterFarM >= 1000
+                                                  ? `${(waterFarM / 1000).toFixed(1)} km`
+                                                  : `${Math.round(waterFarM)} m`
+                                              : "—"
+                                      } from water — they must be within ${WATER_WEIGHT_WITHIN_M} m of a body of water to cast this curse.`}
+                            </span>
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                className="self-start h-7 text-xs"
+                                onClick={() => setConstraintOverride(true)}
+                            >
+                                Cast anyway
+                            </Button>
                         </div>
                     )}
 
