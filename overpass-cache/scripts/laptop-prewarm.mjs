@@ -2359,6 +2359,13 @@ async function processCity(city) {
                 city,
                 boundaryExtent ?? effectiveExtent,
             );
+        // v1102: bus routes (for the "Transit line" question in bus-allowed
+        // Small games), warmed as an ISOLATED query. `--skip-bus-routes` drops.
+        if (!args["skip-transit-routes"] && !args["skip-bus-routes"])
+            await processBusTransitRoutes(
+                city,
+                boundaryExtent ?? effectiveExtent,
+            );
     }
 
     // v440: warm the wizard's "extend play area" adjacent-search queries
@@ -2655,6 +2662,49 @@ async function processTransitRoutes(city, extent) {
         );
     } catch (e) {
         console.warn(`  ✗ transit routes upload: ${e.message}`);
+    }
+    await sleep(DELAY_MS);
+}
+
+/**
+ * v1102: prewarm the play-area's BUS transit routes (ISOLATED from the rail
+ * set above — a metro's bus routes are hundreds of heavy-geometry relations
+ * that would time the combined query out, the area-stations lesson). MUST
+ * match `busTransitRoutesQuery` in overpass-cache/src/index.ts byte-for-byte
+ * (served by /api/transit-routes/<id>?mode=bus). `--skip-bus-routes` to drop.
+ */
+function busTransitRoutesQuery(extent) {
+    const tuple = transitBboxTuple(extent);
+    return `\n[out:json][timeout:180][bbox:${tuple}];\nrelation["type"="route"]["route"="bus"];\nout tags geom;\n>;\nout tags;\n`;
+}
+
+async function processBusTransitRoutes(city, extent) {
+    if (!extent) return;
+    const q = busTransitRoutesQuery(extent);
+    if (await isFresh(q, "transit-routes-bus")) {
+        console.log(`  ⤼ bus routes already cached — skipping`);
+        return;
+    }
+    const res = await fetchOverpass(q, "bus routes");
+    if (!res) return;
+    const sizeBytes = Buffer.byteLength(res.text, "utf8");
+    if (sizeBytes > MAX_UPLOAD_BYTES) {
+        console.log(`  ⤼ bus routes ${sizeBytes} B over cap — skipping`);
+        return;
+    }
+    try {
+        const r = await uploadToWorker({
+            query: q,
+            bodyText: res.text,
+            kind: "transit-routes-bus",
+            sourceName: `${city.name} (bus-routes)`,
+            sourceRelationId: String(city.relationId),
+        });
+        console.log(
+            `  ✓ bus routes stored (${sizeBytes} B → gz ${r.gzipBytes} B in ${res.ms} ms)`,
+        );
+    } catch (e) {
+        console.warn(`  ✗ bus routes upload: ${e.message}`);
     }
     await sleep(DELAY_MS);
 }

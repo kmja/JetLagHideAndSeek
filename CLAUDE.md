@@ -432,6 +432,30 @@ bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
 build stamp. Current: `v1069`. Use `git log` for the per-version detail;
 
+**v1102 — bus lines added to the "Transit line" prewarm (ISOLATED) + blocked-curse
+hand copy trimmed.**
+- **Bus routes are now prewarmed** for the transit-line question, so a bus-allowed
+  Small game on a warm city is Overpass-free for bus too (was firing a LIVE
+  `around:GPS` bus query every time). Kept as a SEPARATE query/R2 key from the
+  rail+ferry set — a metro's hundreds of heavy-geometry bus route relations would
+  time the combined query out (the area-stations / body-of-water isolation lesson).
+  New `busTransitRoutesQuery` (`relation[type=route][route=bus]; out tags geom; >;
+  out tags;`) served by **`GET /api/transit-routes/<id>?mode=bus`**
+  (`handleTransitRoutesByRelation` gained a `mode` param); `warmRelationTransitRoutes`
+  now warms BOTH sets so one `?warm=1` covers them, and the laptop
+  `processBusTransitRoutes` (byte-identical builder, `--skip-bus-routes` to drop)
+  warms it per city. Client `fetchPrewarmedTransitRoutes(mode)` reads the bus set
+  when the game allows bus; `findTransitRoutesNear` scans both prewarmed sets and
+  only falls to the live `around:` bus query when the bus prewarm is COLD;
+  `fetchTransitRouteDetail` checks the bus set too. Byte-identical `busTransitRoutesQuery`
+  lives in the worker + laptop (hand-mirrored, like the other prewarm queries); the
+  inspect-encoding diagnostic gained the `transit-routes-bus` kind. NOT in the star
+  gate (like water/coast) — a cold city still supplements bus live once, then warms.
+- **Blocked-curse hand copy trimmed** — the note under a curse you can't play now
+  reads just "[curse] is still blocking the seekers." (dropped the "only one such
+  curse can be active at a time. Wait for the seekers to clear it (rulebook p44)."
+  tail) in `HiderHandFan` + the `HiderHandPanel` Cast-button tooltip.
+
 **v1101 — Mediocre Travel Agent destination constraints ENFORCED (with override).**
 The one remaining CHECKABLE curse constraint the audit flagged. The travel-agent
 casting only gated on "a pin is set"; the rulebook imposes two geographic

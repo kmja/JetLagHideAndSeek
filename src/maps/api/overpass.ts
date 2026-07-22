@@ -962,9 +962,16 @@ export interface TransitRouteDetail {
  * the entry is cold (→ callers fall back to a live query + fire `?warm=1`).
  * Memoised per relation id so the list + detail share one fetch.
  */
-const transitRoutesCache = new Map<number, any>();
-const transitRoutesWarmRequested = new Set<number>();
-async function fetchPrewarmedTransitRoutes(): Promise<any> {
+const transitRoutesCache = new Map<string, any>();
+const transitRoutesWarmRequested = new Set<string>();
+/**
+ * @param mode "rail" reads the rail+ferry set (`/api/transit-routes/<id>`);
+ *   "bus" reads the ISOLATED bus set (`?mode=bus`, v1102) — a separate R2 key
+ *   so its heavy per-metro geometry can't time out the rail set.
+ */
+async function fetchPrewarmedTransitRoutes(
+    mode: "rail" | "bus" = "rail",
+): Promise<any> {
     const primary = mapGeoLocation.get();
     const props = primary?.properties as
         | { osm_id?: number; osm_type?: string }
@@ -979,9 +986,14 @@ async function fetchPrewarmedTransitRoutes(): Promise<any> {
         return null;
     }
     const relId = props.osm_id;
-    if (transitRoutesCache.has(relId)) return transitRoutesCache.get(relId);
+    const cacheId = `${mode}:${relId}`;
+    const suffix = mode === "bus" ? "?mode=bus" : "";
+    if (transitRoutesCache.has(cacheId))
+        return transitRoutesCache.get(cacheId);
     try {
-        const resp = await fetch(`${TRANSIT_ROUTES_BY_RELATION_BASE}/${relId}`);
+        const resp = await fetch(
+            `${TRANSIT_ROUTES_BY_RELATION_BASE}/${relId}${suffix}`,
+        );
         if (resp.ok) {
             // v1078: parse GZIP-TOLERANTLY. A double-/residual-gzipped body
             // (the v738/v739 class) makes `resp.json()` throw on the 0x1f magic
@@ -993,28 +1005,32 @@ async function fetchPrewarmedTransitRoutes(): Promise<any> {
             };
             const n = Array.isArray(json?.elements) ? json.elements.length : 0;
             // eslint-disable-next-line no-console
-            console.log(`[transit-routes] r${relId}: ${n} elements from R2`);
+            console.log(`[transit-routes:${mode}] r${relId}: ${n} from R2`);
             if (n > 0) {
-                transitRoutesCache.set(relId, json);
+                transitRoutesCache.set(cacheId, json);
                 return json;
             }
         } else {
             // eslint-disable-next-line no-console
             console.warn(
-                `[transit-routes] r${relId}: endpoint ${resp.status} → live fallback`,
+                `[transit-routes:${mode}] r${relId}: endpoint ${resp.status} → live fallback`,
             );
         }
     } catch (e) {
         // eslint-disable-next-line no-console
-        console.warn(`[transit-routes] r${relId}: parse/network fail → live`, e);
+        console.warn(
+            `[transit-routes:${mode}] r${relId}: parse/network fail → live`,
+            e,
+        );
     }
     // Cold (miss / no-boundary) — warm in the background so the NEXT game is
-    // served from R2; this game falls to the live query per-function.
-    if (!transitRoutesWarmRequested.has(relId)) {
-        transitRoutesWarmRequested.add(relId);
+    // served from R2; this game falls to the live query per-function. `?warm=1`
+    // warms BOTH the rail + bus sets server-side, so one fire suffices.
+    if (!transitRoutesWarmRequested.has(cacheId)) {
+        transitRoutesWarmRequested.add(cacheId);
         fetch(`${TRANSIT_ROUTES_BY_RELATION_BASE}/${relId}?warm=1`, {
             method: "GET",
-        }).catch(() => transitRoutesWarmRequested.delete(relId));
+        }).catch(() => transitRoutesWarmRequested.delete(cacheId));
     }
     return null;
 }
@@ -1087,28 +1103,36 @@ export const findTransitRoutesNear = async (
     // Prewarmed play-area set first — filter to allowed modes + near the point.
     const prewarmed = await fetchPrewarmedTransitRoutes();
     if (prewarmed) {
+        // Bus is a SEPARATE isolated prewarm entry (v1102) — fetch it too when
+        // the game allows bus, so a warm city is Overpass-free for bus as well.
+        const busPrewarmed = allowed.has("bus")
+            ? await fetchPrewarmedTransitRoutes("bus")
+            : null;
         const near: TransitRouteSummary[] = [];
-        for (const el of prewarmed.elements ?? []) {
-            const summary = routeSummaryFromEl(el);
-            if (!summary || !allowed.has(summary.mode)) continue;
-            const coords = routeMemberCoords(el);
-            const isNear = coords.some(
-                (c) =>
-                    turf.distance(
-                        turf.point([lng, lat]),
-                        turf.point(c),
-                        { units: "meters" },
-                    ) <= radiusMeters,
+        const scan = (els: any[]) => {
+            for (const el of els) {
+                const summary = routeSummaryFromEl(el);
+                if (!summary || !allowed.has(summary.mode)) continue;
+                const coords = routeMemberCoords(el);
+                const isNear = coords.some(
+                    (c) =>
+                        turf.distance(
+                            turf.point([lng, lat]),
+                            turf.point(c),
+                            { units: "meters" },
+                        ) <= radiusMeters,
+                );
+                if (isNear) near.push(summary);
+            }
+        };
+        scan(prewarmed.elements ?? []);
+        if (busPrewarmed) scan(busPrewarmed.elements ?? []);
+        // Bus falls back to a LIVE around-query only when its prewarm is COLD
+        // (busPrewarmed null); a warm bus set is served from R2 above.
+        if (allowed.has("bus") && !busPrewarmed) {
+            near.push(
+                ...(await liveRoutesNear(lat, lng, ["bus"], radiusMeters)),
             );
-            if (isNear) near.push(summary);
-        }
-        // The prewarmed set now covers rail + FERRY (v1081); only BUS is still
-        // Overpass-live (its whole-city route set is too heavy to prewarm — the
-        // area-stations lesson). So supplement with a live around-query for bus
-        // ONLY when the game allows it (Small games). Everything else is R2.
-        const missing = modes.filter((m) => m === "bus");
-        if (missing.length > 0) {
-            near.push(...(await liveRoutesNear(lat, lng, missing, radiusMeters)));
         }
         return dedupeRoutes(near);
     }
@@ -1151,13 +1175,23 @@ export const fetchTransitRouteDetail = async (
     const relId = routeId.split("/")[1];
     let data: any;
     let rel: any;
-    const prewarmed = await fetchPrewarmedTransitRoutes();
-    if (prewarmed) {
-        rel = (prewarmed.elements ?? []).find(
+    const findRel = (set: any) =>
+        (set?.elements ?? []).find(
             (e: any) =>
                 e.type === "relation" && String(e.id) === String(relId),
         );
+    const prewarmed = await fetchPrewarmedTransitRoutes();
+    if (prewarmed) {
+        rel = findRel(prewarmed);
         if (rel) data = prewarmed;
+    }
+    // The picked route may be a BUS route (isolated prewarm set, v1102).
+    if (!rel) {
+        const busPrewarmed = await fetchPrewarmedTransitRoutes("bus");
+        if (busPrewarmed) {
+            rel = findRel(busPrewarmed);
+            if (rel) data = busPrewarmed;
+        }
     }
     if (!rel) {
         const query = `[out:json];relation(${relId});(._;>;);out geom;`;

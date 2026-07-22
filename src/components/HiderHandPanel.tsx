@@ -327,7 +327,7 @@ export function HiderHandPanel() {
                                                 disabled={blocked || cantAfford}
                                                 title={
                                                     blocked
-                                                        ? `${$activeBlocker} is still blocking the seekers — only one such curse at a time (rulebook p44).`
+                                                        ? `${$activeBlocker} is still blocking the seekers.`
                                                         : cantAfford
                                                           ? `Not enough eligible cards to pay the casting cost (${card.castingCost}).`
                                                           : undefined

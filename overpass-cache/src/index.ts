@@ -1465,7 +1465,15 @@ async function handleRequest(
                     cors,
                 );
             }
-            return handleTransitRoutesByRelation(request, env, cors, relId);
+            const trMode =
+                url.searchParams.get("mode") === "bus" ? "bus" : "rail";
+            return handleTransitRoutesByRelation(
+                request,
+                env,
+                cors,
+                relId,
+                trMode,
+            );
         }
         if (url.pathname.startsWith("/api/elevation/")) {
             return handleElevationTile(request, env, ctx, cors);
@@ -4084,6 +4092,7 @@ async function handleTransitRoutesByRelation(
     env: Env,
     cors: HeadersInit,
     relationId: number,
+    mode: "rail" | "bus" = "rail",
 ): Promise<Response> {
     if (request.method !== "GET") {
         return new Response("Method not allowed", { status: 405, headers: cors });
@@ -4095,7 +4104,8 @@ async function handleTransitRoutesByRelation(
     if (!ext) {
         return jsonResponse({ elements: [], cache: "no-boundary" }, 200, cors);
     }
-    const query = transitRoutesQuery(ext);
+    const query =
+        mode === "bus" ? busTransitRoutesQuery(ext) : transitRoutesQuery(ext);
     const cacheKey = await r2KeyForQuery(query);
     const cacheApiKey = new Request(
         `${new URL(request.url).origin}/api/interpreter?data=${encodeURIComponent(query)}`,
@@ -4166,34 +4176,42 @@ async function warmRelationTransitRoutes(
         /* unparseable boundary — give up */
     }
     if (!ext) return;
-    const tQuery = transitRoutesQuery(ext);
-    const tKey = await r2KeyForQuery(tQuery);
-    try {
-        const head = await env.CACHE.head(`overpass/${tKey}`);
-        if (head) {
-            const cachedAt = parseInt(head.customMetadata?.cachedAt ?? "0", 10);
-            if (cachedAt && Date.now() - cachedAt < ttlMs) return; // fresh
+    // Warm BOTH the rail+ferry set and the ISOLATED bus set (v1102). Bus is a
+    // separate query/key so its heavy per-metro route geometry can't time out
+    // the rail set.
+    const warmOne = async (query: string, kind: string): Promise<void> => {
+        const key = await r2KeyForQuery(query);
+        try {
+            const head = await env.CACHE.head(`overpass/${key}`);
+            if (head) {
+                const cachedAt = parseInt(
+                    head.customMetadata?.cachedAt ?? "0",
+                    10,
+                );
+                if (cachedAt && Date.now() - cachedAt < ttlMs) return; // fresh
+            }
+        } catch {
+            /* head miss — warm below */
         }
-    } catch {
-        /* head miss — warm below */
-    }
-    if (!(await waitForOverpassSlot(`warm-transit-routes r${relationId}`)))
-        return;
-    const up = await upstreamSemaphore.run(() =>
-        fetchFromMirrorChainWithRetry(tQuery),
-    );
-    if (!up) return;
-    const body = await up.text();
-    if (isAbortedOverpassText(body)) return;
-    try {
-        await compressAndStoreString(env, tKey, body, {
-            kind: "transit-routes",
-            warmedBy: "on-add-transit-routes",
-            sourceRelationId: String(relationId),
-        });
-    } catch (e) {
-        console.warn(`warm transit-routes r${relationId} store failed:`, e);
-    }
+        if (!(await waitForOverpassSlot(`warm-${kind} r${relationId}`))) return;
+        const up = await upstreamSemaphore.run(() =>
+            fetchFromMirrorChainWithRetry(query),
+        );
+        if (!up) return;
+        const body = await up.text();
+        if (isAbortedOverpassText(body)) return;
+        try {
+            await compressAndStoreString(env, key, body, {
+                kind,
+                warmedBy: `on-add-${kind}`,
+                sourceRelationId: String(relationId),
+            });
+        } catch (e) {
+            console.warn(`warm ${kind} r${relationId} store failed:`, e);
+        }
+    };
+    await warmOne(transitRoutesQuery(ext), "transit-routes");
+    await warmOne(busTransitRoutesQuery(ext), "transit-routes-bus");
 }
 
 /**
@@ -4668,6 +4686,20 @@ function transitRoutesQuery(
     // Bus is deliberately still EXCLUDED (hundreds of heavy-geometry relations
     // per metro would time out the combined query — same lesson as area-stations).
     return `\n[out:json][timeout:180][bbox:${tuple}];\nrelation["type"="route"]["route"~"^(subway|train|light_rail|tram|monorail|ferry)$"];\nout tags geom;\n>;\nout tags;\n`;
+}
+
+/** Byte-identical to `busTransitRoutesQuery` in laptop-prewarm.mjs. The BUS
+ *  variant of the "Transit line" route set (v1102), kept ISOLATED from the
+ *  rail+ferry query above — a metro's bus route relations are hundreds of
+ *  heavy-geometry lines that would time the combined query out (the
+ *  area-stations / body-of-water lesson). Served by
+ *  `/api/transit-routes/<id>?mode=bus`. Newline framing is load-bearing to the
+ *  R2 key — keep in lockstep with the laptop copy. */
+function busTransitRoutesQuery(
+    extent: [number, number, number, number],
+): string {
+    const tuple = transitBboxTuple(extent);
+    return `\n[out:json][timeout:180][bbox:${tuple}];\nrelation["type"="route"]["route"="bus"];\nout tags geom;\n>;\nout tags;\n`;
 }
 
 /** Cron-side shard query. Same template as `transitRouteQuery`, with
@@ -7945,6 +7977,7 @@ async function handleAdminInspectEncoding(
     else if (kind === "streets") query = buildStreetsBboxQuery(ext);
     else if (kind === "metro") query = metroRoutesQuery(ext);
     else if (kind === "transit-routes") query = transitRoutesQuery(ext);
+    else if (kind === "transit-routes-bus") query = busTransitRoutesQuery(ext);
     else if (kind.startsWith("transit-"))
         query = transitRouteQuery(ext, kind.slice("transit-".length));
     else return jsonResponse({ error: `unknown kind '${kind}'` }, 400, cors);

@@ -1113,9 +1113,7 @@ function CardActions({
             )}
             {curseBlocked && (
                 <p className="mt-2 rounded-md border border-border bg-background px-3 py-2 text-xs text-foreground leading-snug text-center shadow-sm">
-                    {$activeBlocker} is still blocking the seekers — only one
-                    such curse can be active at a time. Wait for the seekers to
-                    clear it (rulebook p44).
+                    {$activeBlocker} is still blocking the seekers.
                 </p>
             )}
         </>
