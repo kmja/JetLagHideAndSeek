@@ -430,6 +430,12 @@ bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
 build stamp. Current: `v1069`. Use `git log` for the per-version detail;
 
+**v1084 — GPS-spoof chip moved out of the way.** The persistent "GPS SPOOFED ·
+tap to clear" chip (`SpoofIndicator`) was top-CENTER (`left-1/2`), overlapping the
+HIDE+SEEK wordmark — which is the debug-panel trigger, so it blocked opening the
+panel. Moved to the top-RIGHT, below the top bar (`right-2` +
+`top-[safe-area+3.25rem]`), clearing both the wordmark and the header buttons.
+
 **v1083 — configure-dialog gray + transit-line picker restyle + Send-gate fix +
 heading-default.**
 - **Send button was stuck disabled for the transit-line question**

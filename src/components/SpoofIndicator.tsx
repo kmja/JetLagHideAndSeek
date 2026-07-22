@@ -17,7 +17,7 @@ export function SpoofIndicator() {
         <button
             type="button"
             onClick={() => clearGpsSpoof()}
-            className="fixed z-[1950] left-1/2 -translate-x-1/2 top-[calc(env(safe-area-inset-top)+0.25rem)] flex items-center gap-1.5 rounded-full bg-amber-500 text-black px-3 py-1 text-[11px] font-poppins font-bold shadow-lg active:scale-95 transition-transform"
+            className="fixed z-[1950] right-2 top-[calc(env(safe-area-inset-top)+3.25rem)] flex items-center gap-1.5 rounded-full bg-amber-500 text-black px-3 py-1 text-[11px] font-poppins font-bold shadow-lg active:scale-95 transition-transform"
             title={`GPS spoofed to ${spoof.lat.toFixed(3)}, ${spoof.lng.toFixed(3)} — tap to clear`}
             aria-label="GPS is spoofed — tap to clear"
         >
