@@ -969,27 +969,48 @@ const transitRoutesWarmRequested = new Set<string>();
  *   "bus" reads the ISOLATED bus set (`?mode=bus`, v1102) — a separate R2 key
  *   so its heavy per-metro geometry can't time out the rail set.
  */
-async function fetchPrewarmedTransitRoutes(
-    mode: "rail" | "bus" = "rail",
-): Promise<any> {
-    const primary = mapGeoLocation.get();
-    const props = primary?.properties as
+/** Every play-area OSM relation id — primary + added adjacent areas (relations
+ *  only). Mirrors `journey/stations.ts playAreaRelationIdsAll` so a multi-region
+ *  (added-adjacent) play area is served from prewarm, not forced live. */
+function playAreaTransitRelationIds(): number[] {
+    const ids: number[] = [];
+    const primary = mapGeoLocation.get()?.properties as
         | { osm_id?: number; osm_type?: string }
         | undefined;
-    const extrasAdded = additionalMapGeoLocations.get().some((e) => e.added);
     if (
-        extrasAdded ||
-        props?.osm_type !== "R" ||
-        typeof props?.osm_id !== "number" ||
-        props.osm_id <= 0
+        primary?.osm_type === "R" &&
+        typeof primary.osm_id === "number" &&
+        primary.osm_id > 0
     ) {
-        return null;
+        ids.push(primary.osm_id);
     }
-    const relId = props.osm_id;
+    for (const e of additionalMapGeoLocations.get()) {
+        if (!e.added) continue;
+        const p = e.location?.properties as
+            | { osm_id?: number; osm_type?: string }
+            | undefined;
+        if (
+            p?.osm_type === "R" &&
+            typeof p.osm_id === "number" &&
+            p.osm_id > 0 &&
+            !ids.includes(p.osm_id)
+        ) {
+            ids.push(p.osm_id);
+        }
+    }
+    return ids;
+}
+
+/** Fetch ONE relation's prewarmed transit-routes set (gzip-tolerant, memoised).
+ *  Returns the parsed body on a warm hit, else null (firing a background
+ *  `?warm=1` so the next game is served from R2). */
+async function fetchOneTransitRoutes(
+    relId: number,
+    mode: "rail" | "bus",
+): Promise<{ elements?: unknown[] } | null> {
     const cacheId = `${mode}:${relId}`;
     const suffix = mode === "bus" ? "?mode=bus" : "";
-    if (transitRoutesCache.has(cacheId))
-        return transitRoutesCache.get(cacheId);
+    if (transitRoutesCache.has(cacheId)) return transitRoutesCache.get(cacheId);
     try {
         const resp = await fetch(
             `${TRANSIT_ROUTES_BY_RELATION_BASE}/${relId}${suffix}`,
@@ -998,8 +1019,7 @@ async function fetchPrewarmedTransitRoutes(
             // v1078: parse GZIP-TOLERANTLY. A double-/residual-gzipped body
             // (the v738/v739 class) makes `resp.json()` throw on the 0x1f magic
             // byte → this returned null → the picker fell to LIVE Overpass even
-            // for a WARM city (the reported Stockholm bug). `safeJsonFromCachedResponse`
-            // peels any gzip layers off the raw bytes first.
+            // for a WARM city. `safeJsonFromCachedResponse` peels the gzip.
             const json = (await safeJsonFromCachedResponse(resp)) as {
                 elements?: unknown[];
             };
@@ -1023,9 +1043,7 @@ async function fetchPrewarmedTransitRoutes(
             e,
         );
     }
-    // Cold (miss / no-boundary) — warm in the background so the NEXT game is
-    // served from R2; this game falls to the live query per-function. `?warm=1`
-    // warms BOTH the rail + bus sets server-side, so one fire suffices.
+    // Cold — warm in the background (warms BOTH the rail + bus sets server-side).
     if (!transitRoutesWarmRequested.has(cacheId)) {
         transitRoutesWarmRequested.add(cacheId);
         fetch(`${TRANSIT_ROUTES_BY_RELATION_BASE}/${relId}?warm=1`, {
@@ -1033,6 +1051,44 @@ async function fetchPrewarmedTransitRoutes(
         }).catch(() => transitRoutesWarmRequested.delete(cacheId));
     }
     return null;
+}
+
+/**
+ * v1118: FAN the transit-routes prewarm over EVERY play-area relation (primary
+ * + added adjacent areas) and UNION — so a multi-region (added-adjacent) play
+ * area is served from R2 too, instead of the old bail-to-live on `extrasAdded`
+ * (the reported Stockholm-plus-adjacents transit-line failure: the picker + the
+ * per-line stops both went live and got rate-limited). Returns the union of
+ * whatever relations are warm — the PRIMARY alone already carries a metro's
+ * main lines (all of Stockholm's Tunnelbana), so the picker works Overpass-free
+ * even before the adjacents warm; cold relations fire `?warm=1` for next time.
+ * `null` only when NO relation is warm (→ the caller's live fallback).
+ */
+async function fetchPrewarmedTransitRoutes(
+    mode: "rail" | "bus" = "rail",
+): Promise<{ elements?: unknown[] } | null> {
+    const ids = playAreaTransitRelationIds();
+    if (ids.length === 0) return null;
+    const results = await Promise.all(
+        ids.map((id) => fetchOneTransitRoutes(id, mode)),
+    );
+    const warm = results.filter(
+        (r): r is { elements?: unknown[] } => r != null,
+    );
+    if (warm.length === 0) return null;
+    if (warm.length === 1) return warm[0];
+    // Union elements across the warm relations, deduped by type/id.
+    const seen = new Set<string>();
+    const elements: unknown[] = [];
+    for (const r of warm) {
+        for (const el of (r.elements ?? []) as { type?: string; id?: number }[]) {
+            const key = `${el.type}/${el.id}`;
+            if (seen.has(key)) continue;
+            seen.add(key);
+            elements.push(el);
+        }
+    }
+    return { elements };
 }
 
 /** Summarise a route relation Overpass element. */

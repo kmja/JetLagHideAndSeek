@@ -477,6 +477,31 @@ build stamp. Current: `v1069`. Use `git log` for the per-version detail;
 - **NEXT: a SINGLE station producer shared by seeker + hider** (shipped in
   v1115 below).
 
+**v1118 — multi-region (added-adjacent) play areas go live → prewarm fan (fixes
+the Stockholm-plus-adjacents transit-line + lobby-station Overpass hammering).**
+Both reported errors share ONE root cause: a play area with ADDED ADJACENT areas
+(Stockholm Municipality r398021 + 3 added kommuner) bypassed the prewarm and
+went LIVE, getting rate-limited (worker 502 + overpass-api.de 429).
+- **Transit-line question** (`fetchPrewarmedTransitRoutes`, `overpass.ts`) BAILED
+  to null whenever `extrasAdded` — so the picker listing AND each picked line's
+  stops went live; under rate-limiting the pick returned empty → "That line has
+  no mapped stops" + "Could not load data from Overpass". Now it FANS
+  `/api/transit-routes/<id>` over EVERY play-area relation (primary + added
+  adjacents, `playAreaTransitRelationIds`) and UNIONs (deduped by type/id) —
+  mirroring the area-stations multi-region handling (v670). Returns the union of
+  whatever relations are warm (the PRIMARY alone carries a metro's main lines, so
+  the Tunnelbana picker + per-line stops work Overpass-free even before the
+  adjacents warm); cold relations fire `?warm=1`; null (→ live) only when NO
+  relation is warm. Extracted `fetchOneTransitRoutes` (the per-relation
+  gzip-tolerant fetch + `?warm=1`).
+- **Lobby station warm** (`warmHidingZoneQuery`, `preload.ts`) fired a heavy LIVE
+  multi-region `poly:` station query from the client (→ the 502/429 spam in the
+  lobby) AND warmed the WRONG cache (the in-game fetch reads the relation
+  endpoints, not the poly query). Now it calls `requestStationWarmAll()` —
+  fire-and-forget `?warm=1` on the relation-keyed `/api/area-stations/<id>`
+  endpoints (multi-region-aware, server-side), so the lobby never hammers the
+  mirrors and the warm targets what the seeker/hider actually read.
+
 **v1117 — laptop-prewarm `--even-split` (broad global sweep instead of one
 region at a time).** `--priority-regions` warms every US city, then every GB
 city, … → "a few EU capitals then a long string of US cities". New

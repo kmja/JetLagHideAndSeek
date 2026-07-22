@@ -1,7 +1,6 @@
 import { recordBytes, startMeter, stopMeter } from "@/lib/bandwidthMeter";
 import { lastPreloadDiag } from "@/lib/debugState";
 import {
-    displayHidingZonesOptions,
     mapGeoLocation,
     polyGeoJSON,
     polyGeoJSONHydrated,
@@ -27,6 +26,7 @@ import {
     type TransitPreloadStep,
 } from "@/lib/gameSetup";
 import { activeJourneyProvider } from "@/lib/journey/registry";
+import { requestStationWarmAll } from "@/lib/journey/stations";
 import type { JourneyStop } from "@/lib/journey/types";
 import {
     clearTilePack,
@@ -34,7 +34,6 @@ import {
 } from "@/lib/tilePack";
 import { preloadTilesForPlayArea } from "@/lib/tilePreload";
 import {
-    findPlacesInZone,
     getOverpassData,
     overpassFailureCount,
 } from "@/maps/api/overpass";
@@ -429,32 +428,21 @@ function runReferencesPreload(): void {
 }
 
 /**
- * Warm the exact Overpass query the Zone Sidebar runs when the seeker
- * first toggles the hiding-zone overlay, so that first toggle is a cache
- * hit instead of a live round-trip.
+ * Warm the hiding-zone STATION field so the seeker's/hider's first overlay
+ * toggle is a cache hit.
  *
- * A SINGLE station option already rides `findPlacesInZone`'s warm
- * per-family fast path (covered by the references prefetch above). But
- * when several transit modes are allowed, `displayHidingZonesOptions`
- * holds MULTIPLE filters, and the overlay passes the extras as
- * `alternatives` — which bypasses the fast path and runs a cold
- * `poly:`-shaped query that nothing else warms. That's the slow first
- * load. Warming it here (same args as `ZoneSidebar`) populates the cache.
+ * v1118: warm the prewarmed relation-keyed `/api/area-stations/<id>` endpoints
+ * (server-side `?warm=1`, fanned over EVERY play-area relation — primary +
+ * added adjacent areas) — NOT a heavy LIVE multi-region `poly:` query from the
+ * client. The old client poly warm hammered the public mirrors (429) + the
+ * worker (502) for a metro with added adjacents (the reported Stockholm lobby
+ * errors), and it warmed the WRONG cache: the in-game seeker/hider fetch reads
+ * the relation endpoints (the common auto-tracking case), not the poly query.
+ * `requestStationWarmAll` is fire-and-forget + deduped, so it never blocks the
+ * lobby or splatters errors.
  */
 function warmHidingZoneQuery(): void {
-    const opts = displayHidingZonesOptions.get();
-    if (!opts || opts.length < 2) return; // single option → already warm
-    void findPlacesInZone(
-        opts[0],
-        undefined,
-        "nwr",
-        "center",
-        opts.slice(1),
-        0,
-        true, // silent — background warm, no failure toast
-    ).catch(() => {
-        /* best-effort; the live toggle will still fetch if this missed */
-    });
+    requestStationWarmAll();
 }
 
 function runTransitPreload(): void {
