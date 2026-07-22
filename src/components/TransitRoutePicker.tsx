@@ -492,12 +492,20 @@ export function TransitRoutePicker({
                     </div>
                 </div>
 
-                {/* Direction filter — a compass badge (arrow + cardinal abbr)
-                    as a clearly-separate display element, the "Toward <end>"
-                    label, and a neutral icon-only reverse button. */}
+                {/* Direction filter — the WHOLE row is a button that reverses
+                    direction (v1119): a compass badge (arrow + cardinal abbr),
+                    the "Toward <end>" label, and a "Reverse" cue on the right,
+                    with a clear hover/press affordance so it reads as tappable. */}
                 {hasDir && (
-                    <div className="flex items-center gap-3 rounded-md border border-border bg-secondary/30 px-3 py-2 text-sm">
-                        <div className="flex w-10 shrink-0 flex-col items-center justify-center gap-0.5 rounded-md border border-border bg-background py-1">
+                    <button
+                        type="button"
+                        onClick={flipDirection}
+                        disabled={disabled}
+                        aria-label={`Reverse direction — currently toward ${target.name ?? "the end"}`}
+                        title="Tap to reverse direction"
+                        className="flex w-full items-center gap-3 rounded-md border border-border bg-secondary/30 px-3 py-2 text-left text-sm transition-all hover:border-primary/50 hover:bg-accent active:scale-[0.99] disabled:pointer-events-none disabled:opacity-60"
+                    >
+                        <span className="flex w-10 shrink-0 flex-col items-center justify-center gap-0.5 rounded-md border border-border bg-background py-1">
                             <ArrowUp
                                 className="h-4 w-4 text-foreground"
                                 style={{
@@ -507,8 +515,8 @@ export function TransitRoutePicker({
                             <span className="text-[10px] font-bold uppercase leading-none text-muted-foreground">
                                 {dirAbbr}
                             </span>
-                        </div>
-                        <span className="min-w-0 flex-1">
+                        </span>
+                        <span className="min-w-0 flex-1 truncate">
                             <span className="text-muted-foreground">
                                 Toward{" "}
                             </span>
@@ -516,16 +524,11 @@ export function TransitRoutePicker({
                                 {target.name ?? "the end"}
                             </span>
                         </span>
-                        <button
-                            type="button"
-                            onClick={flipDirection}
-                            aria-label="Reverse direction"
-                            title="Reverse direction"
-                            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-                        >
+                        <span className="flex shrink-0 items-center gap-1.5 rounded-md bg-background px-2 py-1 text-xs font-medium text-muted-foreground">
                             <ArrowUpDown className="h-4 w-4" />
-                        </button>
-                    </div>
+                            Reverse
+                        </span>
+                    </button>
                 )}
 
                 {/* Stop timeline — a connecting line down the checkbox rail so

@@ -477,6 +477,14 @@ build stamp. Current: `v1069`. Use `git log` for the per-version detail;
 - **NEXT: a SINGLE station producer shared by seeker + hider** (shipped in
   v1115 below).
 
+**v1119 — transit-line direction row is fully clickable to reverse.**
+`TransitRoutePicker`'s "Toward <terminus>" direction section was a plain row with
+a small separate reverse icon button; now the WHOLE row is a `<button>` that
+reverses direction (`flipDirection`) with a clear hover/press affordance
+(hover border+bg, `active:scale`) and a visible "Reverse" cue on the right. The
+target name truncates so the cue always fits; disabled when the picker is
+read-only.
+
 **v1118 — multi-region (added-adjacent) play areas go live → prewarm fan (fixes
 the Stockholm-plus-adjacents transit-line + lobby-station Overpass hammering).**
 Both reported errors share ONE root cause: a play area with ADDED ADJACENT areas
