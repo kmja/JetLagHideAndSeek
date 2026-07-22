@@ -28,10 +28,16 @@ export function FilmViewfinder({
     active = true,
     targetSeconds,
     onElapsed,
+    onReachTarget,
 }: {
     active?: boolean;
     targetSeconds?: number;
     onElapsed?: (seconds: number) => void;
+    /** Fired ONCE the moment a RUNNING timer passes `targetSeconds` — the
+     *  timer auto-stops and this fires, so the seekers don't have to stop it
+     *  themselves (Curse of the Bird Guide: the running film just has to reach
+     *  the bar). No-op when `targetSeconds` is unset (the hider's cast timer). */
+    onReachTarget?: () => void;
 }) {
     const videoRef = useRef<HTMLVideoElement | null>(null);
     const streamRef = useRef<MediaStream | null>(null);
@@ -40,6 +46,16 @@ export function FilmViewfinder({
     const [elapsedMs, setElapsedMs] = useState(0);
     const [captured, setCaptured] = useState<number | null>(null);
     const startRef = useRef<number | null>(null);
+    // Latest callbacks/target read via refs so the ticking interval effect can
+    // depend only on `running` (inline callbacks would otherwise re-arm it).
+    const onElapsedRef = useRef(onElapsed);
+    const onReachTargetRef = useRef(onReachTarget);
+    const targetRef = useRef(targetSeconds);
+    useEffect(() => {
+        onElapsedRef.current = onElapsed;
+        onReachTargetRef.current = onReachTarget;
+        targetRef.current = targetSeconds;
+    });
 
     // Acquire the rear camera while active; stop the stream on close/unmount.
     useEffect(() => {
@@ -77,12 +93,22 @@ export function FilmViewfinder({
         };
     }, [active]);
 
-    // Drive the live stopwatch display while running.
+    // Drive the live stopwatch display while running. When a target is set and
+    // the RUNNING timer reaches it, auto-stop + report + fire onReachTarget so
+    // the seekers don't have to stop it themselves.
     useEffect(() => {
         if (!running) return;
         const id = window.setInterval(() => {
-            if (startRef.current != null) {
-                setElapsedMs(Date.now() - startRef.current);
+            if (startRef.current == null) return;
+            const ms = Date.now() - startRef.current;
+            setElapsedMs(ms);
+            const target = targetRef.current;
+            if (target != null && ms / 1000 >= target) {
+                const secs = Math.round(ms / 1000);
+                setRunning(false);
+                setCaptured(secs);
+                onElapsedRef.current?.(secs);
+                onReachTargetRef.current?.();
             }
         }, 200);
         return () => window.clearInterval(id);

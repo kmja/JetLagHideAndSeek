@@ -108,14 +108,31 @@ export function curseCostDeliverableIsImage(
     );
 }
 
+/** Curses whose rulebook text has the seekers respond with a photo but whose
+ *  description doesn't literally say "photo/picture" — matched by NAME. */
+const SEEKER_PHOTO_RESPONSE_NAMES = new Set<string>([
+    // "The seekers must solve the maze" — we deliver their solved-maze photo
+    // back to the hider (product decision; the rulebook doesn't require it).
+    "Curse of the Labyrinth",
+]);
+
 /**
- * True when the CURSE requires the SEEKERS to send a verification picture BACK
- * to the hider before it clears (Curse of the Unguided Tourist: "They must send
- * a picture to the hider for verification"). Detected off the description.
+ * True when the CURSE requires the SEEKERS to send a picture BACK to the hider
+ * before it clears — the seeker-proof return path (Unguided Tourist "must send
+ * a picture to the hider for verification"; Zoologist "must take a picture of a
+ * wild animal…"; Luxury Car "must take a photo of a more expensive car…"; and
+ * Labyrinth by name). Detected off the name + description, so a new card with
+ * the same "seekers must take/send a photo" wording is covered automatically.
  */
-export function curseNeedsSeekerProof(description: string | null): boolean {
-    if (!description) return false;
-    return /send a picture to the hider/i.test(description);
+export function curseNeedsSeekerProof(curse: {
+    name?: string | null;
+    description?: string | null;
+}): boolean {
+    if (curse.name && SEEKER_PHOTO_RESPONSE_NAMES.has(curse.name)) return true;
+    const description = curse.description ?? "";
+    return /\b(must|then)\s+(take|send)[^.]*\b(photo|picture|image)\b/i.test(
+        description,
+    );
 }
 
 /**

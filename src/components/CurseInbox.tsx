@@ -262,7 +262,7 @@ export function CurseInbox({
         resolvedDialog != null &&
         isSeekerView &&
         multiplayerEnabled.get() &&
-        curseNeedsSeekerProof(resolvedDialog.description);
+        curseNeedsSeekerProof(resolvedDialog);
     const proofSent =
         resolvedDialog?.seekerProofUrl != null ||
         (resolvedDialog != null && proofSentAt === resolvedDialog.receivedAt);
@@ -549,6 +549,18 @@ export function CurseInbox({
                                     active={resolvedDialog !== null}
                                     targetSeconds={resolvedDialog.filmSeconds}
                                     onElapsed={setBirdFilmedSecs}
+                                    onReachTarget={() => {
+                                        // v1086: the running film reached the
+                                        // bar — celebrate + clear immediately,
+                                        // no need to stop the timer or tap Clear.
+                                        setBirdFilmedSecs(
+                                            resolvedDialog.filmSeconds ?? 0,
+                                        );
+                                        toast.success(
+                                            "Bird filmed long enough — curse cleared!",
+                                        );
+                                        dismiss(resolvedDialog.receivedAt);
+                                    }}
                                 />
                             </div>
                         )}
@@ -566,8 +578,8 @@ export function CurseInbox({
                         {needsProof && (
                             <div className="space-y-2">
                                 <p className="text-sm text-purple-300 font-semibold">
-                                    Find the spot the hider sent in real life,
-                                    then send them a photo of it to verify.
+                                    Complete the task, then send the hider a
+                                    photo to verify — that clears the curse.
                                 </p>
                                 {proofSent ? (
                                     <div className="flex items-center gap-1.5 text-sm font-semibold text-green-400">

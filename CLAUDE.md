@@ -430,6 +430,21 @@ bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
 build stamp. Current: `v1069`. Use `git log` for the per-version detail;
 
+**v1086 — curse audit batch 1: seeker photo-response generalized + Bird Guide
+auto-clear.** First batch of a full 24-curse conformance pass.
+- **Seekers respond with a photo** for Zoologist, Luxury Car and Labyrinth (was
+  Unguided Tourist only). `curseNeedsSeekerProof` now takes the curse
+  `{name, description}` and matches "the seekers must take/send a photo/picture"
+  in the description (Zoologist/Luxury Car) plus Labyrinth by name — so the
+  seeker-verification-photo return path (`sendCurseProof` → `seekerProofUrl` →
+  hider sees it; Clear gated on `proofBlocksClear`) covers all four. Prompt copy
+  genericised.
+- **Bird Guide auto-clears when the running film passes the bar.** `FilmViewfinder`
+  gained `onReachTarget` — a RUNNING timer that reaches `targetSeconds` auto-stops
+  and fires it (via refs so the tick interval isn't re-armed); the seeker's bird
+  section clears the curse + toasts on that, so they don't have to stop the timer
+  or tap Clear. The hider's cast timer (no target) is unaffected.
+
 **v1085 — in-game lobby shows the game settings.** The mid-game lobby reopen
 (`GameLobbyDialog` `isMidGame`) showed only the room code + Share — no game
 settings. Added a read-only settings row under the room code (play-area name +
