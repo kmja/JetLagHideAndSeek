@@ -540,6 +540,65 @@ export function setLocationTrackingExternal(external: boolean) {
 }
 
 /**
+ * v1112: send a room-wide pause/resume. Any participant may pause; the server
+ * stamps `setup.pausedAt` (+ shifts the clocks on resume) and broadcasts a
+ * setupChanged so every device freezes/unfreezes together.
+ */
+export function sendSetPause(paused: boolean, wasHiding?: boolean) {
+    if (!multiplayerEnabled.get()) return;
+    getTransport().send({ t: "setPause", paused, wasHiding });
+}
+
+/**
+ * v1112: adopt the room-wide pause from a synced `SetupState`. Sets the local
+ * freeze atoms (`manualPausedAt`/`manualPauseWasHiding`) so THIS device's
+ * clocks halt via the shared `useNow`. On a LIVE resume transition
+ * (`bank:true`, non-null→null), the HIDER banks a seeking pause's frozen span
+ * into its scored debit — the server already shifted `hidingPeriodEndsAt`/
+ * `seekersFrozenUntil` for a hiding-period pause, so we only bank the seeking
+ * case. `bank:false` (reconnect snapshot) never banks, so a resume the device
+ * missed while offline can't over-bank the whole gap.
+ */
+function applyPauseFromSetup(
+    setup: { pausedAt?: number | null; pauseWasHiding?: boolean },
+    bank: boolean,
+) {
+    const prev = manualPausedAt.get();
+    const wasHidingPause = manualPauseWasHiding.get();
+    const next =
+        typeof setup.pausedAt === "number" && Number.isFinite(setup.pausedAt)
+            ? setup.pausedAt
+            : null;
+    // Live resume transition on the HIDER's device: repay the hider-local
+    // clocks the server can't touch (the answer-window timers, and a seeking
+    // pause's scored debit).
+    if (bank && prev != null && next == null && playerRole.get() === "hider") {
+        const pausedMs = Math.max(0, Date.now() - prev);
+        if (pausedMs > 0) {
+            // Seeking pause → bank the frozen scored span (a hiding-period
+            // pause instead shifted the synced countdown, server-side).
+            if (!wasHidingPause) {
+                hiddenDebitMs.set(hiddenDebitMs.get() + pausedMs);
+            }
+            // Every pending question's answer window shifts forward so its
+            // countdown didn't tick while paused.
+            const inbox = hiderInbox.get();
+            let changed = false;
+            const shifted = inbox.map((e) => {
+                if (e.repliedAt === undefined) {
+                    changed = true;
+                    return { ...e, arrivedAt: e.arrivedAt + pausedMs };
+                }
+                return e;
+            });
+            if (changed) hiderInbox.set(shifted);
+        }
+    }
+    manualPausedAt.set(next);
+    manualPauseWasHiding.set(next != null ? !!setup.pauseWasHiding : false);
+}
+
+/**
  * Seeker → room: trigger the endgame phase (rulebook p43, "lock
  * down"). Stamps the local atom and pushes a wire message — the
  * server idempotently sets the canonical timestamp and broadcasts
@@ -1130,6 +1189,10 @@ function applySnapshot(state: GameState) {
     if ("locationTrackingExternal" in state.setup) {
         locationTrackingExternal.set(!!state.setup.locationTrackingExternal);
     }
+    // v1112: adopt the room-wide pause on (re)join. NO bank here — a snapshot
+    // isn't a live resume transition, so a reconnect-during-resume can't
+    // over-bank the whole offline span.
+    if ("pausedAt" in state.setup) applyPauseFromSetup(state.setup, false);
     if (state.setup.mapGeoLocation) {
         mapGeoLocation.set(
             state.setup.mapGeoLocation as OpenStreetMap,
@@ -1512,6 +1575,9 @@ function handleServerMessage(msg: ServerMessage) {
                     !!msg.setup.locationTrackingExternal,
                 );
             }
+            // v1112: manual pause synced room-wide. Apply the freeze; a live
+            // resume transition banks the hider's seeking-pause debit.
+            if ("pausedAt" in msg.setup) applyPauseFromSetup(msg.setup, true);
             if ("revealedStation" in msg.setup) {
                 const prevReveal = revealedStation.get();
                 const nextReveal = msg.setup.revealedStation ?? null;

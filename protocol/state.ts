@@ -208,6 +208,18 @@ export interface SetupState {
      * way" dismiss); synced to the whole room. Optional for back-compat.
      */
     locationTrackingExternal?: boolean;
+    /**
+     * v1112: manual game pause, synced to the WHOLE room so every device's
+     * clocks freeze together (was device-local, so other players kept
+     * running). `pausedAt` = Unix ms the pause began (null when running);
+     * `pauseWasHiding` = the pause began during the hiding period (drives how
+     * the server repays on resume: a hiding-period pause shifts
+     * `hidingPeriodEndsAt` + `seekersFrozenUntil` forward; a seeking pause is
+     * banked into the hider's scored time client-side). Any participant can
+     * toggle it (mirrors `locationTrackingExternal`). Optional for back-compat.
+     */
+    pausedAt?: number | null;
+    pauseWasHiding?: boolean;
 }
 
 /**

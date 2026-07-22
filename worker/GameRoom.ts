@@ -125,6 +125,8 @@ function emptySetup(): SetupState {
         endgameStartedAt: null,
         endgameConfirmedAt: null,
         mapGeoLocation: null,
+        pausedAt: null,
+        pauseWasHiding: false,
     };
 }
 
@@ -723,6 +725,8 @@ export class GameRoom {
                 return this.handleSetName(socket, msg.displayName);
             case "setLocationTracking":
                 return this.handleSetLocationTracking(socket, msg.external);
+            case "setPause":
+                return this.handleSetPause(socket, msg.paused, msg.wasHiding);
             case "startEndgame":
                 return this.handleStartEndgame(socket, msg.at, msg.force);
             case "cancelEndgame":
@@ -1674,6 +1678,57 @@ export class GameRoom {
             for (const p of this.game.participants) {
                 if (p.role === "seeker") this.locLastAt.set(p.id, now);
             }
+        }
+        this.broadcast({ t: "setupChanged", setup: this.game.setup });
+    }
+
+    /**
+     * v1112: manual pause/resume for the WHOLE room. On pause we stamp
+     * `pausedAt` so every device freezes its clocks; on resume we repay the
+     * frozen span across the synced clocks (`hidingPeriodEndsAt` +
+     * `seekersFrozenUntil`) authoritatively — once, on the server — so nobody
+     * double-shifts. The hider's scored-time bank for a seeking pause is done
+     * client-side (it lives in the hider-only round-progress ledger).
+     */
+    private handleSetPause(
+        socket: WebSocket,
+        paused: boolean,
+        wasHiding?: boolean,
+    ) {
+        const conn = this.lookupConn(socket);
+        if (!conn) return;
+        if (typeof paused !== "boolean") return;
+        const setup = this.game.setup;
+        if (paused) {
+            if (setup.pausedAt != null) return; // already paused
+            setup.pausedAt = Date.now();
+            setup.pauseWasHiding = !!wasHiding;
+        } else {
+            const pausedAt = setup.pausedAt;
+            if (pausedAt == null) return; // not paused
+            const pausedMs = Math.max(0, Date.now() - pausedAt);
+            if (pausedMs > 0) {
+                // Shift the synced countdown + Move-freeze forward so they
+                // resume exactly where they stopped.
+                if (
+                    setup.pauseWasHiding &&
+                    setup.hidingPeriodEndsAt != null &&
+                    Number.isFinite(setup.hidingPeriodEndsAt)
+                ) {
+                    setup.hidingPeriodEndsAt =
+                        (setup.hidingPeriodEndsAt as number) + pausedMs;
+                }
+                if (
+                    setup.seekersFrozenUntil != null &&
+                    Number.isFinite(setup.seekersFrozenUntil) &&
+                    (setup.seekersFrozenUntil as number) > pausedAt
+                ) {
+                    setup.seekersFrozenUntil =
+                        (setup.seekersFrozenUntil as number) + pausedMs;
+                }
+            }
+            setup.pausedAt = null;
+            setup.pauseWasHiding = false;
         }
         this.broadcast({ t: "setupChanged", setup: this.game.setup });
     }

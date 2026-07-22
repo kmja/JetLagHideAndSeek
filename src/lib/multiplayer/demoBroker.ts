@@ -494,6 +494,45 @@ function handleClientMessage(msg: ClientMessage) {
             // demo has no peers to relay to, so nothing else to do.
             return;
 
+        case "setPause": {
+            // v1112: mirror the server so the local resume repay runs
+            // (resumeGame delegates to the sync path in multiplayer/demo).
+            if (msg.paused) {
+                if (s.state.setup.pausedAt == null) {
+                    s.state.setup.pausedAt = Date.now();
+                    s.state.setup.pauseWasHiding = !!msg.wasHiding;
+                    inject({ t: "setupChanged", setup: s.state.setup });
+                }
+            } else {
+                const pausedAt = s.state.setup.pausedAt;
+                if (pausedAt != null) {
+                    const pausedMs = Math.max(0, Date.now() - pausedAt);
+                    if (pausedMs > 0) {
+                        const endsAt = s.state.setup.hidingPeriodEndsAt;
+                        if (
+                            s.state.setup.pauseWasHiding &&
+                            endsAt != null &&
+                            Number.isFinite(endsAt)
+                        ) {
+                            s.state.setup.hidingPeriodEndsAt = endsAt + pausedMs;
+                        }
+                        const frozen = s.state.setup.seekersFrozenUntil;
+                        if (
+                            frozen != null &&
+                            Number.isFinite(frozen) &&
+                            frozen > pausedAt
+                        ) {
+                            s.state.setup.seekersFrozenUntil = frozen + pausedMs;
+                        }
+                    }
+                    s.state.setup.pausedAt = null;
+                    s.state.setup.pauseWasHiding = false;
+                    inject({ t: "setupChanged", setup: s.state.setup });
+                }
+            }
+            return;
+        }
+
         case "setRoundProgress":
             // v942: the score ledger already lives in the local atoms;
             // single-device demo has no co-hider to relay it to.

@@ -432,6 +432,28 @@ bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
 build stamp. Current: `v1069`. Use `git log` for the per-version detail;
 
+**v1112 — manual game pause is SYNCED to the whole room.** Pausing was
+device-LOCAL (`gamePause.ts`) — the pause state rode `RoundProgressShare`, which
+only fans to other HIDERS, so seekers' clocks kept running (the reported bug).
+The pause now rides `SetupState` (fans to everyone): `SetupState.pausedAt` +
+`pauseWasHiding`, toggled by a new any-participant `setPause` message (mirrors
+`setLocationTracking`).
+- **Pause** (`pauseGame`): sets the local freeze atoms for instant feedback +
+  `sendSetPause(true, wasHiding)` → server stamps `setup.pausedAt` → broadcasts
+  `setupChanged` → every device's `applyPauseFromSetup` sets `manualPausedAt`, so
+  the shared `useNow` halts all clocks + the `GamePausedOverlay` shows for all.
+- **Resume** (`resumeGame`): in multiplayer just `sendSetPause(false)` (no local
+  clock math). The SERVER authoritatively repays the SYNCED clocks ONCE —
+  shifts `hidingPeriodEndsAt` (hiding-period pause) + `seekersFrozenUntil`
+  (Move freeze) forward by the paused span — so nobody double-shifts. The
+  HIDER-local repay (answer-window `arrivedAt` shift + a seeking pause's
+  `hiddenDebitMs` bank) runs in `applyPauseFromSetup` on the LIVE resume
+  transition (non-null→null, `bank:true`); a reconnect snapshot applies with
+  `bank:false` so a missed-while-offline resume can't over-bank the whole gap.
+- **Solo/offline** keeps the full local repay in `resumeGame` unchanged. The
+  demo broker mirrors the server (shift-on-resume + echo `setupChanged`) so the
+  single-device pause still repays. Protocol/worker/demo all updated in lockstep.
+
 **v1111 — skull-and-crossbones icon redraw.** Reworked the custom
 `SkullCrossbones` glyph (`gameIcons.tsx`, the curse mark used everywhere): a
 cleaner symmetric filled skull — rounded cranium tapering to a jaw, two big

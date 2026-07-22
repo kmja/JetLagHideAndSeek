@@ -30,6 +30,8 @@ import {
     seekersFrozenUntil,
 } from "@/lib/gameSetup";
 import { hiderInbox } from "@/lib/hiderRole";
+import { multiplayerEnabled } from "@/lib/multiplayer/session";
+import { sendSetPause } from "@/lib/multiplayer/store";
 
 /** True while the game is manually paused on this device. */
 export function isGamePaused(): boolean {
@@ -43,14 +45,28 @@ export function pauseGame(): void {
     const now = Date.now();
     const endsAt = hidingPeriodEndsAt.get();
     // "During the hiding period" = clock exists and hasn't lapsed yet.
-    manualPauseWasHiding.set(endsAt != null && now < endsAt);
+    const wasHiding = endsAt != null && now < endsAt;
+    manualPauseWasHiding.set(wasHiding);
     manualPausedAt.set(now);
+    // v1112: sync the pause to the WHOLE room so every device freezes (a
+    // no-op solo). The confirming setupChanged re-applies the same value.
+    sendSetPause(true, wasHiding);
 }
 
 /** Resume the game: repay the paused span across every frozen clock. */
 export function resumeGame(): void {
     const pausedAt = manualPausedAt.get();
     if (pausedAt == null) return;
+    // v1112: in multiplayer the SERVER repays the shared clocks
+    // (`hidingPeriodEndsAt`/`seekersFrozenUntil`) authoritatively and the
+    // hider's answer-windows + seeking-debit are repaid by
+    // `applyPauseFromSetup` on the resume transition — so just send the resume
+    // and let the synced setupChanged clear the freeze everywhere. (No local
+    // clock math here, or it would double-shift the synced values.)
+    if (multiplayerEnabled.get()) {
+        sendSetPause(false);
+        return;
+    }
     const now = Date.now();
     const pausedMs = Math.max(0, now - pausedAt);
     const wasHiding = manualPauseWasHiding.get();

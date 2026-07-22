@@ -259,6 +259,21 @@ export interface CMsgSetLocationTracking {
 }
 
 /**
+ * v1112: any participant pauses/resumes the game for the WHOLE room. On
+ * pause the server stamps `setup.pausedAt` (+ `pauseWasHiding`); on resume it
+ * clears it and repays the frozen span across the synced clocks
+ * (`hidingPeriodEndsAt` + `seekersFrozenUntil` shifted forward). Broadcasts a
+ * setupChanged so every device freezes/unfreezes together.
+ */
+export interface CMsgSetPause {
+    t: "setPause";
+    /** true = pause, false = resume. */
+    paused: boolean;
+    /** On pause: whether it began during the hiding period. */
+    wasHiding?: boolean;
+}
+
+/**
  * Seeker triggers the endgame phase ("I'm close — lock your spot
  * down"). The server stamps `setup.endgameStartedAt` and broadcasts
  * a setupChanged so every client surfaces the transition. Idempotent:
@@ -468,6 +483,7 @@ export type ClientMessage =
     | CMsgSetScoutedSpots
     | CMsgSetName
     | CMsgSetLocationTracking
+    | CMsgSetPause
     | CMsgStartEndgame
     | CMsgCancelEndgame
     | CMsgConfirmEndgame
