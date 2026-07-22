@@ -1,5 +1,4 @@
 import { useStore } from "@nanostores/react";
-import { Rocket } from "lucide-react";
 import { type CSSProperties, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
@@ -294,11 +293,10 @@ export function GoGoGoOverlay({ preview }: { preview?: GoGoGoPreview } = {}) {
                         onClick={handleDismiss}
                         size="lg"
                         className={cn(
-                            "w-full mt-2 gap-2 text-base h-14",
+                            "w-full mt-2 text-base h-14",
                             "font-display font-extrabold uppercase tracking-[0.02em]",
                         )}
                     >
-                        <Rocket className="w-5 h-5" />
                         Got it — show me the map
                     </Button>
                 </div>

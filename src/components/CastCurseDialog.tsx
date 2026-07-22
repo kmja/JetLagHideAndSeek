@@ -9,7 +9,6 @@ import {
     Play,
     Plus,
     RotateCw,
-    Send,
     Square,
     Trash2,
     Video,
@@ -1688,10 +1687,7 @@ export function CastCurseDialog({
                                         Discard fizzled curse
                                     </>
                                 ) : (
-                                    <>
-                                        <Send className="w-4 h-4" />
-                                        Cast curse
-                                    </>
+                                    "Cast curse"
                                 )}
                             </Button>
                         )}

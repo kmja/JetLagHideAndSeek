@@ -17,7 +17,7 @@ import {
 
 import { useNow } from "@/hooks/useNow";
 import { QRCodeSVG } from "qrcode.react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "react-toastify";
 import { Drawer as VaulDrawer } from "vaul";
 
@@ -177,6 +177,23 @@ export function GameLobbyDialog() {
                 ($hidingEndsAt === null || $overLobby)));
 
     const isHiderRole = $playerRole === "hider";
+
+    // v1090: a little pop when the local player switches teams. Track the
+    // previous role and bump a key on an actual seeker↔hider change; the self
+    // row remounts under that key so its enter animation replays in the
+    // DESTINATION card. Guarded so the initial lobby mount doesn't animate.
+    const [switchAnimKey, setSwitchAnimKey] = useState(0);
+    const prevRoleRef = useRef($playerRole);
+    useEffect(() => {
+        if (
+            prevRoleRef.current !== null &&
+            $playerRole !== null &&
+            prevRoleRef.current !== $playerRole
+        ) {
+            setSwitchAnimKey((k) => k + 1);
+        }
+        prevRoleRef.current = $playerRole;
+    }, [$playerRole]);
 
     const isMidGame = $manualOpen && $hidingEndsAt !== null;
 
@@ -734,19 +751,19 @@ export function GameLobbyDialog() {
                         <div className="flex items-center gap-1.5 flex-wrap">
                             {cityName && (
                                 <span
-                                    className="inline-flex items-center gap-1 rounded-md bg-secondary/60 border border-border px-2 py-1 text-xs font-medium text-foreground max-w-[45%] truncate"
+                                    className="inline-flex h-10 items-center gap-1.5 rounded-md bg-secondary/60 border border-border px-3 text-sm font-medium text-foreground max-w-[45%] truncate"
                                     title={cityName}
                                 >
-                                    <MapPin className="w-3.5 h-3.5 shrink-0 text-muted-foreground" />
+                                    <MapPin className="w-4 h-4 shrink-0 text-muted-foreground" />
                                     <span className="truncate">{cityName}</span>
                                 </span>
                             )}
                             <SizeBadge
                                 size={$size}
-                                className="text-xs px-2.5 h-8 shadow-sm"
+                                className="text-sm px-3 h-10 shadow-sm"
                             />
                             {$allowedTransit.length === 0 ? (
-                                <span className="rounded-md bg-secondary/60 border border-border px-2 py-1 text-xs text-muted-foreground italic">
+                                <span className="inline-flex h-10 items-center rounded-md bg-secondary/60 border border-border px-3 text-sm text-muted-foreground italic">
                                     Walking only
                                 </span>
                             ) : (
@@ -1176,6 +1193,7 @@ export function GameLobbyDialog() {
                                 colorById={colorById}
                                 selfId={$self}
                                 hostId={hostId}
+                                selfSwitchKey={switchAnimKey}
                                 onJoin={
                                     !isMidGame && $playerRole === null
                                         ? () => joinTeam("seeker")
@@ -1200,6 +1218,7 @@ export function GameLobbyDialog() {
                                 colorById={colorById}
                                 selfId={$self}
                                 hostId={hostId}
+                                selfSwitchKey={switchAnimKey}
                                 onJoin={
                                     !isMidGame && $playerRole === null
                                         ? () => joinTeam("hider")
@@ -1425,6 +1444,7 @@ function RosterCard({
     colorById,
     selfId,
     hostId,
+    selfSwitchKey = 0,
     onJoin,
     joinLabel,
     onSwitchTeam,
@@ -1442,6 +1462,10 @@ function RosterCard({
     colorById: Record<string, string>;
     selfId: string | null;
     hostId: string | null;
+    /** v1090: bumped each time the local player switches teams — the self row
+     *  remounts under it so its enter animation replays in this (destination)
+     *  card. 0 = no switch yet (don't animate the initial mount). */
+    selfSwitchKey?: number;
     /** When set, render a "join this team" button — only in the zero-state
      *  (the local player hasn't picked a role yet). */
     onJoin?: () => void;
@@ -1480,10 +1504,20 @@ function RosterCard({
                     {rows.map((p) => {
                         const isMe = p.id === selfId;
                         const isHost = p.id === hostId;
+                        // v1090: replay the enter animation on the self row when
+                        // the local player just switched teams — remount it under
+                        // the switch key so the card it lands in pops it in.
+                        const meAnim = isMe && selfSwitchKey > 0;
                         return (
                             <li
-                                key={p.id}
-                                className="flex items-center gap-2.5 text-base"
+                                key={
+                                    meAnim ? `${p.id}:sw${selfSwitchKey}` : p.id
+                                }
+                                className={cn(
+                                    "flex items-center gap-2.5 text-base",
+                                    meAnim &&
+                                        "animate-in fade-in zoom-in-95 slide-in-from-bottom-1 duration-300",
+                                )}
                             >
                                 {/* v861: per-player identity colour (show-
                                     style) — a stable colour from the id, shown

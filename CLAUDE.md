@@ -430,6 +430,23 @@ bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
 build stamp. Current: `v1069`. Use `git log` for the per-version detail;
 
+**v1090 — lobby polish: team-switch pop, aligned in-game settings row, rocket/
+send icons dropped.**
+- **In-game lobby settings row aligned** (`GameLobbyDialog`, `isMidGame`): the
+  play-area badge, size pill (`SizeBadge`), and "Walking only" chip now all sit
+  at `h-10` to match the 40 px transit-icon pills, with a bigger `text-sm`
+  play-area font (was `text-xs`/`h-8`, subtly shorter than the icons).
+- **Team-switch pop** (`GameLobbyDialog`): switching seeker↔hider in the lobby
+  now replays a small enter animation (`fade + zoom-in-95 + slide`) on the local
+  player's roster row in the DESTINATION card — tracked via a `switchAnimKey` that
+  bumps on an actual role change and remounts the self row, so the initial lobby
+  mount doesn't animate.
+- **Rocket + paper-plane icons removed**: the `Rocket` glyph on the GoGoGo
+  overlay's "Got it — show me the map" button (`GoGoGoOverlay`) and the `Send`
+  glyph on the "Cast curse" button (`CastCurseDialog`) are gone (both imports
+  dropped). The rocket was already off the RotateHider / Thermometer buttons
+  (v846); GoGoGo was the last one.
+
 **v1089 — nameless "Selected station" companion dots removed + curse bonus
 visible on the hider timer.**
 - **Every named station showed a nameless duplicate "Selected station" dot
