@@ -165,9 +165,11 @@ interface PersistedRoom {
     hangmanGames?: Record<number, HangmanGame>;
 }
 
-/** v1096: server-side Hidden Hangman game state. The `word` is SECRET. */
+/** v1096: server-side Hidden Hangman game state. The `word` is SECRET (set by
+ *  the HIDER each round; the server holds it for anti-cheat + persistence + an
+ *  offline-hider reveal backstop, but the hider drives the game). */
 interface HangmanGame {
-    /** The current round's secret word, 5 uppercase letters. */
+    /** This round's secret word, 5 uppercase letters ("" until the hider sets it). */
     word: string;
     /** Letters guessed this round (uppercase). */
     guessed: string[];
@@ -177,7 +179,9 @@ interface HangmanGame {
     losses: number;
     /** Losses that end the curse (1 S / 2 M / 3 L). */
     maxLosses: number;
-    status: "playing" | "lost" | "cleared";
+    status: "awaiting-word" | "playing" | "lost" | "cleared";
+    /** A seeker's guess awaiting the hider's reveal, else null. */
+    pending?: string | null;
     /** When `lost`, Unix ms the 10-min re-challenge cooldown ends. */
     cooldownUntil?: number;
     /** True when the loss was the FINAL one (curse clears after cooldown). */
@@ -191,30 +195,6 @@ interface HangmanGame {
 const HANGMAN_MAX_WRONG = 7;
 /** 10-minute re-challenge cooldown after a Hidden Hangman loss. */
 const HANGMAN_COOLDOWN_MS = 10 * 60_000;
-
-/** Common, inoffensive 5-letter words the server draws Hidden Hangman rounds
- *  from (server-adjudicated — the hider doesn't hand-pick the word). */
-const HANGMAN_WORDS: readonly string[] = [
-    "APPLE", "BRAVE", "CHAIR", "DANCE", "EAGLE", "FLAME", "GRAPE", "HOUSE",
-    "IVORY", "JUICE", "KOALA", "LEMON", "MANGO", "NIGHT", "OCEAN", "PIANO",
-    "QUILT", "RIVER", "STONE", "TIGER", "UNITY", "VOICE", "WATER", "XENON",
-    "YACHT", "ZEBRA", "BREAD", "CLOUD", "DREAM", "EARTH", "FROST", "GLASS",
-    "HONEY", "IGLOO", "JELLY", "KNIFE", "LIGHT", "MUSIC", "NORTH", "OLIVE",
-    "PEARL", "QUEEN", "ROBOT", "SUGAR", "TRAIN", "URBAN", "VIVID", "WHALE",
-    "YOUTH", "ZESTY", "AMBER", "BEACH", "CRANE", "DAISY", "EMBER", "FABLE",
-    "GIANT", "HEART", "INDEX", "JOKER", "KAYAK", "LUNAR", "MAPLE", "NOBLE",
-    "ONION", "PLANT", "QUICK", "RADAR", "SMILE", "TABLE", "ULTRA", "VAULT",
-    "WAGON", "YEARN", "BLOOM", "CABIN", "DELTA", "EQUAL", "FERRY", "GLIDE",
-    "HAPPY", "INPUT", "JUMBO", "KNOCK", "LATCH", "MEDAL", "NURSE", "ORBIT",
-    "PRIZE", "QUOTA", "RIDGE", "SPARK", "TULIP", "UNZIP", "VOTER", "WRIST",
-];
-
-/** Pick a random word using the crypto RNG (always available in a Worker). */
-function pickHangmanWord(): string {
-    const buf = new Uint32Array(1);
-    crypto.getRandomValues(buf);
-    return HANGMAN_WORDS[buf[0] % HANGMAN_WORDS.length];
-}
 
 /* ────────────────── Connection bookkeeping ────────────────── */
 
@@ -784,8 +764,12 @@ export class GameRoom {
                     msg.castId,
                     msg.maxLosses,
                 );
+            case "hangmanWord":
+                return this.handleHangmanWord(socket, msg.castId, msg.word);
             case "hangmanGuess":
                 return this.handleHangmanGuess(socket, msg.castId, msg.letter);
+            case "hangmanReveal":
+                return this.handleHangmanReveal(socket, msg.castId);
             case "hangmanContinue":
                 return this.handleHangmanContinue(socket, msg.castId);
             case "subscribePush":
@@ -2294,15 +2278,16 @@ export class GameRoom {
         return {
             t: "hangmanState",
             castId,
-            pattern: g.word
+            pattern: (g.word || "     ")
                 .split("")
-                .map((ch) => (g.guessed.includes(ch) ? ch : "")),
+                .map((ch) => (ch !== " " && g.guessed.includes(ch) ? ch : "")),
             guessed: g.guessed,
             wrong: g.wrong,
             maxWrong: HANGMAN_MAX_WRONG,
             losses: g.losses,
             maxLosses: g.maxLosses,
             status: g.status,
+            ...(g.pending ? { pending: g.pending } : {}),
             ...(g.cooldownUntil != null ? { cooldownUntil: g.cooldownUntil } : {}),
             ...(g.final ? { final: true } : {}),
             ...(g.won != null ? { won: g.won } : {}),
@@ -2319,49 +2304,101 @@ export class GameRoom {
         }
     }
 
-    /** The hider casts Hidden Hangman → start a game with a fresh secret word. */
+    private isHiderOnline(): boolean {
+        for (const [pid] of this.conns.entries()) {
+            const cp = this.game.participants.find((q) => q.id === pid);
+            if (cp?.role === "hider") return true;
+        }
+        return false;
+    }
+
+    private roleOf(socket: WebSocket): Role | null {
+        const conn = this.lookupConn(socket);
+        if (!conn) return null;
+        return (
+            this.game.participants.find((q) => q.id === conn.participantId)
+                ?.role ?? null
+        );
+    }
+
+    /** The hider casts Hidden Hangman → create the game (awaiting the first word). */
     private handleHangmanStart(
         socket: WebSocket,
         castId: number,
         maxLosses: number,
     ) {
-        const conn = this.lookupConn(socket);
-        if (!conn) return;
+        if (!this.lookupConn(socket)) return;
         const ml = Math.min(Math.max(Math.round(maxLosses) || 1, 1), 3);
         const g: HangmanGame = {
-            word: pickHangmanWord(),
+            word: "",
             guessed: [],
             wrong: 0,
             losses: 0,
             maxLosses: ml,
-            status: "playing",
+            status: "awaiting-word",
+            pending: null,
         };
         this.hangmanGames[castId] = g;
         this.broadcastHangman(castId, g);
         void this.persist();
     }
 
-    /** A seeker guesses a letter — the SERVER adjudicates hit/miss + win/loss. */
+    /** The HIDER sets this round's secret 5-letter word. */
+    private handleHangmanWord(socket: WebSocket, castId: number, word: string) {
+        if (this.roleOf(socket) !== "hider") return;
+        const g = this.hangmanGames[castId];
+        if (!g || g.status !== "awaiting-word") return;
+        const W = String(word || "").toUpperCase();
+        if (!/^[A-Z]{5}$/.test(W)) return;
+        g.word = W;
+        g.guessed = [];
+        g.wrong = 0;
+        g.pending = null;
+        g.status = "playing";
+        this.broadcastHangman(castId, g);
+        void this.persist();
+    }
+
+    /** A seeker guesses — held PENDING for the hider to reveal (or auto-revealed
+     *  when no hider is online). */
     private handleHangmanGuess(
         socket: WebSocket,
         castId: number,
         letter: string,
     ) {
-        const conn = this.lookupConn(socket);
-        if (!conn) return;
-        // Only SEEKERS play — the hider casts + watches (never guesses).
-        const p = this.game.participants.find((q) => q.id === conn.participantId);
-        if (p?.role !== "seeker") return;
+        if (this.roleOf(socket) !== "seeker") return;
         const g = this.hangmanGames[castId];
-        if (!g || g.status !== "playing") return;
+        if (!g || g.status !== "playing" || g.pending) return;
         const L = String(letter || "").toUpperCase();
         if (!/^[A-Z]$/.test(L) || g.guessed.includes(L)) return;
+        g.pending = L;
+        this.broadcastHangman(castId, g);
+        // Offline-hider backstop: if nobody's there to reveal, apply it now so
+        // the seekers aren't stuck (the server holds the word).
+        if (!this.isHiderOnline()) this.applyHangmanReveal(castId, g);
+        void this.persist();
+    }
+
+    /** The HIDER reveals the answer to the pending guess. */
+    private handleHangmanReveal(socket: WebSocket, castId: number) {
+        if (this.roleOf(socket) !== "hider") return;
+        const g = this.hangmanGames[castId];
+        if (!g || g.status !== "playing" || !g.pending) return;
+        this.applyHangmanReveal(castId, g);
+        void this.persist();
+    }
+
+    /** Apply the pending guess to the word (reveal or mark wrong) + resolve. */
+    private applyHangmanReveal(castId: number, g: HangmanGame) {
+        const L = g.pending;
+        g.pending = null;
+        if (!L) return;
         g.guessed.push(L);
         if (!g.word.includes(L)) g.wrong++;
-
-        const solved = g.word.split("").every((ch) => g.guessed.includes(ch));
+        const solved =
+            g.word.length > 0 &&
+            g.word.split("").every((ch) => g.guessed.includes(ch));
         if (solved) {
-            // The seekers beat the hider → the curse clears immediately.
             g.status = "cleared";
             g.won = true;
             this.broadcastHangman(castId, g);
@@ -2376,16 +2413,12 @@ export class GameRoom {
         } else {
             this.broadcastHangman(castId, g);
         }
-        void this.persist();
     }
 
-    /** After a loss cooldown: start the next round (fresh word) or, if that was
-     *  the FINAL loss, clear the curse. */
+    /** After a loss cooldown: ask the hider for a fresh word (next round) or, if
+     *  that was the FINAL loss, clear the curse. */
     private handleHangmanContinue(socket: WebSocket, castId: number) {
-        const conn = this.lookupConn(socket);
-        if (!conn) return;
-        const p = this.game.participants.find((q) => q.id === conn.participantId);
-        if (p?.role !== "seeker") return;
+        if (this.roleOf(socket) !== "seeker") return;
         const g = this.hangmanGames[castId];
         if (!g || g.status !== "lost") return;
         if (g.cooldownUntil != null && Date.now() < g.cooldownUntil) return;
@@ -2396,10 +2429,11 @@ export class GameRoom {
             delete this.hangmanGames[castId];
             this.clearCurseByCastId(castId);
         } else {
-            g.word = pickHangmanWord();
+            g.word = "";
             g.guessed = [];
             g.wrong = 0;
-            g.status = "playing";
+            g.pending = null;
+            g.status = "awaiting-word";
             delete g.cooldownUntil;
             delete g.final;
             this.broadcastHangman(castId, g);

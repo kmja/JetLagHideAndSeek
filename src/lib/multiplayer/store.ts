@@ -779,8 +779,8 @@ export function startCurseCooldown(
 
 /* ────────────────── Hidden Hangman (v1096) ────────────────── */
 
-/** The hider casts Hidden Hangman — ask the server to start the game (it owns
- *  the secret word + adjudicates). `maxLosses` = 1/2/3 by size. */
+/** The hider casts Hidden Hangman — create the game (server awaits the first
+ *  word from the hider). `maxLosses` = 1/2/3 by size. */
 export function sendHangmanStart(
     castId: number | undefined,
     maxLosses: number,
@@ -789,13 +789,28 @@ export function sendHangmanStart(
     getTransport()?.send({ t: "hangmanStart", castId, maxLosses });
 }
 
-/** A seeker guesses a letter — the server adjudicates + broadcasts new state. */
+/** The HIDER sets this round's secret 5-letter word. */
+export function sendHangmanWord(
+    castId: number | undefined,
+    word: string,
+): void {
+    if (castId == null || !multiplayerEnabled.get()) return;
+    getTransport()?.send({ t: "hangmanWord", castId, word });
+}
+
+/** A seeker guesses a letter — held pending the hider's reveal. */
 export function sendHangmanGuess(
     castId: number | undefined,
     letter: string,
 ): void {
     if (castId == null || !multiplayerEnabled.get()) return;
     getTransport()?.send({ t: "hangmanGuess", castId, letter });
+}
+
+/** The HIDER reveals the answer to the pending guess. */
+export function sendHangmanReveal(castId: number | undefined): void {
+    if (castId == null || !multiplayerEnabled.get()) return;
+    getTransport()?.send({ t: "hangmanReveal", castId });
 }
 
 /** After a loss cooldown: next round (fresh word) or clear the curse (final). */
@@ -1796,6 +1811,7 @@ function handleServerMessage(msg: ServerMessage) {
                 losses: msg.losses,
                 maxLosses: msg.maxLosses,
                 status: msg.status,
+                pending: msg.pending,
                 cooldownUntil: msg.cooldownUntil,
                 final: msg.final,
                 won: msg.won,

@@ -52,6 +52,8 @@ import {
     sendCurseProof,
     sendHangmanContinue,
     sendHangmanGuess,
+    sendHangmanReveal,
+    sendHangmanWord,
     startCurseCooldown,
 } from "@/lib/multiplayer/store";
 import { CURSE_HIDDEN_HANGMAN } from "@/lib/castingConstraint";
@@ -772,7 +774,7 @@ export function CurseInbox({
                                     : undefined
                             }
                             now={now}
-                            readOnly={!isSeekerView}
+                            isHider={!isSeekerView}
                         />
                     ) : resolvedDialog?.name === CURSE_SPOTTY_MEMORY ? (
                         <div className="space-y-2">
@@ -1027,23 +1029,24 @@ export function CurseInbox({
 }
 
 /**
- * v1096 — the seeker-facing Hidden Hangman board (server-adjudicated). Shows the
- * word blanks (revealed letters in position), a gallows drawn from the wrong
- * count, and an A–Z grid to guess. On a loss it shows the 10-min cooldown, then
- * "Play again" (fresh word) or "Clear curse" (after the final loss).
+ * v1096 — the Hidden Hangman board (HIDER-run, server-relayed). The HIDER picks
+ * the word each round and reveals the answer to each seeker guess; the SEEKERS
+ * play on the A–Z grid. Shows word blanks, a gallows drawn from the wrong count,
+ * and per-role controls for every game phase.
  */
 function HangmanBoard({
     castId,
     game,
     now,
-    readOnly = false,
+    isHider = false,
 }: {
     castId?: number;
     game?: HangmanState;
     now: number;
-    /** The HIDER watches read-only — only seekers guess/continue. */
-    readOnly?: boolean;
+    isHider?: boolean;
 }) {
+    const [wordDraft, setWordDraft] = useState("");
+
     if (castId == null || !game) {
         return (
             <p className="text-xs text-muted-foreground text-center py-2">
@@ -1051,26 +1054,71 @@ function HangmanBoard({
             </p>
         );
     }
-    const coolingMs =
-        game.status === "lost" && game.cooldownUntil != null
-            ? game.cooldownUntil - now
-            : 0;
-    const onCooldown = coolingMs > 0;
-    const left = Math.max(0, game.maxWrong - game.wrong);
 
+    // ── Awaiting the hider's word ──
+    if (game.status === "awaiting-word") {
+        if (!isHider) {
+            return (
+                <p className="text-xs text-muted-foreground text-center py-3">
+                    Waiting for the hider to choose a 5-letter word…
+                </p>
+            );
+        }
+        return (
+            <div className="space-y-2">
+                <p className="text-xs text-muted-foreground text-center">
+                    Choose a secret 5-letter word for the seekers to guess.
+                </p>
+                <div className="flex gap-2">
+                    <input
+                        value={wordDraft}
+                        onChange={(e) =>
+                            setWordDraft(
+                                e.target.value
+                                    .toUpperCase()
+                                    .replace(/[^A-Z]/g, "")
+                                    .slice(0, 5),
+                            )
+                        }
+                        placeholder="WORD"
+                        inputMode="text"
+                        autoCapitalize="characters"
+                        className="flex-1 rounded-md border-2 border-border bg-background px-3 py-2 text-center text-lg font-black tracking-[0.3em] uppercase focus:outline-none focus:border-primary"
+                    />
+                    <Button
+                        size="sm"
+                        disabled={wordDraft.length !== 5}
+                        onClick={() => {
+                            sendHangmanWord(castId, wordDraft);
+                            setWordDraft("");
+                        }}
+                    >
+                        Set word
+                    </Button>
+                </div>
+            </div>
+        );
+    }
+
+    // ── Lost — cooldown, then play-again / clear ──
     if (game.status === "lost") {
+        const coolingMs =
+            game.cooldownUntil != null ? game.cooldownUntil - now : 0;
         return (
             <div className="space-y-3">
                 <HangmanFigure wrong={game.wrong} maxWrong={game.maxWrong} />
-                {onCooldown ? (
+                {coolingMs > 0 ? (
                     <p className="text-xs text-destructive font-semibold text-center tabular-nums">
-                        You lost this round ({game.losses}/{game.maxLosses}).{" "}
+                        {isHider ? "The seekers lost" : "You lost"} this round (
+                        {game.losses}/{game.maxLosses}).{" "}
                         {game.final
                             ? "The curse clears in"
-                            : "You can try again in"}{" "}
+                            : isHider
+                              ? "They can try again in"
+                              : "You can try again in"}{" "}
                         {formatCurseCountdown(coolingMs)}.
                     </p>
-                ) : readOnly ? (
+                ) : isHider ? (
                     <p className="text-xs text-muted-foreground text-center">
                         Waiting for the seekers to play again…
                     </p>
@@ -1089,6 +1137,9 @@ function HangmanBoard({
         );
     }
 
+    // ── Playing ──
+    const pending = game.pending;
+    const left = Math.max(0, game.maxWrong - game.wrong);
     return (
         <div className="space-y-3">
             {/* Word blanks — revealed letters in position. */}
@@ -1103,45 +1154,77 @@ function HangmanBoard({
                 ))}
             </div>
             <HangmanFigure wrong={game.wrong} maxWrong={game.maxWrong} />
-            {/* A–Z guessing grid. */}
-            <div className="grid grid-cols-7 gap-1">
-                {"ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("").map((L) => {
-                    const guessed = game.guessed.includes(L);
-                    const correct = guessed && game.pattern.includes(L);
-                    return (
-                        <button
-                            key={L}
-                            type="button"
-                            disabled={guessed || readOnly}
-                            onClick={() =>
-                                !readOnly && sendHangmanGuess(castId, L)
-                            }
-                            className={cn(
-                                "h-8 rounded-sm text-sm font-bold transition-colors",
-                                !guessed &&
-                                    "bg-secondary hover:bg-accent text-foreground",
-                                guessed &&
-                                    correct &&
-                                    "bg-emerald-500/25 text-emerald-300",
-                                guessed &&
-                                    !correct &&
-                                    "bg-destructive/20 text-destructive/70 line-through",
-                            )}
+
+            {isHider ? (
+                // The hider reveals each guess.
+                pending ? (
+                    <div className="space-y-2 text-center">
+                        <p className="text-sm">
+                            The seekers guessed{" "}
+                            <span className="font-black text-lg">
+                                {pending}
+                            </span>
+                            .
+                        </p>
+                        <Button
+                            size="sm"
+                            className="w-full"
+                            onClick={() => sendHangmanReveal(castId)}
                         >
-                            {L}
-                        </button>
-                    );
-                })}
-            </div>
-            <p className="text-[11px] text-muted-foreground text-center">
-                {readOnly
-                    ? "The seekers are guessing your word."
-                    : `Guess the hider's 5-letter word — ${left} wrong ${
-                          left === 1 ? "guess" : "guesses"
-                      } left.`}
-                {game.losses > 0 &&
-                    ` Losses ${game.losses}/${game.maxLosses}.`}
-            </p>
+                            Reveal the answer
+                        </Button>
+                    </div>
+                ) : (
+                    <p className="text-[11px] text-muted-foreground text-center">
+                        The seekers are playing — waiting for their next guess…
+                        {game.losses > 0 &&
+                            ` Losses ${game.losses}/${game.maxLosses}.`}
+                    </p>
+                )
+            ) : (
+                // The seekers guess on the grid.
+                <>
+                    <div className="grid grid-cols-7 gap-1">
+                        {"ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("").map((L) => {
+                            const guessed = game.guessed.includes(L);
+                            const correct = guessed && game.pattern.includes(L);
+                            const disabled = guessed || pending != null;
+                            return (
+                                <button
+                                    key={L}
+                                    type="button"
+                                    disabled={disabled}
+                                    onClick={() =>
+                                        !disabled && sendHangmanGuess(castId, L)
+                                    }
+                                    className={cn(
+                                        "h-8 rounded-sm text-sm font-bold transition-colors",
+                                        !guessed &&
+                                            "bg-secondary hover:bg-accent text-foreground",
+                                        guessed &&
+                                            correct &&
+                                            "bg-emerald-500/25 text-emerald-300",
+                                        guessed &&
+                                            !correct &&
+                                            "bg-destructive/20 text-destructive/70 line-through",
+                                    )}
+                                >
+                                    {L}
+                                </button>
+                            );
+                        })}
+                    </div>
+                    <p className="text-[11px] text-muted-foreground text-center">
+                        {pending
+                            ? `Waiting for the hider to reveal "${pending}"…`
+                            : `Guess the hider's word — ${left} wrong ${
+                                  left === 1 ? "guess" : "guesses"
+                              } left.`}
+                        {game.losses > 0 &&
+                            ` Losses ${game.losses}/${game.maxLosses}.`}
+                    </p>
+                </>
+            )}
         </div>
     );
 }

@@ -397,24 +397,39 @@ export interface CMsgCurseCooldownStart {
 }
 
 /**
- * v1096 — Curse of the Hidden Hangman, server-adjudicated. The hider casts the
- * curse; the SERVER owns a secret random 5-letter word per round, judges every
- * seeker letter guess, and enforces the loss / 10-min-cooldown / max-losses
- * rules. `maxLosses` = 1 (S) / 2 (M) / 3 (L).
+ * v1096 — Curse of the Hidden Hangman. The HIDER runs the game: they pick a
+ * secret 5-letter word each round and reveal the answer to each seeker guess.
+ * The server holds the word (for persistence + anti-cheat + an offline
+ * backstop), relays guesses to the hider, applies the hider's reveal, and
+ * enforces the loss / 10-min-cooldown / max-losses rules. `maxLosses` = 1 (S) /
+ * 2 (M) / 3 (L).
  */
+/** The hider casts the curse — create the game (starts `awaiting-word`). */
 export interface CMsgHangmanStart {
     t: "hangmanStart";
     castId: number;
     maxLosses: number;
 }
-/** A seeker guesses a letter (A–Z). The server adjudicates + broadcasts state. */
+/** The hider sets this round's secret 5-letter word (start of each round). */
+export interface CMsgHangmanWord {
+    t: "hangmanWord";
+    castId: number;
+    word: string;
+}
+/** A seeker guesses a letter (A–Z). The server holds it pending the hider's
+ *  reveal (and auto-reveals if no hider is online). */
 export interface CMsgHangmanGuess {
     t: "hangmanGuess";
     castId: number;
     letter: string;
 }
-/** After a non-final loss cooldown, start the next round (fresh word); after the
- *  FINAL loss cooldown, clear the curse. */
+/** The hider reveals the answer to the pending guess (applies it). */
+export interface CMsgHangmanReveal {
+    t: "hangmanReveal";
+    castId: number;
+}
+/** After a non-final loss cooldown, ask the hider for a fresh word (next round);
+ *  after the FINAL loss cooldown, clear the curse. */
 export interface CMsgHangmanContinue {
     t: "hangmanContinue";
     castId: number;
@@ -456,7 +471,9 @@ export type ClientMessage =
     | CMsgCurseFail
     | CMsgCurseCooldownStart
     | CMsgHangmanStart
+    | CMsgHangmanWord
     | CMsgHangmanGuess
+    | CMsgHangmanReveal
     | CMsgHangmanContinue
     | CMsgSubscribePush;
 
@@ -726,7 +743,9 @@ export interface SMsgHangmanState {
     losses: number;
     /** Losses that end the curse: 1 (S) / 2 (M) / 3 (L). */
     maxLosses: number;
-    status: "playing" | "lost" | "cleared";
+    status: "awaiting-word" | "playing" | "lost" | "cleared";
+    /** A seeker's guess awaiting the hider's reveal (the letter), else absent. */
+    pending?: string;
     /** When `status:"lost"`, Unix ms the 10-min re-challenge cooldown ends. */
     cooldownUntil?: number;
     /** True when this loss was the FINAL one — the curse clears after cooldown. */

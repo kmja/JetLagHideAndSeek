@@ -559,8 +559,11 @@ function handleClientMessage(msg: ClientMessage) {
             // applied the cooldown locally before sending.)
             return;
         case "hangmanStart": {
-            // v1096: local adjudication for the single-device demo — the broker
-            // owns the secret word + judges guesses, mirroring the real server.
+            // v1097: hider-adjudicated Hidden Hangman. On a single device the
+            // player is BOTH hider and seeker, so the broker plays the bot-hider
+            // — it auto-picks the secret word immediately (skipping the
+            // awaiting-word step) and auto-reveals each guess, so a lone tester
+            // can exercise the seeker board.
             const g: DemoHangman = {
                 word: pickDemoHangmanWord(),
                 guessed: [],
@@ -573,6 +576,23 @@ function handleClientMessage(msg: ClientMessage) {
             inject(demoHangmanPublic(msg.castId, g));
             return;
         }
+        case "hangmanWord": {
+            // The human explicitly set a word playing the hider role — override
+            // the auto-pick (guessed letters reset for the fresh word).
+            const g = demoHangman.get(msg.castId);
+            if (!g) return;
+            const w = String(msg.word || "").toUpperCase().replace(/[^A-Z]/g, "");
+            if (w.length < 3) return;
+            g.word = w;
+            g.guessed = [];
+            g.wrong = 0;
+            g.status = "playing";
+            inject(demoHangmanPublic(msg.castId, g));
+            return;
+        }
+        case "hangmanReveal":
+            // Bot-hider auto-reveals on the guess itself — nothing to do.
+            return;
         case "hangmanGuess": {
             const g = demoHangman.get(msg.castId);
             if (!g || g.status !== "playing") return;

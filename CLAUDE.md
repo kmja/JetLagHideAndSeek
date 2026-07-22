@@ -430,6 +430,45 @@ bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
 build stamp. Current: `v1069`. Use `git log` for the per-version detail;
 
+**v1097 — Hidden Hangman reworked to HIDER-ADJUDICATED (the hider picks the word
+each round + reveals every guess).** Per the user's revision of v1096 ("the hider
+needs to be active during the game — first by picking a word at the start of each
+round, and then by revealing the answer to the seekers' guesses"): the SERVER no
+longer picks a random word. Instead the HIDER chooses a secret word and personally
+reveals whether each seeker guess is in it. The server still HOLDS the word (so the
+seekers never see it, it survives a reconnect, and an offline hider can't stall the
+game) and enforces the loss / 10-min-cooldown / max-losses (1 S / 2 M / 3 L) rules,
+but the reveal is a HIDER action.
+- **Flow:** cast → server creates the game **`awaiting-word`** → the HIDER types a
+  word (`hangmanWord`) → **`playing`** → a SEEKER taps a letter (`hangmanGuess`),
+  which the server records as **`pending`** → the HIDER taps "Reveal the answer"
+  (`hangmanReveal`) → the server marks the letter right/wrong and re-broadcasts.
+  A full solve clears the curse (fast path); 7 wrong is a loss + 10-min cooldown
+  (`final` at max losses); `hangmanContinue` starts a fresh `awaiting-word` round
+  or clears the curse after the final loss.
+- **Offline-hider backstop:** if NO hider is online when a guess lands
+  (`!isHiderOnline()`), the server auto-reveals it (`applyHangmanReveal`) so the
+  seekers are never stuck waiting — the game always resolves.
+- **Protocol:** added `CMsgHangmanWord {castId, word}` + `CMsgHangmanReveal
+  {castId}`; `SMsgHangmanState.status` gained `"awaiting-word"` and a `pending?`
+  (the letter awaiting the hider's reveal); the pattern is still built from the
+  server-held word and never leaks it.
+- **Worker (`GameRoom`):** `HangmanGame` holds `word` ("" until the hider sets it)
+  + `pending?`; `handleHangmanWord`/`handleHangmanReveal` are HIDER-only,
+  `handleHangmanGuess` (seeker-only) sets `pending` + fires the offline backstop.
+  Persisted / round-reset / re-delivered on rejoin as before. The bundled word
+  list + `pickHangmanWord` were removed.
+- **Client:** `HangmanState`/`setHangmanState` carry the new status + `pending`;
+  `sendHangmanWord`/`sendHangmanReveal` added. The `HangmanBoard` (`CurseInbox`) is
+  now per-role, per-phase: the HIDER sees the word input (awaiting-word), then a
+  "The seekers guessed X → Reveal the answer" prompt; the SEEKERS see a "waiting
+  for the hider…" state, then the A–Z grid (disabled while a guess is pending).
+  Demo broker plays a bot-hider (auto-picks a word + auto-reveals) so single-device
+  seeker testing still works, and handles the two new messages.
+- **Design note:** this replaces v1096's server-picks-word design — the hider stays
+  active every round (their earlier concern), and the server-held word + offline
+  backstop keep it reconnect-safe and non-stalling.
+
 **v1096 — Curse of the Hidden Hangman: a real, server-adjudicated mini-game.**
 The last big specced curse. When the hider casts Hidden Hangman (discard-2 cost),
 the SERVER runs the game: it owns a secret random 5-letter word per round, judges
