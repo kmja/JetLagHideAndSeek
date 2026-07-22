@@ -13,6 +13,16 @@ function formatClock(totalSeconds: number): string {
     return h > 0 ? `${h}:${pad(m)}:${pad(sec)}` : `${m}:${pad(sec)}`;
 }
 
+/** mm:ss.cc — with hundredths of a second (v1109), for the live film timer. */
+function formatClockCentis(totalSeconds: number): string {
+    const t = Math.max(0, totalSeconds);
+    const m = Math.floor(t / 60);
+    const sec = Math.floor(t % 60);
+    const cs = Math.floor((t * 100) % 100);
+    const pad = (n: number) => String(n).padStart(2, "0");
+    return `${m}:${pad(sec)}.${pad(cs)}`;
+}
+
 /**
  * A live rear-camera VIEWFINDER + stopwatch (Curse of the Bird Guide). The
  * hider uses it to time their bird film when CASTING; the seekers use the same
@@ -98,19 +108,20 @@ export function FilmViewfinder({
     // the seekers don't have to stop it themselves.
     useEffect(() => {
         if (!running) return;
+        // v1109: 40 ms tick so the hundredths-of-a-second display updates
+        // smoothly (the running timer now shows mm:ss.cc).
         const id = window.setInterval(() => {
             if (startRef.current == null) return;
             const ms = Date.now() - startRef.current;
             setElapsedMs(ms);
             const target = targetRef.current;
             if (target != null && ms / 1000 >= target) {
-                const secs = Math.round(ms / 1000);
                 setRunning(false);
-                setCaptured(secs);
-                onElapsedRef.current?.(secs);
+                setCaptured(ms / 1000);
+                onElapsedRef.current?.(Math.round(ms / 1000));
                 onReachTargetRef.current?.();
             }
-        }, 200);
+        }, 40);
         return () => window.clearInterval(id);
     }, [running]);
 
@@ -122,11 +133,11 @@ export function FilmViewfinder({
     };
     const stop = () => {
         setRunning(false);
-        const secs = Math.round(
-            (Date.now() - (startRef.current ?? Date.now())) / 1000,
-        );
-        setCaptured(secs);
-        onElapsed?.(secs);
+        // Keep the fractional captured time for the display; report whole
+        // seconds as the payload (the "film for at least N" bar is coarse).
+        const elapsed = (Date.now() - (startRef.current ?? Date.now())) / 1000;
+        setCaptured(elapsed);
+        onElapsed?.(Math.round(elapsed));
     };
     const reset = () => {
         setRunning(false);
@@ -164,7 +175,7 @@ export function FilmViewfinder({
                 </div>
             )}
             <div className="font-inter-tight font-black tabular-nums text-4xl">
-                {formatClock(shownSecs || 0)}
+                {formatClockCentis(shownSecs || 0)}
             </div>
             {running ? (
                 <Button
@@ -186,7 +197,7 @@ export function FilmViewfinder({
                                 : "text-xs text-destructive font-semibold"
                         }
                     >
-                        Filmed {formatClock(captured)}
+                        Filmed {formatClockCentis(captured)}
                         {targetSeconds != null &&
                             (met
                                 ? " — long enough."

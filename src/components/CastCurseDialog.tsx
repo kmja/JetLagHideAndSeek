@@ -139,6 +139,16 @@ function formatClock(totalSeconds: number): string {
     return h > 0 ? `${h}:${pad(m)}:${pad(sec)}` : `${m}:${pad(sec)}`;
 }
 
+/** mm:ss.cc — with hundredths (v1109), for the live Bird Guide film timer. */
+function formatClockCentis(totalSeconds: number): string {
+    const t = Math.max(0, totalSeconds);
+    const m = Math.floor(t / 60);
+    const sec = Math.floor(t % 60);
+    const cs = Math.floor((t * 100) % 100);
+    const pad = (n: number) => String(n).padStart(2, "0");
+    return `${m}:${pad(sec)}.${pad(cs)}`;
+}
+
 export const DICE_FIZZLE: Record<
     string,
     { fizzleOn: number[]; explainer: string } | undefined
@@ -495,7 +505,7 @@ export function CastCurseDialog({
             if (filmStartRef.current != null) {
                 setFilmElapsedMs(Date.now() - filmStartRef.current);
             }
-        }, 200);
+        }, 40); // v1109: fast tick for the hundredths display
         return () => window.clearInterval(id);
     }, [filmRunning]);
 
@@ -1563,7 +1573,7 @@ export function CastCurseDialog({
                                         </div>
                                     )}
                                     <div className="font-inter-tight font-black tabular-nums text-4xl">
-                                        {formatClock(
+                                        {formatClockCentis(
                                             (filmSeconds != null
                                                 ? filmSeconds
                                                 : filmElapsedMs / 1000) || 0,

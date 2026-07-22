@@ -432,6 +432,25 @@ bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
 build stamp. Current: `v1069`. Use `git log` for the per-version detail;
 
+**v1109 — wizard adjacent-area add/remove animation + curse-star water look +
+Bird Guide hundredths timer.**
+- **Wizard adjacent areas animate in/out** (`PlayAreaExtensions`). Each "added
+  area" row now enters with a keyframe (fade + slide-in-from-left + zoom) and
+  LEAVES with a smooth grid-rows `1fr`→`0fr` height collapse — the actual
+  `toggleAdjacentArea` atom mutation is DEFERRED ~220 ms behind an `exitingIds`
+  set so the layout doesn't snap. `motion-reduce` gated.
+- **Curse-reveal star: longer arms + water distortion** (`CurseRevealOverlay`).
+  The star's inner radius dropped (40→30) so the five points reach far out
+  (the reference starfish shape), and a new `curseStarWater` SVG filter
+  (`feTurbulence` + `feDisplacementMap`, widened filter region so points aren't
+  clipped) wobbles the whole outline + its light-blue edge, so the star looks
+  like it's viewed through water.
+- **Bird Guide film timer shows hundredths** (`FilmViewfinder` + the hider's
+  inline cast-dialog timer). The live stopwatch now renders `m:ss.cc` via a new
+  `formatClockCentis`, driven by a 40 ms tick (was 200 ms) so the centiseconds
+  update smoothly; the captured `filmSeconds` payload stays whole seconds (the
+  "film for at least N" bar is coarse).
+
 **v1108 — no-action curses play straight from the hand via a lightweight
 confirm.** A curse that needs NO hider action in the cast dialog (no map pick /
 photo / film / rock count / secret word / question-disable picks / fizzle dice /

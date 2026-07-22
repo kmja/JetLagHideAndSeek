@@ -20,6 +20,7 @@ import {
 import type { OpenStreetMap } from "@/maps/api/types";
 
 import { formatAreaLabel } from "@/lib/playAreaSize";
+import { cn } from "@/lib/utils";
 
 /**
  * Adjacent-area controller for step 1 of the setup wizard.
@@ -53,6 +54,21 @@ export function PlayAreaExtensions({ primary }: { primary: OpenStreetMap }) {
     const $allowedTransit = useStore(allowedTransit);
     const $additional = useStore(additionalMapGeoLocations);
     const $warm = useStore(warmCityIds);
+    // v1109: ids mid-removal — the row collapses smoothly, then the actual
+    // atom mutation runs so the layout doesn't snap.
+    const [exitingIds, setExitingIds] = useState<Set<number>>(new Set());
+
+    const removeAdjacentArea = (id: number) => {
+        setExitingIds((prev) => new Set(prev).add(id));
+        window.setTimeout(() => {
+            toggleAdjacentArea(id);
+            setExitingIds((prev) => {
+                const next = new Set(prev);
+                next.delete(id);
+                return next;
+            });
+        }, 220);
+    };
 
     // v1061: offer adjacent-adding for any STARRED (warm) primary, and — the
     // key change — show only the adjacents that are THEMSELVES starred/warm
@@ -197,7 +213,7 @@ export function PlayAreaExtensions({ primary }: { primary: OpenStreetMap }) {
             {/* v458: only THIS list scrolls when it grows long — the
                 preview map + Change-area button stay put above/below it.
                 Capped so the dialog itself doesn't have to scroll. */}
-            <div className="max-h-[40vh] overflow-y-auto space-y-1.5 -mr-1 pr-1">
+            <div className="max-h-[40vh] overflow-y-auto -mr-1 pr-1">
                 {added.map((e) => {
                     const locProps = e.location?.properties as
                         | { osm_id?: number; name?: string }
@@ -207,31 +223,48 @@ export function PlayAreaExtensions({ primary }: { primary: OpenStreetMap }) {
                     const sizeLabel = e.location
                         ? formatAreaLabel(e.location)
                         : null;
+                    const exiting =
+                        typeof id === "number" && exitingIds.has(id);
                     return (
+                        // v1109: outer grid collapses `1fr`→`0fr` on removal so
+                        // the row's height animates out (deferred atom mutation);
+                        // the inner row keyframe-animates IN on mount.
                         <div
                             key={id ?? name}
-                            className="flex items-center gap-2 rounded-md border border-border bg-secondary/30 px-3 py-2"
+                            className={cn(
+                                "grid transition-all duration-200 ease-out motion-reduce:transition-none",
+                                exiting
+                                    ? "grid-rows-[0fr] opacity-0"
+                                    : "grid-rows-[1fr] opacity-100 mb-1.5 last:mb-0",
+                            )}
                         >
-                            <MapPin className="w-3.5 h-3.5 text-primary shrink-0" />
-                            <span className="min-w-0 flex-1 truncate text-sm">
-                                {name}
-                            </span>
-                            {sizeLabel && (
-                                <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">
-                                    {sizeLabel}
-                                </span>
-                            )}
-                            {typeof id === "number" && (
-                                <button
-                                    type="button"
-                                    onClick={() => toggleAdjacentArea(id)}
-                                    aria-label={`Remove ${name}`}
-                                    title={`Remove ${name}`}
-                                    className="shrink-0 rounded-sm p-1 text-muted-foreground hover:bg-background/70 hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                                >
-                                    <X className="w-3.5 h-3.5" />
-                                </button>
-                            )}
+                            <div className="overflow-hidden min-h-0">
+                                <div className="flex items-center gap-2 rounded-md border border-border bg-secondary/30 px-3 py-2 animate-in fade-in slide-in-from-left-2 zoom-in-95 duration-200 motion-reduce:animate-none">
+                                    <MapPin className="w-3.5 h-3.5 text-primary shrink-0" />
+                                    <span className="min-w-0 flex-1 truncate text-sm">
+                                        {name}
+                                    </span>
+                                    {sizeLabel && (
+                                        <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">
+                                            {sizeLabel}
+                                        </span>
+                                    )}
+                                    {typeof id === "number" && (
+                                        <button
+                                            type="button"
+                                            onClick={() =>
+                                                removeAdjacentArea(id)
+                                            }
+                                            disabled={exiting}
+                                            aria-label={`Remove ${name}`}
+                                            title={`Remove ${name}`}
+                                            className="shrink-0 rounded-sm p-1 text-muted-foreground hover:bg-background/70 hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                        >
+                                            <X className="w-3.5 h-3.5" />
+                                        </button>
+                                    )}
+                                </div>
+                            </div>
                         </div>
                     );
                 })}

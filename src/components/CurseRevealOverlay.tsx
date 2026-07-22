@@ -32,8 +32,11 @@ function useStarPath(): string {
     return useMemo(() => {
         const cx = 100;
         const cy = 100;
-        const outer = 96;
-        const inner = 40;
+        // v1109: LONGER arms — a smaller inner radius makes the five points
+        // reach far out (the reference starfish look). The water-distortion
+        // filter (`curseStarWater`) then wobbles the whole outline.
+        const outer = 98;
+        const inner = 30;
         const pts: string[] = [];
         for (let i = 0; i < 10; i++) {
             const r = i % 2 === 0 ? outer : inner;
@@ -194,6 +197,32 @@ export function CurseRevealOverlay() {
                         yChannelSelector="G"
                     />
                 </filter>
+                {/* v1109: water-distortion for the star — big, soft, organic
+                    waves along the outline so the star (and its light-blue edge)
+                    looks like it's being viewed through water. The region is
+                    widened so the displaced points aren't clipped. */}
+                <filter
+                    id="curseStarWater"
+                    x="-25%"
+                    y="-25%"
+                    width="150%"
+                    height="150%"
+                >
+                    <feTurbulence
+                        type="fractalNoise"
+                        baseFrequency="0.021 0.019"
+                        numOctaves={2}
+                        seed={11}
+                        result="starNoise"
+                    />
+                    <feDisplacementMap
+                        in="SourceGraphic"
+                        in2="starNoise"
+                        scale={9}
+                        xChannelSelector="R"
+                        yChannelSelector="G"
+                    />
+                </filter>
             </svg>
 
             {/* Rotating background layer (slow infinite spin). The spin wrapper
@@ -246,6 +275,7 @@ export function CurseRevealOverlay() {
                                 stroke={STAR_EDGE}
                                 strokeWidth={5}
                                 strokeLinejoin="round"
+                                filter="url(#curseStarWater)"
                             />
                         </svg>
                     </div>
