@@ -224,6 +224,56 @@ const isCapitalCity = (c) => {
     const cap = c.country ? CAPITAL_BY_COUNTRY[c.country] : undefined;
     return cap != null && normCityName(c.name) === normCityName(cap);
 };
+// v1117: `--even-split` — instead of exhausting one region before the next
+// (`--priority-regions` warms every US city, then every GB city, … → "a few EU
+// capitals then a long string of US cities"), warm the TOP-N biggest cities of
+// EVERY country first, INTERLEAVED across continents (EU → Americas → Asia →
+// Africa → Oceania), THEN the long tail (everything else by population). So the
+// first pass is a broad global sweep — one big city per country worldwide —
+// before any country's 2nd/3rd. `--even-split-per-country N` (default 4).
+const EVEN_SPLIT = !!args["even-split"];
+const EVEN_SPLIT_PER_COUNTRY = Math.max(
+    1,
+    Number(args["even-split-per-country"]) || 4,
+);
+// ISO 3166-1 alpha-2 → continent bucket, used ONLY to interleave the even-split
+// rounds so the top cities span continents. An unmapped country falls into "??"
+// (interleaved last); it never affects correctness, only ordering.
+const CONTINENT_BY_COUNTRY = {
+    // Europe
+    GB: "EU", IE: "EU", FR: "EU", DE: "EU", ES: "EU", IT: "EU", PT: "EU",
+    NL: "EU", BE: "EU", LU: "EU", AT: "EU", CH: "EU", SE: "EU", NO: "EU",
+    DK: "EU", FI: "EU", IS: "EU", PL: "EU", CZ: "EU", SK: "EU", HU: "EU",
+    RO: "EU", BG: "EU", GR: "EU", HR: "EU", SI: "EU", RS: "EU", BA: "EU",
+    MK: "EU", AL: "EU", ME: "EU", EE: "EU", LV: "EU", LT: "EU", UA: "EU",
+    BY: "EU", MD: "EU", RU: "EU", TR: "EU", CY: "EU", MT: "EU",
+    // Americas
+    US: "AM", CA: "AM", MX: "AM", BR: "AM", AR: "AM", CL: "AM", CO: "AM",
+    PE: "AM", VE: "AM", EC: "AM", BO: "AM", PY: "AM", UY: "AM", GT: "AM",
+    CU: "AM", DO: "AM", HN: "AM", NI: "AM", CR: "AM", PA: "AM", SV: "AM",
+    JM: "AM", TT: "AM", PR: "AM", HT: "AM",
+    // Asia
+    CN: "AS", JP: "AS", KR: "AS", IN: "AS", PK: "AS", BD: "AS", ID: "AS",
+    PH: "AS", VN: "AS", TH: "AS", MY: "AS", SG: "AS", MM: "AS", KH: "AS",
+    LA: "AS", NP: "AS", LK: "AS", TW: "AS", HK: "AS", MO: "AS", MN: "AS",
+    KZ: "AS", UZ: "AS", TM: "AS", KG: "AS", TJ: "AS", AF: "AS", IR: "AS",
+    IQ: "AS", SA: "AS", AE: "AS", QA: "AS", KW: "AS", BH: "AS", OM: "AS",
+    YE: "AS", JO: "AS", LB: "AS", SY: "AS", IL: "AS", PS: "AS", GE: "AS",
+    AM: "AS", AZ: "AS",
+    // Africa
+    NG: "AF", EG: "AF", ZA: "AF", KE: "AF", ET: "AF", GH: "AF", TZ: "AF",
+    DZ: "AF", MA: "AF", TN: "AF", LY: "AF", SD: "AF", UG: "AF", CI: "AF",
+    CM: "AF", SN: "AF", ML: "AF", ZM: "AF", ZW: "AF", AO: "AF", MZ: "AF",
+    MG: "AF", RW: "AF", BJ: "AF", BF: "AF", NE: "AF", TD: "AF", SO: "AF",
+    CD: "AF", CG: "AF", GA: "AF", LR: "AF", SL: "AF", TG: "AF", MW: "AF",
+    NA: "AF", BW: "AF", MU: "AF",
+    // Oceania
+    AU: "OC", NZ: "OC", FJ: "OC", PG: "OC",
+};
+const continentOf = (c) =>
+    (c.country && CONTINENT_BY_COUNTRY[c.country]) || "??";
+// User-named order: EU, Americas, Asia, Africa, then the rest.
+const CONTINENT_ORDER = ["EU", "AM", "AS", "AF", "OC", "??"];
 // v684: after warming, call POST /admin/verify-city per city so the star
 // (`fullyCuratedAt`) is stamped IMMEDIATELY instead of waiting for the cron
 // to happen to pick that city. On by default; --skip-verify to drop.
@@ -1256,6 +1306,64 @@ function orderByPriorityRegions(cities, regions) {
             rankOf(a) - rankOf(b) ||
             (b.population ?? -1) - (a.population ?? -1),
     );
+}
+
+/** v1117: even GLOBAL split. Warm the top `perCountry` biggest cities of EVERY
+ *  country first — round r (0-indexed) is the r-th city of each country —
+ *  INTERLEAVED across continents within each round (EU → Americas → Asia →
+ *  Africa → Oceania → other), so the first pass sweeps one big city per country
+ *  worldwide before any country's 2nd/3rd. Then the long tail: everything not in
+ *  the top phase, by population. Cities with no `country` tag land in the tail. */
+function orderEvenSplit(cities, perCountry) {
+    const byCountry = new Map();
+    for (const c of cities) {
+        if (!c.country) continue;
+        const g = byCountry.get(c.country);
+        if (g) g.push(c);
+        else byCountry.set(c.country, [c]);
+    }
+    for (const g of byCountry.values())
+        g.sort((a, b) => (b.population ?? -1) - (a.population ?? -1));
+
+    const contRank = new Map(CONTINENT_ORDER.map((k, i) => [k, i]));
+    const top = [];
+    for (let r = 0; r < perCountry; r++) {
+        // The r-th city of every country that has one → this round.
+        const round = [];
+        for (const g of byCountry.values()) if (g[r]) round.push(g[r]);
+        // Bucket the round by continent (each bucket population-sorted), then
+        // round-robin the buckets in continent order so continents alternate.
+        const byCont = new Map();
+        for (const c of round) {
+            const k = continentOf(c);
+            const g = byCont.get(k);
+            if (g) g.push(c);
+            else byCont.set(k, [c]);
+        }
+        for (const g of byCont.values())
+            g.sort((a, b) => (b.population ?? -1) - (a.population ?? -1));
+        const conts = [...byCont.keys()].sort(
+            (a, b) => (contRank.get(a) ?? 99) - (contRank.get(b) ?? 99),
+        );
+        const idx = new Map(conts.map((k) => [k, 0]));
+        let remaining = round.length;
+        while (remaining > 0) {
+            for (const k of conts) {
+                const g = byCont.get(k);
+                const i = idx.get(k);
+                if (i < g.length) {
+                    top.push(g[i]);
+                    idx.set(k, i + 1);
+                    remaining--;
+                }
+            }
+        }
+    }
+    const topSet = new Set(top.map((c) => c.relationId));
+    const tail = cities
+        .filter((c) => !topSet.has(c.relationId))
+        .sort((a, b) => (b.population ?? -1) - (a.population ?? -1));
+    return [...top, ...tail];
 }
 
 /** v684: ask the worker to verify + stamp one city's star
@@ -3717,10 +3825,19 @@ async function main() {
     let cities = await listCities();
     console.log(`fetched ${cities.length} cities; processing up to ${MAX_CITIES}`);
 
-    // v693: --priority-regions takes precedence over --seed-first (it already
-    // orders by population within each region tier, so it subsumes "biggest
-    // first" while adding the player-region tiers on top).
-    if (PRIORITY_REGIONS) {
+    // v1117: --even-split takes precedence — a broad global sweep (top-N per
+    // country, continent-interleaved) then the long tail, replacing the
+    // exhaust-one-region-first order that produced "a few EU capitals then a
+    // long string of US cities".
+    if (EVEN_SPLIT) {
+        const withCountry = cities.filter((c) => c.country).length;
+        cities = orderEvenSplit(cities, EVEN_SPLIT_PER_COUNTRY);
+        console.log(
+            `--even-split: top ${EVEN_SPLIT_PER_COUNTRY}/country first ` +
+                `(continent-interleaved EU→Americas→Asia→Africa→…), then the ` +
+                `long tail; ${withCountry}/${cities.length} cities have a country tag`,
+        );
+    } else if (PRIORITY_REGIONS) {
         const withCountry = cities.filter((c) => c.country).length;
         cities = orderByPriorityRegions(cities, PRIORITY_REGIONS);
         console.log(
@@ -3826,9 +3943,10 @@ async function main() {
         // cron's per-run shuffle) — a run then warms a fresh slice rather
         // than always re-walking the list head. Deterministic order isn't
         // needed here; the per-query check-fresh makes it idempotent.
-        // SKIP the shuffle with --seed-first / --priority-regions: the point
-        // there is to warm cities in a deliberate order, not a random slice.
-        if (!SEED_FIRST && !PRIORITY_REGIONS) {
+        // SKIP the shuffle with --seed-first / --priority-regions / --even-split:
+        // the point there is to warm cities in a deliberate order, not a random
+        // slice.
+        if (!SEED_FIRST && !PRIORITY_REGIONS && !EVEN_SPLIT) {
             for (let i = todo.length - 1; i > 0; i--) {
                 const j = Math.floor(Math.random() * (i + 1));
                 [todo[i], todo[j]] = [todo[j], todo[i]];

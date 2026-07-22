@@ -477,6 +477,19 @@ build stamp. Current: `v1069`. Use `git log` for the per-version detail;
 - **NEXT: a SINGLE station producer shared by seeker + hider** (shipped in
   v1115 below).
 
+**v1117 — laptop-prewarm `--even-split` (broad global sweep instead of one
+region at a time).** `--priority-regions` warms every US city, then every GB
+city, … → "a few EU capitals then a long string of US cities". New
+**`--even-split`** (`--even-split-per-country N`, default 4, `laptop-prewarm.mjs`)
+warms the TOP-N biggest cities of EVERY country first — round r = the r-th city
+of each country — INTERLEAVED across continents within each round (EU → Americas
+→ Asia → Africa → Oceania → other, via a baked ISO-alpha-2 → continent map on the
+seed's `country` tag), THEN the long tail (everything else by population). So the
+first pass sweeps one big city per country worldwide (London, NYC, Tokyo, Lagos,
+…) before any country's 2nd/3rd. Takes precedence over `--priority-regions` /
+`--seed-first`; skips the random shuffle like they do. (`orderEvenSplit`,
+logic-tested.)
+
 **v1116 — REAL transit root cause (gzip-parse, NOT re-warm) + systemic
 prewarm-read hardening + seeker/hider fetch unified (Phase B).**
 - **The transit `subway:0 …no-data` + live `/api/interpreter` 500/502 for a
