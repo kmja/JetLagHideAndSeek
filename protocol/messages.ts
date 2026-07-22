@@ -404,13 +404,22 @@ export interface CMsgCurseCooldownStart {
  * enforces the loss / 10-min-cooldown / max-losses rules. `maxLosses` = 1 (S) /
  * 2 (M) / 3 (L).
  */
-/** The hider casts the curse — create the game (starts `awaiting-word`). */
+/** The hider casts the curse WITH the first round's secret 5-letter word
+ *  (v1099 — the word is picked as part of casting). Creates the game in the
+ *  `ready` state, waiting for the seekers to start their round. */
 export interface CMsgHangmanStart {
     t: "hangmanStart";
     castId: number;
     maxLosses: number;
+    word: string;
 }
-/** The hider sets this round's secret 5-letter word (start of each round). */
+/** The seekers start a round (v1099) — `ready` → `playing`. */
+export interface CMsgHangmanBegin {
+    t: "hangmanBegin";
+    castId: number;
+}
+/** The hider sets the NEXT round's secret 5-letter word after a loss
+ *  (`awaiting-word` → `playing`; round 1's word rides `hangmanStart`). */
 export interface CMsgHangmanWord {
     t: "hangmanWord";
     castId: number;
@@ -471,6 +480,7 @@ export type ClientMessage =
     | CMsgCurseFail
     | CMsgCurseCooldownStart
     | CMsgHangmanStart
+    | CMsgHangmanBegin
     | CMsgHangmanWord
     | CMsgHangmanGuess
     | CMsgHangmanReveal
@@ -743,7 +753,7 @@ export interface SMsgHangmanState {
     losses: number;
     /** Losses that end the curse: 1 (S) / 2 (M) / 3 (L). */
     maxLosses: number;
-    status: "awaiting-word" | "playing" | "lost" | "cleared";
+    status: "awaiting-word" | "ready" | "playing" | "lost" | "cleared";
     /** A seeker's guess awaiting the hider's reveal (the letter), else absent. */
     pending?: string;
     /** When `status:"lost"`, Unix ms the 10-min re-challenge cooldown ends. */

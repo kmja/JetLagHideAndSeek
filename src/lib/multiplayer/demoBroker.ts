@@ -74,7 +74,7 @@ interface DemoHangman {
     wrong: number;
     losses: number;
     maxLosses: number;
-    status: "playing" | "lost" | "cleared";
+    status: "ready" | "playing" | "lost" | "cleared";
     cooldownUntil?: number;
     final?: boolean;
     won?: boolean;
@@ -559,30 +559,39 @@ function handleClientMessage(msg: ClientMessage) {
             // applied the cooldown locally before sending.)
             return;
         case "hangmanStart": {
-            // v1097: hider-adjudicated Hidden Hangman. On a single device the
-            // player is BOTH hider and seeker, so the broker plays the bot-hider
-            // — it auto-picks the secret word immediately (skipping the
-            // awaiting-word step) and auto-reveals each guess, so a lone tester
-            // can exercise the seeker board.
+            // v1099: the hider picks the first word while casting. On a single
+            // device the player is BOTH hider and seeker, so the broker plays
+            // the bot-hider — it holds the word + auto-reveals each guess, so a
+            // lone tester can exercise the seeker board. Starts `ready`; the
+            // seeker taps "Start game" (hangmanBegin) to play.
+            const w = String(msg.word || "")
+                .toUpperCase()
+                .replace(/[^A-Z]/g, "");
             const g: DemoHangman = {
-                word: pickDemoHangmanWord(),
+                word: /^[A-Z]{5}$/.test(w) ? w : pickDemoHangmanWord(),
                 guessed: [],
                 wrong: 0,
                 losses: 0,
                 maxLosses: Math.min(Math.max(msg.maxLosses, 1), 3),
-                status: "playing",
+                status: "ready",
             };
             demoHangman.set(msg.castId, g);
             inject(demoHangmanPublic(msg.castId, g));
             return;
         }
+        case "hangmanBegin": {
+            const g = demoHangman.get(msg.castId);
+            if (!g || g.status !== "ready") return;
+            g.status = "playing";
+            inject(demoHangmanPublic(msg.castId, g));
+            return;
+        }
         case "hangmanWord": {
-            // The human explicitly set a word playing the hider role — override
-            // the auto-pick (guessed letters reset for the fresh word).
+            // The human explicitly set a word playing the hider role → play.
             const g = demoHangman.get(msg.castId);
             if (!g) return;
             const w = String(msg.word || "").toUpperCase().replace(/[^A-Z]/g, "");
-            if (w.length < 3) return;
+            if (w.length < 5) return;
             g.word = w;
             g.guessed = [];
             g.wrong = 0;

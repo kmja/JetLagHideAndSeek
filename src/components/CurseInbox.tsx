@@ -50,6 +50,7 @@ import {
     reportCurseFail,
     sendCurseCleared,
     sendCurseProof,
+    sendHangmanBegin,
     sendHangmanContinue,
     sendHangmanGuess,
     sendHangmanReveal,
@@ -546,16 +547,19 @@ export function CurseInbox({
 
                     {/* Curse description (no casting cost — that's the
                         hider's concern). Timed curses show a live "clears
-                        in" countdown. */}
+                        in" countdown. Hidden Hangman hides it (v1099): the
+                        board is self-explanatory + the "Rules" link covers it,
+                        and the long text crowded the game out. */}
                     <div className="space-y-1.5">
-                        <p className="text-sm text-foreground/80 leading-snug">
-                            {resolvedDialog
-                                ? renderBodyText(
-                                      resolvedDialog.description,
-                                      $gameSize,
-                                  )
-                                : null}
-                        </p>
+                        {resolvedDialog &&
+                        resolvedDialog.name !== CURSE_HIDDEN_HANGMAN ? (
+                            <p className="text-sm text-foreground/80 leading-snug">
+                                {renderBodyText(
+                                    resolvedDialog.description,
+                                    $gameSize,
+                                )}
+                            </p>
+                        ) : null}
                         {resolvedDialog?.photoUrl && (
                             <img
                                 src={resolvedDialog.photoUrl}
@@ -1055,7 +1059,9 @@ function HangmanBoard({
         );
     }
 
-    // ── Awaiting the hider's word ──
+    // ── Awaiting the hider's next-round word (rounds 2+; round 1's word is
+    //    picked while casting). The input is STACKED above a full-width button
+    //    so it never overflows the dialog (the v1097 inline row did). ──
     if (game.status === "awaiting-word") {
         if (!isHider) {
             return (
@@ -1069,33 +1075,60 @@ function HangmanBoard({
                 <p className="text-xs text-muted-foreground text-center">
                     Choose a secret 5-letter word for the seekers to guess.
                 </p>
-                <div className="flex gap-2">
-                    <input
-                        value={wordDraft}
-                        onChange={(e) =>
-                            setWordDraft(
-                                e.target.value
-                                    .toUpperCase()
-                                    .replace(/[^A-Z]/g, "")
-                                    .slice(0, 5),
-                            )
-                        }
-                        placeholder="WORD"
-                        inputMode="text"
-                        autoCapitalize="characters"
-                        className="flex-1 rounded-md border-2 border-border bg-background px-3 py-2 text-center text-lg font-black tracking-[0.3em] uppercase focus:outline-none focus:border-primary"
-                    />
-                    <Button
-                        size="sm"
-                        disabled={wordDraft.length !== 5}
-                        onClick={() => {
-                            sendHangmanWord(castId, wordDraft);
-                            setWordDraft("");
-                        }}
-                    >
-                        Set word
-                    </Button>
-                </div>
+                <input
+                    value={wordDraft}
+                    onChange={(e) =>
+                        setWordDraft(
+                            e.target.value
+                                .toUpperCase()
+                                .replace(/[^A-Z]/g, "")
+                                .slice(0, 5),
+                        )
+                    }
+                    placeholder="WORD"
+                    inputMode="text"
+                    autoCapitalize="characters"
+                    autoCorrect="off"
+                    spellCheck={false}
+                    className="w-full rounded-md border-2 border-border bg-background px-3 py-2 text-center text-lg font-black tracking-[0.3em] uppercase focus:outline-none focus:border-primary"
+                />
+                <Button
+                    size="sm"
+                    className="w-full"
+                    disabled={wordDraft.length !== 5}
+                    onClick={() => {
+                        sendHangmanWord(castId, wordDraft);
+                        setWordDraft("");
+                    }}
+                >
+                    Set word
+                </Button>
+            </div>
+        );
+    }
+
+    // ── Ready — a word is set; the seekers start the round when they need to
+    //    ask/board (rulebook: they must beat the hider before doing so). ──
+    if (game.status === "ready") {
+        if (isHider) {
+            return (
+                <p className="text-xs text-muted-foreground text-center py-3">
+                    Word set — waiting for the seekers to start the game.
+                </p>
+            );
+        }
+        return (
+            <div className="space-y-2 py-1">
+                <p className="text-xs text-muted-foreground text-center">
+                    Beat the hider at hangman before asking a question or
+                    boarding transit.
+                </p>
+                <Button
+                    className="w-full"
+                    onClick={() => sendHangmanBegin(castId)}
+                >
+                    Start game
+                </Button>
             </div>
         );
     }

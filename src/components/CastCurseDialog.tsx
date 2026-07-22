@@ -306,6 +306,16 @@ export function CastCurseDialog({
     const locationBlocked = bridgeTrollBlocked || waterBlocked;
     const castBlockedByLocation = locationBlocked && !constraintOverride;
 
+    // Hidden Hangman (v1099): the hider picks the FIRST secret word as part of
+    // casting. The server runs the game, so the word is only needed when online
+    // (multiplayer / demo). Reset when the open card changes.
+    const isHangman = !!card && card.name === CURSE_HIDDEN_HANGMAN;
+    const [hangmanWordDraft, setHangmanWordDraft] = useState("");
+    useEffect(() => {
+        setHangmanWordDraft("");
+    }, [card?.id, open]);
+    const hangmanWordValid = /^[A-Z]{5}$/.test(hangmanWordDraft);
+
     const blockedByEndgame =
         $endgameStartedAt !== null &&
         !!card &&
@@ -669,7 +679,10 @@ export function CastCurseDialog({
         destSatisfied &&
         // Drained Brain: exactly 3 questions (each a different category) must
         // be chosen before the curse can be cast.
-        (!isDrainedBrain || drainedQuestions.length === 3);
+        (!isDrainedBrain || drainedQuestions.length === 3) &&
+        // Hidden Hangman (multiplayer): the hider must pick the first 5-letter
+        // secret word before casting.
+        (!isHangman || !online || hangmanWordValid);
 
     const categoryOfQuestion = (qid: string): CategoryId =>
         (qid.includes("/") ? qid.split("/")[0] : qid) as CategoryId;
@@ -865,7 +878,11 @@ export function CastCurseDialog({
             // v1096: Hidden Hangman is server-adjudicated — kick off the game
             // (the server picks the secret word + judges the seekers' guesses).
             if (card.name === CURSE_HIDDEN_HANGMAN)
-                sendHangmanStart(payload.castId, hangmanMaxLosses($gameSize));
+                sendHangmanStart(
+                    payload.castId,
+                    hangmanMaxLosses($gameSize),
+                    hangmanWordDraft,
+                );
             recordCastCurse(payload);
             payCostDiscards();
             discardCard(card.id);
@@ -1336,6 +1353,36 @@ export function CastCurseDialog({
                                             </div>
                                         </>
                                     )}
+                                </div>
+                            )}
+
+                            {/* Hidden Hangman (v1099): the hider picks the
+                                first secret 5-letter word as part of casting.
+                                Full-width input (stacked, so it never overflows
+                                the dialog like the old inline "Set word" row). */}
+                            {isHangman && online && (
+                                <div className="mt-2.5 space-y-1.5">
+                                    <p className="text-xs text-muted-foreground">
+                                        Pick a secret 5-letter word for the
+                                        seekers to guess.
+                                    </p>
+                                    <input
+                                        value={hangmanWordDraft}
+                                        onChange={(e) =>
+                                            setHangmanWordDraft(
+                                                e.target.value
+                                                    .toUpperCase()
+                                                    .replace(/[^A-Z]/g, "")
+                                                    .slice(0, 5),
+                                            )
+                                        }
+                                        placeholder="WORD"
+                                        inputMode="text"
+                                        autoCapitalize="characters"
+                                        autoCorrect="off"
+                                        spellCheck={false}
+                                        className="w-full rounded-md border-2 border-border bg-background px-3 py-2 text-center text-lg font-black tracking-[0.3em] uppercase focus:outline-none focus:border-primary"
+                                    />
                                 </div>
                             )}
 

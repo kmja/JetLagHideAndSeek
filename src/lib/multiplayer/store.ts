@@ -784,12 +784,19 @@ export function startCurseCooldown(
 export function sendHangmanStart(
     castId: number | undefined,
     maxLosses: number,
+    word: string,
 ): void {
     if (castId == null || !multiplayerEnabled.get()) return;
-    getTransport()?.send({ t: "hangmanStart", castId, maxLosses });
+    getTransport()?.send({ t: "hangmanStart", castId, maxLosses, word });
 }
 
-/** The HIDER sets this round's secret 5-letter word. */
+/** The SEEKERS start a round (`ready` → `playing`). */
+export function sendHangmanBegin(castId: number | undefined): void {
+    if (castId == null || !multiplayerEnabled.get()) return;
+    getTransport()?.send({ t: "hangmanBegin", castId });
+}
+
+/** The HIDER sets the NEXT round's secret 5-letter word (after a loss). */
 export function sendHangmanWord(
     castId: number | undefined,
     word: string,

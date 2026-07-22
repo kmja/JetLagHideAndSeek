@@ -432,6 +432,30 @@ bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
 build stamp. Current: `v1069`. Use `git log` for the per-version detail;
 
+**v1099 — Hidden Hangman playtest fixes (word picked at cast, seekers start the
+game, cleaner dialog).** Four fixes from a live playtest of v1097:
+- **The hider picks the FIRST word while CASTING** (feedback 1). `CastCurseDialog`
+  shows a full-width 5-letter word input for Hidden Hangman and gates the cast on
+  a valid word; casting sends `hangmanStart{castId, maxLosses, word}`, so the
+  server creates the game already holding the word (status `ready`). The in-board
+  `awaiting-word` step now only appears for SUBSEQUENT rounds (after a loss).
+- **The seekers explicitly START a game** (feedback 2). New status **`ready`** +
+  `CMsgHangmanBegin` (`sendHangmanBegin`): after a cast the seeker board shows a
+  "Start game" button (rulebook framing: beat the hider before asking/boarding)
+  → `ready` → `playing`. The hider sees "waiting for the seekers to start." Round
+  2+ after a loss goes `awaiting-word` (hider re-picks) → `playing` directly (the
+  seeker's "Play again" already initiated it).
+- **The curse description is hidden during a game** (feedback 3) — the long
+  paragraph crowded the board out; the "Rules" link + the board itself cover it.
+- **The "Set word" row no longer overflows the dialog** (feedback 4) — the
+  awaiting-word input is STACKED above a full-width button (was an inline
+  flex row whose button clipped past the dialog edge). The cast-dialog word input
+  is the same stacked full-width shape.
+- Worker (`GameRoom`): `handleHangmanStart(…, word)` creates `ready` (or
+  `awaiting-word` if the word is somehow invalid); `handleHangmanBegin` (seeker,
+  `ready`→`playing`). Demo broker mirrors it (bot-hider holds the cast word, seeker
+  taps Start). `SMsgHangmanState.status`/`HangmanState`/`DemoHangman` gain `ready`.
+
 **v1098 — presence-aware wizard transit defaults (default to what the area
 actually has).** Now that most played cities are prewarmed, the setup wizard no
 longer guesses the allowed-transit set purely from game SIZE — it defaults to the

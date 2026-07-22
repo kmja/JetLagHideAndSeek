@@ -142,7 +142,7 @@ export interface HangmanState {
     maxWrong: number;
     losses: number;
     maxLosses: number;
-    status: "awaiting-word" | "playing" | "lost" | "cleared";
+    status: "awaiting-word" | "ready" | "playing" | "lost" | "cleared";
     /** A seeker's guess awaiting the hider's reveal, else absent. */
     pending?: string;
     cooldownUntil?: number;

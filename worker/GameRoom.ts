@@ -179,7 +179,7 @@ interface HangmanGame {
     losses: number;
     /** Losses that end the curse (1 S / 2 M / 3 L). */
     maxLosses: number;
-    status: "awaiting-word" | "playing" | "lost" | "cleared";
+    status: "awaiting-word" | "ready" | "playing" | "lost" | "cleared";
     /** A seeker's guess awaiting the hider's reveal, else null. */
     pending?: string | null;
     /** When `lost`, Unix ms the 10-min re-challenge cooldown ends. */
@@ -763,7 +763,10 @@ export class GameRoom {
                     socket,
                     msg.castId,
                     msg.maxLosses,
+                    msg.word,
                 );
+            case "hangmanBegin":
+                return this.handleHangmanBegin(socket, msg.castId);
             case "hangmanWord":
                 return this.handleHangmanWord(socket, msg.castId, msg.word);
             case "hangmanGuess":
@@ -2321,21 +2324,26 @@ export class GameRoom {
         );
     }
 
-    /** The hider casts Hidden Hangman → create the game (awaiting the first word). */
+    /** The hider casts Hidden Hangman WITH the first word (v1099) → create the
+     *  game `ready`, waiting for the seekers to start the round. If the word is
+     *  somehow invalid, fall back to `awaiting-word` so the hider can re-pick. */
     private handleHangmanStart(
         socket: WebSocket,
         castId: number,
         maxLosses: number,
+        word: string,
     ) {
         if (!this.lookupConn(socket)) return;
         const ml = Math.min(Math.max(Math.round(maxLosses) || 1, 1), 3);
+        const W = String(word || "").toUpperCase();
+        const valid = /^[A-Z]{5}$/.test(W);
         const g: HangmanGame = {
-            word: "",
+            word: valid ? W : "",
             guessed: [],
             wrong: 0,
             losses: 0,
             maxLosses: ml,
-            status: "awaiting-word",
+            status: valid ? "ready" : "awaiting-word",
             pending: null,
         };
         this.hangmanGames[castId] = g;
@@ -2343,7 +2351,18 @@ export class GameRoom {
         void this.persist();
     }
 
-    /** The HIDER sets this round's secret 5-letter word. */
+    /** The SEEKERS start a round (v1099) — `ready` → `playing`. */
+    private handleHangmanBegin(socket: WebSocket, castId: number) {
+        if (this.roleOf(socket) !== "seeker") return;
+        const g = this.hangmanGames[castId];
+        if (!g || g.status !== "ready") return;
+        g.status = "playing";
+        this.broadcastHangman(castId, g);
+        void this.persist();
+    }
+
+    /** The HIDER sets the NEXT round's secret 5-letter word after a loss
+     *  (`awaiting-word` → `playing`; round 1's word rides `hangmanStart`). */
     private handleHangmanWord(socket: WebSocket, castId: number, word: string) {
         if (this.roleOf(socket) !== "hider") return;
         const g = this.hangmanGames[castId];
