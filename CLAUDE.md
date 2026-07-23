@@ -477,6 +477,26 @@ build stamp. Current: `v1069`. Use `git log` for the per-version detail;
 - **NEXT: a SINGLE station producer shared by seeker + hider** (shipped in
   v1115 below).
 
+**v1128 — transit-line question polish + elimination smoothness + toaster
+removal.**
+- **Transit-line elimination is no longer low-poly.** The eliminated area DOES
+  compute (union of the question's station hiding zones for "Match", inverse for
+  "No match") — but it rendered as chunky ~16-gons. Root cause: the seeker map's
+  dimming-mask `turf.simplify` (v1020, ~66 m tolerance) is gated on ≥1500
+  vertices, which a transit-line circle union exceeds → the 64-step circles
+  collapsed. Raised the gate to 8000 verts (`Map.tsx`): circle-based
+  eliminations (radar, transit-line) stay smooth, and only a genuinely huge
+  boundary is simplified — safe because `holedMaskViaWorker` runs OFF the main
+  thread, so an un-simplified few-thousand-vertex difference is cheap there.
+- **Transit direction row** (`TransitRoutePicker`): dropped the "Reverse" text
+  label + its white chip; the reverse icon is bigger (`h-6 w-6`) and bare.
+- **Transit stop timeline**: the dashed connector between stops used the tiny
+  default `border-dashed` (mostly hidden in the short gap between checkboxes) —
+  now a chunky `repeating-linear-gradient` (`RAIL_DASH`) with bold, clearly
+  spaced dashes.
+- **Removed the "Hiding zone committed." toaster** (both the `hiderZoneCommit.ts`
+  commit path and the `HiderHome` edit path).
+
 **v1127 — remove two dead features (planned-trip map route + travel-times
 overlay) + specific "waiting for a seeker/hider" lobby text.**
 - **Trip-route-on-map removed** (user decision — the drawn route was just

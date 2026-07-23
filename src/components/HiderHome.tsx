@@ -947,7 +947,6 @@ function HidingZoneSection({
             committedAt: Date.now(),
         });
         setEditing(false);
-        toast.success("Hiding zone committed.", { autoClose: 2000 });
 
         // If the hiding period is still running, offer the hider
         // the rulebook shortcut: they've reached their spot, do they

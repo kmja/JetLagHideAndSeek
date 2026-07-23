@@ -1319,13 +1319,18 @@ export function Map({ className }: MapProps) {
                     // the exact `working` geometry stored below
                     // (questionFinishedMapData + pending-clip) is untouched.
                     let maskInput: unknown = working;
-                    // v1020: only simplify a DENSE boundary. The ~66 m
-                    // tolerance is invisible on a metro polygon but visibly
-                    // collapses a SMALL remaining area (a 500 m radar circle
-                    // → a low-poly octagon — the reported bug). A small
-                    // remaining area already has few vertices, so the
-                    // world-scale difference is cheap without simplifying.
-                    if (coordCountAtLeast(working, 1500) >= 1500) {
+                    // v1020/v1128: only simplify a genuinely DENSE boundary. The
+                    // ~66 m tolerance is invisible on a whole-metro polygon but
+                    // visibly collapses CIRCLE-based remaining areas (a 500 m
+                    // radar circle, or a transit-line question's union of
+                    // hiding-zone circles → low-poly ~16-gons, the reported
+                    // bug). The gate was 1500, which a transit-line circle
+                    // union exceeds; raised to 8000 so circle eliminations stay
+                    // smooth — `holedMaskViaWorker` runs OFF the main thread, so
+                    // an un-simplified few-thousand-vertex difference is cheap
+                    // enough there. Only a truly huge boundary (8000+ verts,
+                    // still under the MASK_MAX_VERTICES skip) is simplified.
+                    if (coordCountAtLeast(working, 8000) >= 8000) {
                         try {
                             maskInput = turf.simplify(working as never, {
                                 tolerance: 0.0006,

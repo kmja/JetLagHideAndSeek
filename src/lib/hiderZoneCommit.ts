@@ -1,4 +1,3 @@
-import { toast } from "react-toastify";
 
 import { appConfirm } from "@/lib/confirm";
 import {
@@ -58,7 +57,6 @@ export async function confirmAndCommitZone(
         committedAt: Date.now(),
         modes: station.modes,
     });
-    toast.success("Hiding zone committed.", { autoClose: 2000 });
 
     // Still in the hiding period → surface the on-map callout by the timer
     // so the hider can end early (or keep going) from where that action is.

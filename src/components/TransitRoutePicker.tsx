@@ -9,7 +9,7 @@ import {
     RefreshCw,
     Train,
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { type CSSProperties, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "react-toastify";
 
 import { lastKnownPosition } from "@/lib/context";
@@ -203,6 +203,14 @@ function groupLines(routes: TransitRouteSummary[]): TransitLine[] {
     }
     return [...byKey.values()];
 }
+
+/** Chunky dashed connector between stop nodes (v1128) — the default
+ *  `border-dashed` pattern was tiny and mostly hidden in the short gap between
+ *  checkboxes. A repeating-linear-gradient gives bold, clearly-spaced dashes. */
+const RAIL_DASH: React.CSSProperties = {
+    backgroundImage:
+        "repeating-linear-gradient(to bottom, hsl(var(--muted-foreground) / 0.6) 0 5px, transparent 5px 10px)",
+};
 
 /** Transit-type accordion sections, in display order. */
 const MODE_SECTIONS: { key: string; label: string; modes: string[] }[] = [
@@ -494,7 +502,8 @@ export function TransitRoutePicker({
 
                 {/* Direction filter — the WHOLE row is a button that reverses
                     direction (v1119): a compass badge (arrow + cardinal abbr),
-                    the "Toward <end>" label, and a "Reverse" cue on the right,
+                    the "Toward <end>" label, and a bare reverse ICON on the
+                    right (v1128 — dropped the "Reverse" label + its white chip),
                     with a clear hover/press affordance so it reads as tappable. */}
                 {hasDir && (
                     <button
@@ -524,10 +533,7 @@ export function TransitRoutePicker({
                                 {target.name ?? "the end"}
                             </span>
                         </span>
-                        <span className="flex shrink-0 items-center gap-1.5 rounded-md bg-background px-2 py-1 text-xs font-medium text-muted-foreground">
-                            <ArrowUpDown className="h-4 w-4" />
-                            Reverse
-                        </span>
+                        <ArrowUpDown className="h-6 w-6 shrink-0 text-muted-foreground" />
                     </button>
                 )}
 
@@ -553,9 +559,15 @@ export function TransitRoutePicker({
                                 >
                                     <span className="relative flex w-7 shrink-0 items-center justify-center self-stretch">
                                         {!isFirst && (
-                                            <span className="absolute left-1/2 top-0 h-1/2 -translate-x-1/2 border-l-2 border-dashed border-muted-foreground/50" />
+                                            <span
+                                            className="absolute left-1/2 top-0 h-1/2 w-[3px] -translate-x-1/2"
+                                            style={RAIL_DASH}
+                                        />
                                         )}
-                                        <span className="absolute bottom-0 left-1/2 h-1/2 -translate-x-1/2 border-l-2 border-dashed border-muted-foreground/50" />
+                                        <span
+                                            className="absolute bottom-0 left-1/2 h-1/2 w-[3px] -translate-x-1/2"
+                                            style={RAIL_DASH}
+                                        />
                                         <span className="relative z-10 h-3.5 w-3.5 shrink-0 rounded-sm border border-muted-foreground/50 bg-background" />
                                     </span>
                                     <span className="min-w-0 flex-1 truncate py-0.5 text-sm">
@@ -577,10 +589,16 @@ export function TransitRoutePicker({
                                 {/* rail column: dashed connecting line + node */}
                                 <span className="relative flex w-7 shrink-0 items-center justify-center self-stretch">
                                     {!isFirst && (
-                                        <span className="absolute left-1/2 top-0 h-1/2 -translate-x-1/2 border-l-2 border-dashed border-muted-foreground/50" />
+                                        <span
+                                            className="absolute left-1/2 top-0 h-1/2 w-[3px] -translate-x-1/2"
+                                            style={RAIL_DASH}
+                                        />
                                     )}
                                     {!isLast && (
-                                        <span className="absolute bottom-0 left-1/2 h-1/2 -translate-x-1/2 border-l-2 border-dashed border-muted-foreground/50" />
+                                        <span
+                                            className="absolute bottom-0 left-1/2 h-1/2 w-[3px] -translate-x-1/2"
+                                            style={RAIL_DASH}
+                                        />
                                     )}
                                     <span
                                         className={cn(
