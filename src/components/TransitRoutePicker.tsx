@@ -399,6 +399,18 @@ export function TransitRoutePicker({
         }
     };
 
+    // v1138: if exactly ONE line is detected, open it right away — there's no
+    // point making the seeker tap a single-item list.
+    const autoPickedRef = useRef(false);
+    useEffect(() => {
+        if (disabled || savedRoute || pickedLine || pickingKey) return;
+        if (lines && lines.length === 1 && !autoPickedRef.current) {
+            autoPickedRef.current = true;
+            void pickLine(lines[0]);
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [lines, disabled, savedRoute, pickedLine, pickingKey]);
+
     const toggleStop = (idx: number) => {
         setPickedLine((prev) => {
             if (!prev) return prev;

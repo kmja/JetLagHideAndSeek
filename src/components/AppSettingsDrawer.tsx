@@ -79,9 +79,11 @@ export function AppSettingsDrawer() {
                             </VaulDrawer.Description>
                         </div>
                         <div className="mt-4 space-y-3">
-                            <HowToPlaySheet
-                                onBeforeOpen={() => moreSheetOpen.set(false)}
-                            />
+                            {/* v1138: HowToPlaySheet opens ON TOP of this
+                                drawer (higher z-index) instead of closing it —
+                                closing the host unmounted the sheet (a child)
+                                the instant it opened. */}
+                            <HowToPlaySheet />
                             <RulebookTrigger
                                 onBeforeOpen={() => moreSheetOpen.set(false)}
                             >

@@ -13,33 +13,26 @@ import { SectionPill, SizeBadge } from "./JetLagLogo";
  * digging through the 247-page PDF. NOT a substitute for reading the
  * rulebook — just the cheat-sheet view of the parts the app touches.
  *
- * Triggered from the More sheet's first row. Renders as a VaulDrawer
+ * Triggered from the Settings drawer's first row. Renders as a VaulDrawer
  * so it inherits the swipe-to-dismiss behavior we use elsewhere.
  *
- * `onBeforeOpen` lets a host sheet close itself first — without that,
- * a Sheet z-1051 stacked over a VaulDrawer z-1045 hides the drawer
- * entirely (the user sees only the parent overlay).
+ * v1138: this component is mounted INSIDE the Settings drawer's content, so
+ * it must NOT close the host — doing so unmounts the Settings content, which
+ * unmounts THIS component (a child) and destroys its `open` state a moment
+ * after it opens (the reported "How to play closes as soon as it opens", the
+ * same close-then-open-child-unmount class we've hit before). Instead it opens
+ * ON TOP of the Settings drawer with a higher z-index; its own full-screen
+ * overlay covers the Settings drawer, so there's no show-through, and closing
+ * it returns to Settings.
  */
-export function HowToPlaySheet({
-    onBeforeOpen,
-}: { onBeforeOpen?: () => void } = {}) {
+export function HowToPlaySheet() {
     const [open, setOpen] = useState(false);
 
     return (
         <>
             <button
                 type="button"
-                onClick={() => {
-                    onBeforeOpen?.();
-                    // If the host closes itself, give the close
-                    // animation a frame to start so the focus ring
-                    // and overlay don't visibly stack while opening.
-                    if (onBeforeOpen) {
-                        requestAnimationFrame(() => setOpen(true));
-                    } else {
-                        setOpen(true);
-                    }
-                }}
+                onClick={() => setOpen(true)}
                 className={cn(
                     "w-full flex items-center justify-center gap-2",
                     "px-3 py-2 rounded-md",
@@ -57,10 +50,10 @@ export function HowToPlaySheet({
                 shouldScaleBackground={false}
             >
             <VaulDrawer.Portal>
-                <VaulDrawer.Overlay className="fixed inset-0 z-[1040] bg-black/60" />
+                <VaulDrawer.Overlay className="fixed inset-0 z-[1052] bg-black/60" />
                 <VaulDrawer.Content
                     className={cn(
-                        "fixed inset-x-0 bottom-0 z-[1045]",
+                        "fixed inset-x-0 bottom-0 z-[1053]",
                         "mt-24 flex h-auto max-h-[85vh] flex-col",
                         "rounded-t-[10px] border bg-background text-foreground",
                         "pb-[env(safe-area-inset-bottom)]",

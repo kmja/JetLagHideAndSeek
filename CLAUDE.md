@@ -477,6 +477,29 @@ build stamp. Current: `v1069`. Use `git log` for the per-version detail;
 - **NEXT: a SINGLE station producer shared by seeker + hider** (shipped in
   v1115 below).
 
+**v1138 — "How to play" closes-on-open fix + device-aware water budget +
+transit-line single-line auto-open.**
+- **"How to play" closed as soon as it opened** (`HowToPlaySheet` /
+  `AppSettingsDrawer`). The sheet is mounted INSIDE the Settings drawer's
+  content, and its button closed the host (`onBeforeOpen → moreSheetOpen.set(false)`)
+  — which unmounts the Settings content, unmounting THIS component (a child) and
+  destroying its `open` state a moment after it opened (the recurring
+  close-then-open-child-unmount class). Now it opens ON TOP of the Settings
+  drawer at a higher z-index (overlay `z-[1052]` / content `z-[1053]`) instead of
+  closing it; its own overlay covers Settings (no show-through) and closing it
+  returns to Settings.
+- **body-of-water works on PC but timed out on Android** for NYC+adjacents
+  (`basemapWater.ts`). The dissolve+buffer of a dense metro's water is CPU-heavy
+  and a weaker mobile CPU (fewer cores) hit the worker timeout where a PC
+  finished. New `waterTileBudget()` scales the read's `maxTiles` by
+  `hardwareConcurrency` (+ `deviceMemory` when present): a low-end phone gets a
+  smaller budget → the adaptive reader picks a lower zoom → fewer, larger
+  polygons → a dissolve+buffer the phone can actually finish; desktops keep the
+  z12-where-it-fits detail.
+- **Transit-line question auto-opens a lone line** (`TransitRoutePicker`) — when
+  exactly one line is detected there's no point making the seeker tap a
+  single-item list, so it opens that line straight to the stop picker.
+
 **v1137 — ADAPTIVE water-read zoom (z12 where affordable, z11 for a dense
 metro).** Follow-up to v1136's z11 revert. The tile reader
 (`fetchLayerPolysFromPM`) picks the HIGHEST zoom whose tile count fits

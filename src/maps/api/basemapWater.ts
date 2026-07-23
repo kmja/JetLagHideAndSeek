@@ -184,6 +184,38 @@ const ensured = new Map<string, Promise<void>>();
  * paint. Memoised per play area; every failure is a silent no-op.
  */
 const ENSURE_AWAIT_CAP_MS = 4500;
+
+/**
+ * v1138: DEVICE-AWARE water tile budget. Body-of-water's dissolve+buffer of a
+ * dense metro's water (NYC + adjacents) completes on a PC but TIMES OUT on a
+ * weaker mobile CPU (fewer cores) — the reported "works on PC, not Android".
+ * The tile reader picks the highest zoom whose tile count fits this budget, so
+ * a SMALLER budget forces a lower zoom → fewer, larger polygons → a far lighter
+ * dissolve+buffer that a phone can actually finish. High-end devices keep the
+ * z12-where-it-fits detail; low-end phones drop to a coarser (but computable)
+ * water set. `hardwareConcurrency` is the reliable signal everywhere;
+ * `deviceMemory` (Chromium-only) refines it when present.
+ */
+function waterTileBudget(): number {
+    const cores =
+        typeof navigator !== "undefined" &&
+        typeof navigator.hardwareConcurrency === "number"
+            ? navigator.hardwareConcurrency
+            : 8;
+    const mem =
+        typeof navigator !== "undefined" &&
+        typeof (navigator as { deviceMemory?: number }).deviceMemory ===
+            "number"
+            ? (navigator as { deviceMemory?: number }).deviceMemory!
+            : 8;
+    // Low-end phone: force a coarse, computable water set.
+    if (cores <= 4 || mem <= 3) return 12;
+    // Mid-range.
+    if (cores <= 6 || mem <= 5) return 20;
+    // Desktop / high-end: finest the adaptive reader will take.
+    return 30;
+}
+
 export function ensureBasemapWaterForArea(
     bbox: [number, number, number, number],
 ): Promise<void> {
@@ -221,17 +253,18 @@ export function ensureBasemapWaterForArea(
         // zoom is chosen tractable. (Getting z12+ detail for a dense metro would
         // need a seeker-local high-zoom read, not a whole-area one — a possible
         // future enhancement.)
+        const maxTiles = waterTileBudget();
         const feats = usePack
             ? await fetchLayerPolysFromPM(usePack.pmtiles, bbox, "water", {
                   targetZoom: Math.min(12, usePack.maxZoom),
-                  maxTiles: 30,
+                  maxTiles,
               })
             : await (async () => {
                   const url = pmtilesUrl.get();
                   if (!url) return null;
                   return fetchBasemapLayerPolys(url, bbox, "water", {
                       targetZoom: 12,
-                      maxTiles: 30,
+                      maxTiles,
                   });
               })();
         // eslint-disable-next-line no-console
