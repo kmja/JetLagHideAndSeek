@@ -477,6 +477,22 @@ build stamp. Current: `v1069`. Use `git log` for the per-version detail;
 - **NEXT: a SINGLE station producer shared by seeker + hider** (shipped in
   v1115 below).
 
+**v1134 — same-street matches only the CONTIGUOUS street, not every same-named
+way citywide.** Rulebook p18: "A street or path is considered to have ended when
+it acquires a different name" — so a street is a CONTIGUOUS run of same-named
+ways; three disconnected streets that merely share a name ("45th Street" in
+Manhattan, Brooklyn and Queens) are THREE separate streets (you can't walk
+continuously along "45th Street" between them). Both the `same-street-or-path`
+union sites (the prewarmed R2 path AND the live all-highways path) took EVERY
+way named `streetName`, so the answer matched all three (the reported NYC bug).
+New `connectedSameNameWayElements` graph-walks from the seeker's nearest way over
+shared OSM node ids (`out geom` returns each way's `nodes` array; consecutive
+highway segments meet at a shared intersection/endpoint node) and returns only
+the ways reachable from it — the ONE contiguous street. The hider grades via the
+same `determineMatchingBoundary`, so the answer agrees with the cut. Falls back
+to the old all-same-name behaviour only when the nearest way has no node ids on
+the source (can't graph-walk).
+
 **v1133 — hider on-map zone-select nudge + questions-log parity + wider water
 coverage + clearer admin error.**
 - **On-map "Select hiding zone" nudge is back** (`HiderZoneNudge.tsx`, mounted on

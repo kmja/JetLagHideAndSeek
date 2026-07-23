@@ -257,6 +257,68 @@ function unnamedSegmentFromElements(
     }
 }
 
+/**
+ * v1134: the CONNECTED-COMPONENT of same-named highway ways containing the
+ * seeker's nearest way — the seeker's actual STREET.
+ *
+ * Rulebook p18: "A street or path is considered to have ended when it acquires
+ * a different name." So a street is a CONTIGUOUS run of same-named ways; three
+ * disconnected streets that merely share a name ("45th Street" in Manhattan,
+ * Brooklyn and Queens) are THREE separate streets — you can't walk continuously
+ * along "45th Street" between them. The old union of EVERY same-named way
+ * matched all three (the reported bug). This walks the graph of same-named ways
+ * from the seeker's nearest way, following shared OSM node ids (consecutive
+ * highway segments meet at a shared intersection/endpoint node), and returns
+ * only the ways reachable from it — the one contiguous street. `out geom`
+ * returns each way's `nodes` id array, so intersections are exact.
+ */
+function connectedSameNameWayElements(
+    startId: number,
+    streetName: string,
+    allWays: Array<{
+        type?: string;
+        id?: number;
+        nodes?: number[];
+        tags?: { name?: string };
+    }>,
+): typeof allWays {
+    const nameWays = allWays.filter(
+        (el) =>
+            el?.type === "way" &&
+            el?.tags?.name === streetName &&
+            Array.isArray(el.nodes) &&
+            el.nodes.length > 0,
+    );
+    if (nameWays.length <= 1) return nameWays;
+    const startIdx = nameWays.findIndex((w) => w.id === startId);
+    // The nearest way isn't in the named set (node ids missing on this
+    // source) — can't graph-walk, so keep the old all-same-name behaviour
+    // rather than dropping the answer.
+    if (startIdx === -1) return nameWays;
+    const nodeToWays = new Map<number, number[]>();
+    nameWays.forEach((w, i) => {
+        for (const n of w.nodes ?? []) {
+            const arr = nodeToWays.get(n);
+            if (arr) arr.push(i);
+            else nodeToWays.set(n, [i]);
+        }
+    });
+    const visited = new Set<number>([startIdx]);
+    const stack = [startIdx];
+    while (stack.length) {
+        const i = stack.pop()!;
+        for (const n of nameWays[i].nodes ?? []) {
+            for (const j of nodeToWays.get(n) ?? []) {
+                if (!visited.has(j)) {
+                    visited.add(j);
+                    stack.push(j);
+                }
+            }
+        }
+    }
+    return Array.from(visited).map((i) => nameWays[i]);
+}
+
 /** English-preferred station name (matches the hider-grading logic). */
 function stationName(f: Feature<Point>): string | null {
     const p = f.properties as Record<string, unknown> | undefined;
@@ -925,8 +987,14 @@ export const determineMatchingBoundary = memoize(
                             near.bestDist <= NEAR_NAMED_STREET_M
                         ) {
                             const wayFeatures = osmtogeojson({
-                                elements: prewarmed.filter(
-                                    (el) => el?.tags?.name === near.streetName,
+                                // v1134: only the CONNECTED same-named ways (the
+                                // seeker's contiguous street), NOT every same-name
+                                // way citywide — three disconnected "45th Street"s
+                                // are separate streets (rulebook p18).
+                                elements: connectedSameNameWayElements(
+                                    near.nearestWay.id,
+                                    near.streetName,
+                                    prewarmed,
                                 ),
                             } as never).features.filter(
                                 (f): f is Feature<any> =>
@@ -1028,11 +1096,16 @@ out geom;
                     boundary = segBoundary;
                     break;
                 }
-                // Every way sharing the nearest street's name — filtered from
-                // the SAME cached fetch (no per-name live query).
+                // v1134: only the CONNECTED same-named ways (the seeker's one
+                // contiguous street), NOT every same-name way in the play area —
+                // disconnected streets that merely share a name are separate
+                // streets (rulebook p18). Graph-walk from the seeker's nearest
+                // way over shared OSM nodes.
                 const wayFeatures = osmtogeojson({
-                    elements: otherWays.filter(
-                        (el) => el?.tags?.name === streetName,
+                    elements: connectedSameNameWayElements(
+                        nearestWay.id,
+                        streetName,
+                        elements,
                     ),
                 } as never).features.filter(
                     (f): f is Feature<any> =>
