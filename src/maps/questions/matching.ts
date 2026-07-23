@@ -537,7 +537,16 @@ export const determineMatchingBoundary = memoize(
 
                 if (!boundary) {
                     if (silent) return undefined;
-                    toast.error("No boundary found for this zone");
+                    // v1132: NYC (and other consolidated cities) has no
+                    // administrative boundary at some levels — e.g. NO
+                    // admin_level=8 municipality, so a Manhattan seeker isn't
+                    // inside any "city/town" zone. `findAdminBoundary` correctly
+                    // finds nothing; the old "No boundary found for this zone"
+                    // read like a data bug. Explain it's the position, not a
+                    // failure, so the seeker picks a different admin level.
+                    toast.error(
+                        "You're not inside an administrative area at this level here, so this question can't be asked from your position — try a different division.",
+                    );
                     throw new Error("No boundary found");
                 }
                 break;
@@ -551,7 +560,16 @@ export const determineMatchingBoundary = memoize(
 
                 if (!zone) {
                     if (silent) return undefined;
-                    toast.error("No boundary found for this zone");
+                    // v1132: NYC (and other consolidated cities) has no
+                    // administrative boundary at some levels — e.g. NO
+                    // admin_level=8 municipality, so a Manhattan seeker isn't
+                    // inside any "city/town" zone. `findAdminBoundary` correctly
+                    // finds nothing; the old "No boundary found for this zone"
+                    // read like a data bug. Explain it's the position, not a
+                    // failure, so the seeker picks a different admin level.
+                    toast.error(
+                        "You're not inside an administrative area at this level here, so this question can't be asked from your position — try a different division.",
+                    );
                     throw new Error("No boundary found");
                 }
 

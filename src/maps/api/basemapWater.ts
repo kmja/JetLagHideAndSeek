@@ -207,17 +207,27 @@ export function ensureBasemapWaterForArea(
         const packOsm = mapGeoLocation.get()?.properties?.osm_id;
         const usePack =
             pack && (packOsm == null || pack.osmId === packOsm) ? pack : null;
+        // v1132: read at a HIGHER target zoom (13, was 11) with a bigger tile
+        // budget (48). Protomaps GENERALIZES the `water` layer by zoom — small
+        // and even medium lakes (a park pond in Staten Island) only appear at
+        // z12-13, so the z11 read MISSED them (the reported "misses some big
+        // bodies of water"). The reader picks the HIGHEST zoom whose tile count
+        // fits `maxTiles`, so this is ADAPTIVE + performance-bounded: a small
+        // play area gets fine z13 water (catching the lakes); a big NYC+adjacents
+        // bbox auto-steps down to z12/z11 to stay under the budget. The per-poly
+        // clean (truncate+simplify) + the v1131 simplify-before-buffer keep the
+        // heavier set fast.
         const feats = usePack
             ? await fetchLayerPolysFromPM(usePack.pmtiles, bbox, "water", {
-                  targetZoom: Math.min(11, usePack.maxZoom),
-                  maxTiles: 24,
+                  targetZoom: Math.min(13, usePack.maxZoom),
+                  maxTiles: 48,
               })
             : await (async () => {
                   const url = pmtilesUrl.get();
                   if (!url) return null;
                   return fetchBasemapLayerPolys(url, bbox, "water", {
-                      targetZoom: 11,
-                      maxTiles: 24,
+                      targetZoom: 13,
+                      maxTiles: 48,
                   });
               })();
         // eslint-disable-next-line no-console

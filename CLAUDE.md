@@ -477,6 +477,33 @@ build stamp. Current: `v1069`. Use `git log` for the per-version detail;
 - **NEXT: a SINGLE station producer shared by seeker + hider** (shipped in
   v1115 below).
 
+**v1133 — hider on-map zone-select nudge + questions-log parity + wider water
+coverage + clearer admin error.**
+- **On-map "Select hiding zone" nudge is back** (`HiderZoneNudge.tsx`, mounted on
+  `HiderBackgroundMap`). During the hiding period with no committed zone, a
+  top-of-map card shows a collapsed "SELECT HIDING ZONE" header (the nudge) that
+  expands INLINE to the SAME `NearbyStationsPicker` the Zone drawer uses, so the
+  hider can commit a zone straight from the map (v946 had removed the on-map hint
+  for the bottom-nav slot; this brings it back as an expandable card). The grace
+  prompt owns the after-whistle slot, so they never overlap.
+- **Hider answered-questions log matches the seeker's** (`HiderQuestionLog`). The
+  answered card passed `answered` to `QuestionOverlayCard`, which forces a GREEN
+  block + checkmark; the seeker's log never does (keeps the category colour +
+  subtype icon). Dropped `answered` so the hider's log shows the category colour
+  + icon too.
+- **body-of-water missed medium lakes** (`basemapWater.ts`). The headless
+  Protomaps `water` read was at z11, where Protomaps generalizes away small/
+  medium lakes (a Staten Island park pond) — so they were absent from BOTH the
+  overlay and the nearest-water label. Bumped the target zoom to 13 with a bigger
+  tile budget (48); the reader picks the HIGHEST zoom that fits the budget, so
+  it's adaptive + bounded (small area → fine z13 water; big NYC+adjacents bbox →
+  auto-steps down to z12/z11). The per-poly clean + v1131 buffer-simplify keep
+  the heavier set fast.
+- **city/town admin "No boundary found" reworded** (`matching.ts`). In NYC the
+  seeker genuinely isn't inside any `admin_level=8` boundary (consolidated city),
+  so `findAdminBoundary` correctly finds nothing — but the old message read like
+  a data bug. Now explains it's the position (try a different division).
+
 **v1132 — configure-overlay reliability batch (from a live NYC console: every
 question's calculation re-running on its own + measuring-geom overlays never
 resolving).**

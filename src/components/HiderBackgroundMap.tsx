@@ -18,6 +18,7 @@ import Map, {
 
 import { FadeOverlay } from "@/components/FadeOverlay";
 import { HiderGracePrompt } from "@/components/HiderGracePrompt";
+import { HiderZoneNudge } from "@/components/HiderZoneNudge";
 import { HiderMapTimer } from "@/components/HiderMapTimer";
 import { HiderPoiOverlay } from "@/components/HiderPoiOverlay";
 import { MapNavControls } from "@/components/MapNavControls";
@@ -1052,9 +1053,14 @@ export function HiderBackgroundMap() {
                 containing zone to one-tap commit. Only renders during grace. */}
             <HiderGracePrompt />
 
-            {/* v946: the on-map "Select a station" zone-picker hint was removed
-                — the bottom-nav "Select zone" slot is the entry point during
-                the hiding period (tap it to open the Zone drawer picker). */}
+            {/* v1132: on-map zone-select nudge — collapsed "Select hiding zone"
+                header during the hiding period, expands INLINE to the same
+                station picker the Zone drawer uses, so the hider can commit a
+                zone straight from the map. (v946 removed the old hint in favour
+                of the bottom-nav slot; this brings the on-map affordance back as
+                an expandable card.) The grace prompt owns the after-whistle
+                case, so they never share the top slot. */}
+            <HiderZoneNudge />
 
             {/* v632: the floating top-right map-options popover was removed.
                 Map display options now live in the hider bottom-nav "Map"

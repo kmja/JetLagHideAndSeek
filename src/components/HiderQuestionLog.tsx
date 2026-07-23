@@ -203,7 +203,6 @@ function AnsweredCard({ entry }: { entry: InboxEntry }) {
                 categoryId={entry.id}
                 flat
                 summary={{ ...summary, detail: detail ?? undefined }}
-                answered
                 eyebrow={
                     entry.repliedAt ? (
                         <span className="text-muted-foreground">
