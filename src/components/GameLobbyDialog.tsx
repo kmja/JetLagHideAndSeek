@@ -1363,7 +1363,12 @@ export function GameLobbyDialog() {
                                 >
                                     {!hasRoleBalance ? (
                                         <>
-                                            Waiting for players
+                                            {seekers.length === 0 &&
+                                            hiders.length === 0
+                                                ? "Waiting for players"
+                                                : seekers.length === 0
+                                                  ? "Waiting for a seeker"
+                                                  : "Waiting for a hider"}
                                             <AnimatedEllipsis />
                                         </>
                                     ) : planningActive ? (

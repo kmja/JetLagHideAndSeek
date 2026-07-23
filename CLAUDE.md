@@ -477,6 +477,26 @@ build stamp. Current: `v1069`. Use `git log` for the per-version detail;
 - **NEXT: a SINGLE station producer shared by seeker + hider** (shipped in
   v1115 below).
 
+**v1127 — remove two dead features (planned-trip map route + travel-times
+overlay) + specific "waiting for a seeker/hider" lobby text.**
+- **Trip-route-on-map removed** (user decision — the drawn route was just
+  straight lines between stations, no street/track shapes, so it didn't add
+  much). Deleted `TripRouteLayers.tsx`, `HiderZoneRoute.tsx`,
+  `hooks/useOwnedTripRoute.ts`, `lib/journey/route.ts` (`journeyToRouteFC` +
+  helpers, entirely dead) + the `tripRouteFC` atom and the dead trip-fit effect
+  in `HiderBackgroundMap`. `HiderTripPlanCard` still shows the `JourneyCard`
+  trip detail; only the map overlay is gone.
+- **Travel-times overlay removed** (the "how far could the hider have travelled"
+  reachability dots — computing routes for every station was too heavy to be
+  feasible, and there's no lighter approach). Deleted `TravelTimesOverlay.tsx`,
+  the `travelTimesFC` / `travelTimesLoading` / `showTravelTimes` atoms, the
+  `travel-times-*` layers + FadeOverlay in `Map.tsx` (and their tap-layer
+  entries), the `MapOverlayLoadingToasts` pill, and the now-dead
+  `scheduleTransitPreload` arrivals-warming pass in `preload.ts`.
+- **Lobby Start button copy** — "Waiting for players…" is now the specific
+  "Waiting for a seeker…" / "Waiting for a hider…" based on which role is
+  unfilled (generic only when both are empty).
+
 **v1126 — transit-overlay PRELOAD works with added adjacents (the sibling of the
 v1118 fix) + one shared play-area-relation-ids helper.** Reported: a play area
 WITH added adjacent areas preloaded ZERO transit (`transit FAILED subway:0

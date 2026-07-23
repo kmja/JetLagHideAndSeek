@@ -1,75 +1,26 @@
 /**
  * Journey-overlay state. Atoms only; the fetching + rendering glue
- * lives in `components/TravelTimesOverlay.tsx` (seeker side) and
- * `components/HiderReachOverlay.tsx` (hider side).
+ * lives in `components/HiderReachOverlay.tsx` (hider side).
  */
 
 import { persistentAtom } from "@nanostores/persistent";
 import { atom } from "nanostores";
-
-/** Whether the Travel Times overlay is currently rendered. */
-export const showTravelTimes = persistentAtom<boolean>(
-    "jlhs:showTravelTimes",
-    false,
-    {
-        encode: (v) => (v ? "true" : "false"),
-        decode: (v) => v === "true",
-    },
-);
 
 /* ─────────────────── Map-overlay loading flags ─────────────────── */
 //
 // Volatile per-overlay loading booleans, mirrored to the map-options
 // toggle spinners AND the top-of-map loading toasters
 // (`MapOverlayLoadingToasts`). One flag per async overlay so the UI can
-// say exactly what's loading ("Loading travel times…"). Hiding-zones has
-// two producers — the seeker's `isLoading` (context.ts, ZoneSidebar) and
-// the hider's `hiderReachLoading` below — because the two overlays are
-// computed by different code; the toaster reads whichever applies (the
-// other view's atom is always false since only one map is mounted).
-
-/** Travel-times overlay fetch in flight (`TravelTimesOverlay`). */
-export const travelTimesLoading = atom<boolean>(false);
+// say exactly what's loading. Hiding-zones has two producers — the
+// seeker's `isLoading` (context.ts, ZoneSidebar) and the hider's
+// `hiderReachLoading` below — because the two overlays are computed by
+// different code; the toaster reads whichever applies (the other view's
+// atom is always false since only one map is mounted).
 
 /** Hider hiding-zones overlay load in flight — area-station scan + the
  *  off-thread union (`HiderReachOverlay`). The hider-side counterpart to
  *  the seeker's `isLoading`. */
 export const hiderReachLoading = atom<boolean>(false);
-
-/**
- * Overlay shadow atom — TravelTimesOverlay writes the rendered
- * station FeatureCollection (with arrival-time props baked in) here,
- * and Map.tsx renders it as a symbol Source/Layer pair. Same shadow-
- * atom pattern hiding-zones uses. Null when the overlay is off OR
- * before the first fetch completes.
- *
- * Each feature is a Point with these properties:
- *   - stopId  (string)
- *   - name    (string | undefined)
- *   - arrivalLabel (string) — "HH:MM" for reachable stations, "" while
- *     the API is still loading (optimistic pre-fetch step).
- *
- * Only stations reachable before hidingPeriodEndsAt are included
- * in the final (post-fetch) set.
- */
-export const travelTimesFC = atom<GeoJSON.FeatureCollection<
-    GeoJSON.Point,
-    {
-        stopId: string;
-        name?: string;
-        arrivalLabel: string;
-        /** True once the journey-arrivals API has confirmed the hider
-         *  could reach this station before `hidingPeriodEndsAt`. Map.tsx
-         *  colours dots green (reachable) vs red (not), so the seeker
-         *  can scan candidate zones at a glance instead of reading
-         *  every label. */
-        reachable: boolean;
-        /** True before the API has returned for this station — the dot
-         *  is rendered but its reachability isn't known yet, so the
-         *  layer paints it in a neutral pending color. */
-        pending: boolean;
-    }
-> | null>(null);
 
 /* ─────────────────────── Hider reach overlay ─────────────────────── */
 
@@ -173,21 +124,8 @@ export const SEEKER_ETA_RANK: Record<SeekerEtaTone, number> = {
 export const seekerTripPlannerOpen = atom<boolean>(false);
 
 /**
- * Shadow FC for the active planned trip's route, drawn on the map as a
- * coloured per-leg line + labelled step points. Written by whichever
- * trip planner is active (seeker drawer or hider trip-plan card) from
- * `journeyToRouteFC`, cleared when no plan is showing. Same shadow-atom
- * pattern the other overlays use; the seeker `Map` and hider
- * `HiderBackgroundMap` render it via `TripRouteLayers`.
- */
-export const tripRouteFC = atom<GeoJSON.FeatureCollection | null>(null);
-
-/**
  * Current on-screen height (px) of the station transit card's drawer —
- * 0 when closed. Published by `StationTransitCard` via a ResizeObserver
- * and read by `HiderBackgroundMap`, which refits the trip-route view
- * with a matching bottom padding so the GPS dot + tapped zone stay in
- * frame as the card opens/expands/collapses.
+ * 0 when closed. Published by `StationTransitCard` via a ResizeObserver.
  */
 export const stationCardInsetPx = atom<number>(0);
 

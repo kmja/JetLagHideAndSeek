@@ -7,7 +7,7 @@ import {
     isLoading,
 } from "@/lib/context";
 import { transitRoutesLoading } from "@/lib/gameSetup";
-import { hiderReachLoading, travelTimesLoading } from "@/lib/journey/state";
+import { hiderReachLoading } from "@/lib/journey/state";
 import { cn } from "@/lib/utils";
 
 /**
@@ -33,7 +33,6 @@ export function MapOverlayLoadingToasts() {
     const $rendering = useStore(hidingZonesRendering);
     const $displayHidingZones = useStore(displayHidingZones);
     const hiderZones = useStore(hiderReachLoading);
-    const travel = useStore(travelTimesLoading);
     const transit = useStore(transitRoutesLoading);
 
     // Gate the seeker flag on the toggle: its compute isn't abortable, so
@@ -45,7 +44,6 @@ export function MapOverlayLoadingToasts() {
     const anyTransit = Object.values(transit).some(Boolean);
     const items: string[] = [];
     if (seekerZones || hiderZones) items.push("Loading hiding zones…");
-    if (travel) items.push("Loading travel times…");
     if (anyTransit) items.push("Loading transit lines…");
 
     if (items.length === 0) return null;

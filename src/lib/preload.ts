@@ -6,10 +6,7 @@ import {
     polyGeoJSONHydrated,
 } from "@/lib/context";
 import { devLog } from "@/lib/devLog";
-import {
-    allowedTransit,
-    gameStartPosition,
-} from "@/lib/gameSetup";
+import { allowedTransit } from "@/lib/gameSetup";
 import {
     gameSize,
     HIDING_PERIOD_MINUTES,
@@ -25,9 +22,7 @@ import {
     preloadTransitProgress,
     type TransitPreloadStep,
 } from "@/lib/gameSetup";
-import { activeJourneyProvider } from "@/lib/journey/registry";
 import { requestStationWarmAll } from "@/lib/journey/stations";
-import type { JourneyStop } from "@/lib/journey/types";
 import {
     clearTilePack,
     loadTilePackForPlayArea,
@@ -594,117 +589,6 @@ function runTransitPreload(): void {
         });
         preloadTransitProgress.set(null);
     })();
-
-    // Transit arrival times — the Travel Times overlay. We can't fire
-    // this synchronously because it needs (a) the station list, which
-    // gets warmed by the references bucket, and (b) the seeker's GPS,
-    // which GameStartWatcher captures asynchronously a fraction of a
-    // second after this function runs. So spin up a one-shot
-    // scheduler that polls both inputs and fires the fetch the moment
-    // they're both ready. Caches in the journey worker's R2 (per-stop,
-    // per 5-min depart bucket) so toggling the overlay on mid-game is
-    // instant.
-    scheduleTransitPreload();
-}
-
-let transitScheduled = false;
-
-function scheduleTransitPreload(): void {
-    if (transitScheduled) return;
-    transitScheduled = true;
-
-    const startedAt = Date.now();
-    const TIMEOUT_MS = 60_000; // give the rail-station prefetch + GPS up to a minute
-
-    const tick = () => {
-        if (Date.now() - startedAt > TIMEOUT_MS) {
-            transitScheduled = false;
-            return;
-        }
-
-        const provider = activeJourneyProvider();
-        if (!provider) {
-            // No journey provider configured — nothing to warm.
-            transitScheduled = false;
-            return;
-        }
-
-        const startPos = gameStartPosition.get();
-        const endsAt = hidingPeriodEndsAt.get();
-        if (!startPos || !endsAt) {
-            window.setTimeout(tick, 1000);
-            return;
-        }
-
-        const stations = stationStopsFromCache();
-        if (stations.length === 0) {
-            // Either the rail-station prefetch hasn't landed yet or
-            // it failed. Nudge a per-family retry once and re-poll.
-            void prefetchCategory("rail-station").catch(() => {});
-            window.setTimeout(tick, 1000);
-            return;
-        }
-
-        const size = gameSize.get();
-        const hidingStartAt = endsAt - HIDING_PERIOD_MINUTES[size] * 60_000;
-        const anchor = {
-            lat: startPos.lat,
-            lng: startPos.lng,
-            departAt: hidingStartAt,
-        };
-
-        console.debug(
-            `[preload] warming transit arrivals for ${stations.length} stations`,
-        );
-        // Surface "Arrivals…" in the bucket UI for the duration of
-        // this last warm-up pass. The transit bucket's main fetch
-        // promise has already settled by this point, but the
-        // top-level inFlight stays true while arrivals are
-        // outstanding — see preloadDuringHidingPeriod's wait wiring.
-        const curr = preloadTransitProgress.get();
-        if (curr) {
-            preloadTransitProgress.set({
-                ...curr,
-                active: [...curr.active, "arrivals"],
-                total: curr.total + 1,
-            });
-        }
-        provider
-            .fetchArrivals(anchor, stations)
-            .catch(() => {
-                /* journey proxy failure is fine — the overlay's
-                   own fetch will retry on demand */
-            })
-            .finally(() => {
-                transitScheduled = false;
-                const c = preloadTransitProgress.get();
-                if (c) {
-                    preloadTransitProgress.set({
-                        ...c,
-                        active: c.active.filter((s) => s !== "arrivals"),
-                        done: [...c.done, "arrivals"],
-                    });
-                }
-            });
-    };
-
-    tick();
-}
-
-/** Lift the warmed `rail-station` cache into the `JourneyStop` shape
- *  the journey provider expects. The id is just the rounded lat,lng
- *  pair — the journey worker's R2 cache keys on rounded coords so
- *  there's no station-id mismatch between the preload and the
- *  on-toggle overlay fetch. */
-function stationStopsFromCache(): JourneyStop[] {
-    const features = getCachedCategory("rail-station");
-    if (!features) return [];
-    return features.map((f) => ({
-        id: `${f.lat.toFixed(5)},${f.lng.toFixed(5)}`,
-        name: f.name,
-        lat: f.lat,
-        lng: f.lng,
-    }));
 }
 
 /** Backwards-compatible alias for the old export name. */

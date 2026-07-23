@@ -69,7 +69,7 @@ import {
 import { satelliteView } from "@/lib/gameSetup";
 import { stationLabelMaxChars } from "@/lib/debugState";
 import { playerRole, roundFoundAt } from "@/lib/hiderRole";
-import { selectedMapStation, travelTimesFC } from "@/lib/journey/state";
+import { selectedMapStation } from "@/lib/journey/state";
 import { findZoneAtPoint } from "@/lib/journey/stations";
 import { shortenStationLabel } from "@/lib/stationLabel";
 import { decodeStationModes } from "@/lib/stationModes";
@@ -89,7 +89,6 @@ import {
     candidateZoneLinePaint,
     CANDIDATE_ZONE_HIT_PAINT,
     CANDIDATE_ZONE_LABEL_LAYOUT,
-    mapLabelColors,
     SELECTED_ZONE_DOT_PAINT,
     SELECTED_ZONE_FILL_PAINT,
     SELECTED_ZONE_LINE_PAINT,
@@ -233,8 +232,6 @@ const STATION_TAP_LAYERS = [
     // through `findZoneAtPoint` (the containment resolver) instead of the
     // polygon centroid — see `handleStationTap`.
     "hiding-zones-fill",
-    "travel-times-dot",
-    "travel-times-labels",
 ];
 /** Layer ids whose tap resolves DIRECTLY to a station (a dot / label). A hit
  *  on the unioned zone FILL is NOT one of these — it falls through to the
@@ -242,8 +239,6 @@ const STATION_TAP_LAYERS = [
 const DIRECT_STATION_TAP_LAYERS = new Set([
     "hiding-zones-hit",
     "hiding-zones-points",
-    "travel-times-dot",
-    "travel-times-labels",
 ]);
 
 /** Resolve the tapped overlay feature to a station `{ lat, lng, name }`.
@@ -392,7 +387,6 @@ export function Map({ className }: MapProps) {
     const $selectedStation = useStore(selectedMapStation);
     const $hidingRadius = useStore(hidingRadius);
     const $hidingRadiusUnits = useStore(hidingRadiusUnits);
-    const $travelTimes = useStore(travelTimesFC);
     // GPS-sharing status chip (v834): seeker only, multiplayer, not yet
     // found — moved off the manually-reopened lobby onto the map.
     const $mpEnabled = useStore(multiplayerEnabled);
@@ -2112,15 +2106,11 @@ export function Map({ className }: MapProps) {
     const eliminationFillOpacity = $theme === "dark" ? 0.75 : 0.45;
     const eliminationOutlineOpacity = $theme === "dark" ? 0.85 : 0.55;
 
-    // Map-label contrast (v622). Station name / arrival labels sit ON the
-    // basemap, so they follow the BASEMAP's brightness, not the UI theme:
-    // white-on-dark works over satellite imagery and the dark Protomaps
-    // flavor, but on the LIGHT basemap the white fill washed out (only the
-    // thin halo read). So invert to dark text + light halo whenever the
-    // basemap is light (light theme AND satellite off).
+    // Map-label contrast (v622): station-name labels follow the BASEMAP
+    // brightness (see `candidateZoneLabelPaint` → `mapLabelColors`), not the UI
+    // theme — white-on-dark over satellite / dark Protomaps, dark text + light
+    // halo on the light basemap.
     const darkBasemap = $satellite || $theme === "dark";
-    const { color: mapLabelColor, halo: mapLabelHalo } =
-        mapLabelColors(darkBasemap);
 
     return (
         <div className={cn("relative w-full h-screen", className)}>
@@ -2434,94 +2424,6 @@ export function Map({ className }: MapProps) {
                         />
                     </Source>
                 )}
-
-                {/* Travel-times overlay — populated by
-                    TravelTimesOverlay (mounted as a sibling in
-                    SeekerPage) from journey-planner API
-                    responses. Symbol layer with a text-field
-                    bound to the per-feature arrivalLabel ("HH:MM"
-                    or empty when unknown). Color flips to a
-                    warning red when the arrival is in the past
-                    relative to now — i.e. the hider could already
-                    be standing at that stop. */}
-                <FadeOverlay
-                    active={Boolean(
-                        $travelTimes && $travelTimes.features.length > 0,
-                    )}
-                    data={
-                        $travelTimes && $travelTimes.features.length > 0
-                            ? $travelTimes
-                            : null
-                    }
-                >
-                    {(data, shown) => (
-                        <Source
-                            id="travel-times"
-                            type="geojson"
-                            data={data}
-                        >
-                            {/* Reachability dot — green = the hider could be
-                                here, red = rule this zone out, neutral grey
-                                while the journey-arrivals API is still
-                                resolving. Drawn above the hiding-zones-points
-                                dot so this verdict overrides it visually. */}
-                            <Layer
-                                id="travel-times-dot"
-                                type="circle"
-                                paint={fadePaint({
-                                    "circle-radius": 6,
-                                    "circle-color": [
-                                        "case",
-                                        ["==", ["get", "pending"], true],
-                                        "hsl(220, 10%, 70%)",
-                                        ["==", ["get", "reachable"], true],
-                                        "hsl(142, 70%, 45%)",
-                                        "hsl(0, 75%, 55%)",
-                                    ],
-                                    "circle-stroke-color": "white",
-                                    "circle-stroke-width": 1.5,
-                                    "circle-opacity": shown
-                                        ? [
-                                              "case",
-                                              ["==", ["get", "pending"], true],
-                                              0.55,
-                                              0.95,
-                                          ]
-                                        : 0,
-                                    "circle-stroke-opacity": shown ? 1 : 0,
-                                    "circle-opacity-transition": {
-                                        duration: 280,
-                                    },
-                                    "circle-stroke-opacity-transition": {
-                                        duration: 280,
-                                    },
-                                })}
-                            />
-                            <Layer
-                                id="travel-times-labels"
-                                type="symbol"
-                                layout={{
-                                    "text-field": ["get", "arrivalLabel"],
-                                    "text-size": 12,
-                                    "text-font": ["Noto Sans Regular"],
-                                    "text-anchor": "left",
-                                    "text-offset": [0.8, 0],
-                                    "text-allow-overlap": false,
-                                    "text-ignore-placement": false,
-                                }}
-                                paint={fadePaint({
-                                    "text-color": mapLabelColor,
-                                    "text-halo-color": mapLabelHalo,
-                                    "text-halo-width": 1.5,
-                                    "text-opacity": shown ? 1 : 0,
-                                    "text-opacity-transition": {
-                                        duration: 280,
-                                    },
-                                })}
-                            />
-                        </Source>
-                    )}
-                </FadeOverlay>
 
                 {/* Play-area boundary stroke. */}
                 {(() => {

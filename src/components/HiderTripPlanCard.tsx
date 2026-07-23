@@ -109,11 +109,9 @@ export function HiderTripPlanCard() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [$zone?.stationLat, $zone?.stationLng, $allowed, nonce, hasGps]);
 
-    // NOTE: the map route overlay is owned by the PERSISTENT `HiderZoneRoute`
-    // (mounted on HiderPage), NOT here — this card lives in the Zone drawer,
-    // which vaul unmounts on close, so owning the route here made it vanish
-    // the moment the drawer closed (v774). This card just renders the
-    // JourneyCard detail; the route stays on the map regardless.
+    // v1127: the planned trip is no longer drawn on the map (the route was
+    // just straight lines between stations, which didn't add much). This card
+    // renders only the JourneyCard trip detail.
 
     if (!$zone) return null;
 

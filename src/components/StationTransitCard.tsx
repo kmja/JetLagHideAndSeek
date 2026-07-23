@@ -73,11 +73,7 @@ function modeIconFor(modes?: string[]): LucideIcon {
  *
  * Identical for both roles — the seeker uses it to plan a route TO a
  * candidate hiding zone from where they're standing now; the hider
- * uses it while exploring where to hide. Whether the *hider* could
- * have reached a station in time is the colored-dots overlay's job
- * (TravelTimesOverlay on the seeker map), not this card's — keeping
- * them separate avoids conflating "could the hider have made it" with
- * "how do I, the seeker, get there now".
+ * uses it while exploring where to hide.
  */
 export function StationTransitCard({
     allowEndgame = false,
