@@ -477,6 +477,19 @@ build stamp. Current: `v1069`. Use `git log` for the per-version detail;
 - **NEXT: a SINGLE station producer shared by seeker + hider** (shipped in
   v1115 below).
 
+**v1129 — two transit-line questions collided on the elimination memo cache
+(same cut twice).** Asking the transit-line question again for a DIFFERENT line
+(or direction) produced the IDENTICAL elimination — the questions-log outcome
+picture matched and no new area was cut on the map. Root cause:
+`determineMatchingBoundary` is `lodash.memoize`d and `matchingBoundaryMemoKey`
+(`matching.ts`) keyed on `{type, lat, lng, cat, geo, silent, entirety}` but NOT
+the picked `transitRoute` — so two `same-train-line` questions with the same
+seeker GPS + play area hashed to the SAME key and the second reused the first
+line's boundary (the union of the FIRST route's station hiding zones). Added
+`route: question.transitRoute` to the key (undefined for every non-train-line
+type, so their keys are unchanged). Each transit-line question now computes its
+own boundary in both the main-map elimination and the outcome-map thumbnail.
+
 **v1128 — transit-line question polish + elimination smoothness + toaster
 removal.**
 - **Transit-line elimination is no longer low-poly.** The eliminated area DOES

@@ -1030,6 +1030,15 @@ function matchingBoundaryMemoKey(
         lng: question.lng,
         cat: question.cat,
         geo: question.geo,
+        // v1129: the same-train-line boundary is the union of the PICKED
+        // route's selected-stop hiding zones — so the route MUST be in the key.
+        // Without it, two different transit-line questions (same type + same
+        // seeker GPS + same play area) collided on the memo cache and the second
+        // reused the FIRST line's boundary → identical elimination + no new cut
+        // (the reported "asked a different line/direction but got the same
+        // elimination twice"). undefined for every non-train-line type, so it
+        // doesn't change their keys.
+        route: (question as { transitRoute?: unknown }).transitRoute,
         // v879: same-length-station is now BINARY — its boundary (stations of
         // equal name length) is answer-independent, so `lengthComparison` no
         // longer belongs in the key; `adjustPerMatching` handles the yes/no.
