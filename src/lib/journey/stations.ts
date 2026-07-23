@@ -437,6 +437,34 @@ export async function fetchPrewarmedRailStationElements(): Promise<
     });
 }
 
+/**
+ * The NARROW `railway=station` nodes from the prewarmed all-mode station union
+ * (multi-region-aware — fans over the primary + every added adjacent relation,
+ * Overpass-free for a warm city). This is the set the MATCHING station-property
+ * questions grade against (`matchingStationBoundary` — same-length /
+ * same-first-letter / same-train-line's station lookup; v977 keeps them on the
+ * narrow `[railway=station]` set, distinct from the broad rail set the MEASURING
+ * rail question uses). v1130: routing these through the prewarmed union fixes
+ * the "Could not load data from Overpass" failure when the play area has added
+ * adjacents — the old `findPlacesInZone("[railway=station]")` built a combined
+ * multi-region poly query that isn't prewarmed → live Overpass → rate-limited.
+ * Returns null on a cold miss so the caller can fall back to the live query.
+ */
+export async function fetchPrewarmedStationNodes(): Promise<
+    | {
+          id: number;
+          lat?: number;
+          lon?: number;
+          center?: { lat?: number; lon?: number };
+          tags?: Record<string, string>;
+      }[]
+    | null
+> {
+    const union = await fetchPrewarmedStationsUnion();
+    if (!union) return null;
+    return union.filter((el) => el.tags?.railway === "station");
+}
+
 /** Relation ids we've asked the worker to warm this session, so a warm
  *  fires once per relation, not on every fetch. */
 const stationWarmRequested = new Set<number>();

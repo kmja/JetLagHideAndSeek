@@ -27,25 +27,48 @@ const STAR_PURPLE = "#6b3f7a"; // the show's mid purple
 const STAR_EDGE = "#a7d3e0"; // light-blue wiggly edge
 const SQUIGGLE = "#232a4d"; // dark navy squiggles
 
-/** A near-circular blob whose edge gently UNDULATES — a wavy-edged disc, NOT a
- *  pointy star (the old deep 5-point star read as a starfish). Many shallow
- *  lobes around the perimeter give a soft wavy outline; the water-distortion
- *  filter (`curseStarWater`) then wobbles it organically on top. 0..200 viewBox. */
-function useWavyBlobPath(): string {
+/** A five-pointed STAR with WAVY edges (v1129) — the clear five-point star shape
+ *  (plump, inner/outer ≈ 0.5, NOT the v1109 spiky "starfish"), but each straight
+ *  edge between the points UNDULATES in/out with a gentle wave. The wave is
+ *  TAPERED to zero at every vertex (`sin(t·π)`) so the 5 points + valleys stay
+ *  crisp while the edges ripple. The `curseStarWater` filter adds more organic
+ *  wobble on top. 0..200 viewBox. */
+function useWavyStarPath(): string {
     return useMemo(() => {
         const cx = 100;
         const cy = 100;
-        const baseR = 88; // fills the frame like the old star's points did
-        const amp = 7; // wave depth — shallow, so it stays a disc not a star
-        const lobes = 14; // many shallow waves around the edge
-        const steps = 160; // smooth polyline
+        const outerR = 92; // points reach the frame edge
+        const innerR = 46; // ratio ~0.5 — a plump star, not a spiky starfish
+        const points = 5;
+        // The 10 crisp star vertices (alternating outer point / inner valley).
+        const verts: [number, number][] = [];
+        for (let i = 0; i < points * 2; i++) {
+            const r = i % 2 === 0 ? outerR : innerR;
+            const a = (i / (points * 2)) * Math.PI * 2 - Math.PI / 2;
+            verts.push([cx + Math.cos(a) * r, cy + Math.sin(a) * r]);
+        }
+        // Replace each straight edge with a wavy polyline: offset perpendicular
+        // to the edge by a sine wave, tapered to 0 at both endpoints.
+        const segsPerEdge = 16;
+        const amp = 5; // wave depth
+        const waves = 2; // full in/out ripples along each edge
         const pts: string[] = [];
-        for (let i = 0; i < steps; i++) {
-            const a = (i / steps) * Math.PI * 2 - Math.PI / 2;
-            const r = baseR + amp * Math.sin(a * lobes);
-            const x = cx + Math.cos(a) * r;
-            const y = cy + Math.sin(a) * r;
-            pts.push(`${x.toFixed(1)},${y.toFixed(1)}`);
+        for (let i = 0; i < verts.length; i++) {
+            const [x0, y0] = verts[i];
+            const [x1, y1] = verts[(i + 1) % verts.length];
+            const dx = x1 - x0;
+            const dy = y1 - y0;
+            const len = Math.hypot(dx, dy) || 1;
+            const nx = -dy / len; // perpendicular (unit)
+            const ny = dx / len;
+            for (let s = 0; s < segsPerEdge; s++) {
+                const t = s / segsPerEdge;
+                const taper = Math.sin(t * Math.PI); // 0 at both vertices
+                const off = Math.sin(t * Math.PI * waves) * amp * taper;
+                const x = x0 + dx * t + nx * off;
+                const y = y0 + dy * t + ny * off;
+                pts.push(`${x.toFixed(1)},${y.toFixed(1)}`);
+            }
         }
         return `M ${pts.join(" L ")} Z`;
     }, []);
@@ -97,7 +120,7 @@ export function CurseRevealOverlay() {
     const received = useStore(curseReveal);
     const $gameSize = useStore(gameSize);
 
-    const starPath = useWavyBlobPath();
+    const starPath = useWavyStarPath();
     // Squiggles in GROUPS OF THREE — smooth navy "snakes" that UNDULATE (sine)
     // as they radiate outward, drawn ON TOP of the star. Each group is three
     // PARALLEL snakes (same angle + phase, shifted sideways −s/0/+s), so they

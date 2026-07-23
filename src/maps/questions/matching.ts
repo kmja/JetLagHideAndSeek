@@ -31,6 +31,10 @@ import {
     trainLineNodeFinder,
 } from "@/maps/api";
 import { hidingZone } from "@/lib/hiderRole";
+import {
+    fetchPrewarmedStationNodes,
+    requestStationWarmAll,
+} from "@/lib/journey/stations";
 import { landFromWater } from "@/lib/geometry/client";
 import {
     getDissolvedBasemapWater,
@@ -293,6 +297,44 @@ function stationIsRouteStop(
 }
 
 /**
+ * The narrow `railway=station` node set the station-property matching questions
+ * key on, as a `FeatureCollection<Point>` (name tags in `properties`). v1130:
+ * prefer the PREWARMED station union (multi-region-aware, Overpass-free for a
+ * warm city) so a play area with added adjacents doesn't fire a live combined
+ * poly query that gets rate-limited (the reported "Could not load data from
+ * Overpass" on the station-length question). Falls back to the live query on a
+ * cold miss (firing a background warm so the next ask is served from R2).
+ */
+async function stationBoundaryNodesFC(): Promise<FeatureCollection<Point>> {
+    const nodes = await fetchPrewarmedStationNodes();
+    if (nodes && nodes.length > 0) {
+        const features = nodes
+            .map((el) => {
+                const lat = el.lat ?? el.center?.lat;
+                const lon = el.lon ?? el.center?.lon;
+                if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+                return {
+                    type: "Feature",
+                    geometry: {
+                        type: "Point",
+                        coordinates: [lon as number, lat as number],
+                    },
+                    properties: el.tags ?? {},
+                } as Feature<Point>;
+            })
+            .filter((f): f is Feature<Point> => f !== null);
+        if (features.length > 0) {
+            return { type: "FeatureCollection", features };
+        }
+    }
+    // Cold miss → live poly query; warm the prewarm for next time.
+    requestStationWarmAll();
+    return osmtogeojson(
+        await findPlacesInZone("[railway=station]", undefined, "node"),
+    ) as FeatureCollection<Point>;
+}
+
+/**
  * Seeker-side elimination for the three station-property matching types
  * (v625): "same train line", "same first letter", "same station-name
  * length". The region is the union of the Voronoi cells of every station
@@ -340,9 +382,7 @@ async function matchingStationBoundary(
         ) as Feature<Polygon | MultiPolygon>;
     }
 
-    const stations = osmtogeojson(
-        await findPlacesInZone("[railway=station]", undefined, "node"),
-    ) as FeatureCollection<Point>;
+    const stations = await stationBoundaryNodesFC();
     if (stations.features.length === 0) return false;
 
     const seekerPoint = turf.point([question.lng, question.lat]);
@@ -422,9 +462,7 @@ export async function trainLineForPoint(
     lng: number,
 ): Promise<GeoJSON.Feature[]> {
     try {
-        const stations = osmtogeojson(
-            await findPlacesInZone("[railway=station]", undefined, "node"),
-        ) as FeatureCollection<Point>;
+        const stations = await stationBoundaryNodesFC();
         if (stations.features.length === 0) return [];
         const nearest = turf.nearestPoint(turf.point([lng, lat]), stations);
         const id = nearest.properties?.id as string | undefined;
@@ -1231,14 +1269,7 @@ export const hiderifyMatching = async (question: MatchingQuestion) => {
         ]);
         const seekerPoint = turf.point([question.lng, question.lat]);
 
-        const places = osmtogeojson(
-            await findPlacesInZone(
-                "[railway=station]",
-                // No loadingText — picker has its own progress UI.
-                undefined,
-                "node",
-            ),
-        ) as FeatureCollection<Point>;
+        const places = await stationBoundaryNodesFC();
 
         const nearestHiderTrainStation = turf.nearestPoint(hiderPoint, places);
         const nearestSeekerTrainStation = turf.nearestPoint(

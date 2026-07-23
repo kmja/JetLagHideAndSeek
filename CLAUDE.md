@@ -477,6 +477,25 @@ build stamp. Current: `v1069`. Use `git log` for the per-version detail;
 - **NEXT: a SINGLE station producer shared by seeker + hider** (shipped in
   v1115 below).
 
+**v1130 — curse-reveal star back (wavy-edged) + station-property matching
+questions go Overpass-free (added-adjacents rate-limit fix).**
+- **Curse-reveal shape is a FIVE-POINTED STAR again** (`CurseRevealOverlay`),
+  with WAVY edges. The v1114 wavy-blob read as a plain circle; this is a clean
+  plump star (inner/outer ≈ 0.5, not the v1109 spiky starfish) whose straight
+  edges undulate in/out, TAPERED to zero at each vertex so the 5 points stay
+  crisp. `useStarPath`/`useWavyBlobPath` → `useWavyStarPath`; the `curseStarWater`
+  filter still adds organic wobble.
+- **Station-property matching questions** (same-length / same-first-letter /
+  same-train-line's station lookup) fired a LIVE `findPlacesInZone("[railway=station]")`
+  poly query — which, for a play area with added adjacents, isn't prewarmed →
+  live Overpass → rate-limited (the reported "Could not load data from Overpass"
+  on the station-length question in NYC-plus-adjacents). New
+  `fetchPrewarmedStationNodes()` (`journey/stations.ts`) filters the prewarmed
+  all-mode station union (multi-region-aware, Overpass-free) to the narrow
+  `railway=station` set; `matching.ts` `stationBoundaryNodesFC()` reads it at all
+  three call sites (seeker boundary, train-line preview, hider grade), falling
+  back to the live query + a background warm only on a cold miss.
+
 **v1129 — two transit-line questions collided on the elimination memo cache
 (same cut twice).** Asking the transit-line question again for a DIFFERENT line
 (or direction) produced the IDENTICAL elimination — the questions-log outcome
