@@ -11,6 +11,7 @@ import {
 import { QRCodeSVG } from "qrcode.react";
 import { useMemo, useState } from "react";
 import { toast } from "react-toastify";
+import { COPY_FAILED, SHARE_FAILED } from "@/lib/toastMessages";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -76,7 +77,7 @@ export function InvitePanel() {
             await navigator.clipboard.writeText($code);
             toast.success(`Code "${$code}" copied.`, { autoClose: 1500 });
         } catch {
-            toast.error("Couldn't copy the code.");
+            toast.error(COPY_FAILED);
         }
     };
 
@@ -101,7 +102,7 @@ export function InvitePanel() {
             await navigator.clipboard.writeText(`${text}\n${shareUrl}`);
             toast.success("Invite copied to clipboard.", { autoClose: 1500 });
         } catch {
-            toast.error("Couldn't share the invite.");
+            toast.error(SHARE_FAILED);
         }
     };
 

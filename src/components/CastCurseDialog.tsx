@@ -19,6 +19,7 @@ import { SkullCrossbones } from "@/components/icons/gameIcons";
 import type { ComponentType, CSSProperties } from "react";
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "react-toastify";
+import { SHARE_FAILED } from "@/lib/toastMessages";
 
 import { renderBodyText } from "@/components/CardTile";
 import { PhotoCensorDialog } from "@/components/PhotoCensorDialog";
@@ -969,7 +970,7 @@ export function CastCurseDialog({
                 onOpenChange(false);
             } else if (result.method === "failed") {
                 toast.error(
-                    "Could not share the curse — use Copy link below or tap to retry.",
+                    SHARE_FAILED,
                 );
             }
             // "cancelled" → leave the dialog open so the hider can

@@ -1,4 +1,5 @@
 import { toast } from "react-toastify";
+import { SHARE_FAILED } from "@/lib/toastMessages";
 
 import {
     curseCostRequiresDestination,
@@ -132,6 +133,6 @@ export async function performNoActionCurseCast(
         });
         return true;
     }
-    toast.error("Could not share the curse — try again.");
+    toast.error(SHARE_FAILED);
     return false;
 }

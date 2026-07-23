@@ -9,6 +9,7 @@ import { SidebarCloseIcon } from "lucide-react";
 import osmtogeojson from "osmtogeojson";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "react-toastify";
+import { NO_ENGLISH_NAME } from "@/lib/toastMessages";
 import { Drawer as VaulDrawer } from "vaul";
 
 import {
@@ -388,7 +389,7 @@ export const ZoneSidebar = () => {
                     const englishName = extractStationName(nearestTrainStation);
 
                     if (!englishName)
-                        return toast.error("No English name found");
+                        return toast.error(NO_ENGLISH_NAME);
 
                     if (question.data.type === "same-first-letter-station") {
                         const letter = englishName[0].toUpperCase();

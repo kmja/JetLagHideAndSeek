@@ -1,4 +1,5 @@
 import { toast } from "react-toastify";
+import { COPY_FAILED, SHARE_FAILED } from "@/lib/toastMessages";
 
 import { encodeFoundLink, shareOrCopy } from "@/lib/shareLinks";
 
@@ -18,7 +19,7 @@ export async function shareFoundLink(foundAt: number): Promise<void> {
     if (result.method === "copy") {
         toast.success("Round-ended link copied", { autoClose: 1500 });
     } else if (result.method === "failed") {
-        toast.error("Could not share the round-end link");
+        toast.error(SHARE_FAILED);
     }
 }
 
@@ -34,6 +35,6 @@ export async function copyFoundLink(foundAt: number): Promise<void> {
         await navigator.clipboard.writeText(url);
         toast.success("Round-ended link copied", { autoClose: 1500 });
     } catch {
-        toast.error("Could not copy the round-end link");
+        toast.error(COPY_FAILED);
     }
 }

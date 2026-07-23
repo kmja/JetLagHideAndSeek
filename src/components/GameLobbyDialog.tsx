@@ -19,6 +19,7 @@ import { useNow } from "@/hooks/useNow";
 import { QRCodeSVG } from "qrcode.react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "react-toastify";
+import { COPY_FAILED } from "@/lib/toastMessages";
 import { Drawer as VaulDrawer } from "vaul";
 
 import { rankBadgeBg } from "@/components/LeaderboardRankBadge";
@@ -543,7 +544,7 @@ export function GameLobbyDialog() {
             toast.success("Invite link copied.", { autoClose: 1500 });
             setTimeout(() => setCopied(false), 1500);
         } catch {
-            toast.error("Couldn't copy. Long-press the link instead.");
+            toast.error(COPY_FAILED);
         }
     };
     const handleShare = async () => {

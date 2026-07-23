@@ -477,6 +477,21 @@ build stamp. Current: `v1069`. Use `git log` for the per-version detail;
 - **NEXT: a SINGLE station producer shared by seeker + hider** (shipped in
   v1115 below).
 
+**v1135 — toast-message consolidation (fewer, plainer error toasts).** ~20
+near-duplicate copy/share/data-load error strings that had accreted across the
+app collapse into a handful of canonical messages in `src/lib/toastMessages.ts`
+(`DATA_LOAD_ERROR`, `COPY_FAILED`, `SHARE_FAILED`, `NO_ENGLISH_NAME`,
+`NO_PRESET_ON_CLIPBOARD`), imported at each call site so the wording lives in one
+place. The technical Overpass wording ("all mirrors timed out or rate-limited")
+is gone — every data-load failure (the central `getOverpassData` toast, the
+play-area boundary fetch, the hiding-zones overlay) now shows the plain
+"Couldn't load map data right now. Please wait a moment and try again." The 15
+copy/share variants collapse to two (`COPY_FAILED` / `SHARE_FAILED`); the three
+"No English name" duplicates and three clipboard-read-preset errors each collapse
+to one. Deduping `toastId`s (e.g. `overpass-error`, `hider-reach-failed`) are
+preserved. Overpass-adjacent but already-friendly messages (transit route/stop
+loads, the manual-copy fallback that shows the actual URL) were left as-is.
+
 **v1134 — same-street matches only the CONTIGUOUS street, not every same-named
 way citywide.** Rulebook p18: "A street or path is considered to have ended when
 it acquires a different name" — so a street is a CONTIGUOUS run of same-named

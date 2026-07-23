@@ -1,6 +1,7 @@
 import { useStore } from "@nanostores/react";
 import { useEffect, useMemo, useRef } from "react";
 import { toast } from "react-toastify";
+import { DATA_LOAD_ERROR } from "@/lib/toastMessages";
 
 import {
     additionalMapGeoLocations,
@@ -148,7 +149,7 @@ export function usePlayAreaBoundary(): void {
                 const hadFeatures = Boolean(boundary?.features?.length);
                 if (!hadFeatures && !cancelled) {
                     toast.error(
-                        "Couldn't load the play-area boundary. The mirrors are busy — try again in a minute.",
+                        DATA_LOAD_ERROR,
                         { toastId: "boundary-load-error" },
                     );
                 }

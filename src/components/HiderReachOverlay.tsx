@@ -1,6 +1,7 @@
 import { useStore } from "@nanostores/react";
 import { useEffect, useRef } from "react";
 import { toast } from "react-toastify";
+import { DATA_LOAD_ERROR } from "@/lib/toastMessages";
 
 import { pointInPlayArea } from "@/maps/geo-utils/playAreaIndex";
 
@@ -153,7 +154,7 @@ export function HiderReachOverlay() {
                 if (!cancelled) {
                     turnOff();
                     toast.error(
-                        "Couldn't load hiding zones — the map data service timed out or is rate-limited. Turn the overlay back on to retry.",
+                        DATA_LOAD_ERROR,
                         { toastId: "hider-reach-failed" },
                     );
                 }

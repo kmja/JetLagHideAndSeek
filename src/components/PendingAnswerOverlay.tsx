@@ -3,6 +3,7 @@ import { Dices, RefreshCw, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { toast } from "react-toastify";
+import { COPY_FAILED } from "@/lib/toastMessages";
 
 import { useNow } from "@/hooks/useNow";
 import {
@@ -299,7 +300,7 @@ export function PendingAnswerOverlay({
                 autoClose: 2500,
             });
         } catch {
-            toast.error("Couldn't copy the question link.");
+            toast.error(COPY_FAILED);
         }
     };
 

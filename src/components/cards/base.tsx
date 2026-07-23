@@ -2,6 +2,7 @@ import { useStore } from "@nanostores/react";
 import { ChevronDown, Copy, Share2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "react-toastify";
+import { COPY_FAILED, SHARE_FAILED } from "@/lib/toastMessages";
 
 import { QuestionOutcomeMap } from "@/components/QuestionOutcomeMap";
 import {
@@ -513,7 +514,7 @@ function ShareQuestionRow({ question }: { question: Question }) {
         if (result.method === "copy") {
             toast.success("Question link copied", { autoClose: 1500 });
         } else if (result.method === "failed") {
-            toast.error("Could not share question link");
+            toast.error(SHARE_FAILED);
         }
     };
 
@@ -524,7 +525,7 @@ function ShareQuestionRow({ question }: { question: Question }) {
             stampSent();
             toast.success("Question link copied", { autoClose: 1500 });
         } catch {
-            toast.error("Could not copy");
+            toast.error(COPY_FAILED);
         }
     };
 

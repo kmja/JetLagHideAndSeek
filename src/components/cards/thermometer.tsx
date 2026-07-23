@@ -3,6 +3,7 @@ import { distance, point } from "@turf/turf";
 import { Copy, Flag, Share2, Thermometer as ThermIcon } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "react-toastify";
+import { COPY_FAILED, SHARE_FAILED } from "@/lib/toastMessages";
 
 import { LatitudeLongitude } from "@/components/LatLngPicker";
 import { Button } from "@/components/ui/button";
@@ -557,7 +558,7 @@ function ThermometerShareRow({
             }
         } catch (err) {
             if (err instanceof Error && err.name === "AbortError") return;
-            toast.error("Could not share");
+            toast.error(SHARE_FAILED);
         }
     };
 
@@ -567,7 +568,7 @@ function ThermometerShareRow({
             onShared?.();
             toast.success(`${label} copied`, { autoClose: 1500 });
         } catch {
-            toast.error("Could not copy");
+            toast.error(COPY_FAILED);
         }
     };
 

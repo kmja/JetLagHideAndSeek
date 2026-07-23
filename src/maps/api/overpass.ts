@@ -13,6 +13,7 @@ import { devLog, devWarn } from "@/lib/devLog";
 import { combineBoundary } from "@/lib/geometry/client";
 import { playArea } from "@/lib/gameSetup";
 import { playAreaRelationIdsAll } from "@/lib/playAreaRelations";
+import { DATA_LOAD_ERROR } from "@/lib/toastMessages";
 import {
     finishLoading,
     setPhase,
@@ -355,10 +356,7 @@ export const getOverpassData = async (
     // this apart from a query that legitimately matched zero elements.
     _overpassFailureCount++;
     if (!silent) {
-        toast.error(
-            "Could not load data from Overpass (all mirrors timed out or rate-limited). Try again in a minute.",
-            { toastId: "overpass-error" },
-        );
+        toast.error(DATA_LOAD_ERROR, { toastId: "overpass-error" });
     }
     return { elements: [] };
 };

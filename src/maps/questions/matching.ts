@@ -10,6 +10,7 @@ import memoize from "lodash/memoize";
 import uniqBy from "lodash/uniqBy";
 import osmtogeojson from "osmtogeojson";
 import { toast } from "react-toastify";
+import { NO_ENGLISH_NAME } from "@/lib/toastMessages";
 
 import {
     hiderMode,
@@ -644,8 +645,8 @@ export const determineMatchingBoundary = memoize(
                         englishName = name;
                     } else {
                         if (silent) return undefined;
-                        toast.error("No English name found for this zone");
-                        throw new Error("No English name");
+                        toast.error(NO_ENGLISH_NAME);
+                        throw new Error(NO_ENGLISH_NAME);
                     }
                 }
 

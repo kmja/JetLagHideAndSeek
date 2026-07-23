@@ -1,6 +1,7 @@
 import { useStore } from "@nanostores/react";
 import * as React from "react";
 import { toast } from "react-toastify";
+import { COPY_FAILED, NO_PRESET_ON_CLIPBOARD } from "@/lib/toastMessages";
 
 import { Button } from "@/components/ui/button";
 import { appConfirm, appPrompt } from "@/lib/confirm";
@@ -89,7 +90,7 @@ const CustomPresets: React.FC<Props> = ({ data, presetTypeHint }) => {
             await navigator.clipboard.writeText(JSON.stringify(payload));
             toast.success("Preset JSON copied to clipboard");
         } catch {
-            toast.error("Could not copy to clipboard");
+            toast.error(COPY_FAILED);
         }
     };
 
@@ -97,12 +98,12 @@ const CustomPresets: React.FC<Props> = ({ data, presetTypeHint }) => {
         try {
             const text = await navigator.clipboard.readText();
             if (!text) {
-                toast.error("Clipboard is empty");
+                toast.error(NO_PRESET_ON_CLIPBOARD);
                 return;
             }
             const payload = JSON.parse(text);
             if (!payload.data) {
-                toast.error("Clipboard JSON is not a preset (missing data)");
+                toast.error(NO_PRESET_ON_CLIPBOARD);
                 return;
             }
             const src = safeClone(payload.data);
@@ -112,7 +113,7 @@ const CustomPresets: React.FC<Props> = ({ data, presetTypeHint }) => {
             questionModified();
             toast.info(`Applied preset "${payload.name ?? "from clipboard"}"`);
         } catch {
-            toast.error("Could not read or parse clipboard JSON");
+            toast.error(NO_PRESET_ON_CLIPBOARD);
         }
     };
 
