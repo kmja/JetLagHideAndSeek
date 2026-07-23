@@ -10,7 +10,7 @@ import memoize from "lodash/memoize";
 import uniqBy from "lodash/uniqBy";
 import osmtogeojson from "osmtogeojson";
 import { toast } from "react-toastify";
-import { NO_ENGLISH_NAME } from "@/lib/toastMessages";
+import { DATA_LOAD_ERROR, NO_ENGLISH_NAME } from "@/lib/toastMessages";
 
 import {
     hiderMode,
@@ -869,20 +869,33 @@ export const determineMatchingBoundary = memoize(
                     console.warn(
                         "[landmass] all land methods failed — falling back to the whole play area as one landmass",
                     );
-                    try {
-                        const frame = turf.bboxPolygon(
-                            turf.bbox(mapGeoJSON.get()!) as [
-                                number,
-                                number,
-                                number,
-                                number,
-                            ],
-                        );
-                        boundary = frame as Feature<Polygon>;
-                    } catch {
-                        toast.error(
-                            "Couldn't determine your landmass — are you in a body of water?",
-                        );
+                    // v1136: build the frame from WHATEVER play-area geometry
+                    // loaded — the clipped map (`mapGeoJSON`) OR the raw boundary
+                    // (`polyGeoJSON`). When the basemap/pmtiles + boundary fetch
+                    // both fail (map-data infra down — the reported flood of
+                    // failed tile/chunk loads), `mapGeoJSON` is null and the old
+                    // `turf.bbox(mapGeoJSON.get()!)` threw → the scary "are you in
+                    // a body of water?" toast on a seeker clearly standing on land
+                    // in Queens. Try both sources; only when NEITHER loaded is it
+                    // a genuine data-load failure — shown as such, not "body of
+                    // water".
+                    const frameSrc = mapGeoJSON.get() ?? polyGeoJSON.get();
+                    if (frameSrc) {
+                        try {
+                            boundary = turf.bboxPolygon(
+                                turf.bbox(frameSrc as never) as [
+                                    number,
+                                    number,
+                                    number,
+                                    number,
+                                ],
+                            ) as Feature<Polygon>;
+                        } catch {
+                            /* fall through to the data-load error below */
+                        }
+                    }
+                    if (!boundary) {
+                        toast.error(DATA_LOAD_ERROR);
                         throw new Error("No landmass found");
                     }
                 }

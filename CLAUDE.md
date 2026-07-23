@@ -477,6 +477,26 @@ build stamp. Current: `v1069`. Use `git log` for the per-version detail;
 - **NEXT: a SINGLE station producer shared by seeker + hider** (shipped in
   v1115 below).
 
+**v1136 — REVERT the water-read zoom to z11 (z13 hung body-of-water) + landmass
+degrades gracefully when the map data infra is down.**
+- **Body-of-water hung again** after the v1132/v1133 z13 water bump: z13 caught
+  more water (medium park lakes) but the far larger polygon set made the
+  downstream dissolve+buffer stop resolving for a dense metro (NYC) — the effect
+  ran but never produced a `buffer resolved` (the v1007 lesson relearned: z11 is
+  the performance sweet spot, "water needs no fine detail — simplify + buffer by
+  kilometres"). Reverted `ensureBasemapWaterForArea`'s headless read to
+  `targetZoom:11 / maxTiles:24`. z11 misses some medium lakes but RELIABLY
+  computes, which matters more; the same read feeds same-landmass, so keeping it
+  light fixes both. (z12 was rejected — v1007 already found it too heavy.)
+- **same-landmass no longer throws the scary "are you in a body of water?"** on a
+  seeker clearly on land (reported in Queens) when the basemap/pmtiles + boundary
+  fetch BOTH fail (map-data infra down — a flood of failed tile/chunk loads in
+  the console). The v1132 whole-play-area fallback used `turf.bbox(mapGeoJSON.get()!)`,
+  which THREW when `mapGeoJSON` was null (boundary never loaded) → the old error.
+  Now it builds the frame from `mapGeoJSON ?? polyGeoJSON` (whichever loaded), and
+  only when NEITHER is available shows the plain `DATA_LOAD_ERROR` ("couldn't load
+  map data, wait a moment") instead of "body of water".
+
 **v1135 — toast-message consolidation (fewer, plainer error toasts).** ~20
 near-duplicate copy/share/data-load error strings that had accreted across the
 app collapse into a handful of canonical messages in `src/lib/toastMessages.ts`

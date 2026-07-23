@@ -207,27 +207,26 @@ export function ensureBasemapWaterForArea(
         const packOsm = mapGeoLocation.get()?.properties?.osm_id;
         const usePack =
             pack && (packOsm == null || pack.osmId === packOsm) ? pack : null;
-        // v1132: read at a HIGHER target zoom (13, was 11) with a bigger tile
-        // budget (48). Protomaps GENERALIZES the `water` layer by zoom — small
-        // and even medium lakes (a park pond in Staten Island) only appear at
-        // z12-13, so the z11 read MISSED them (the reported "misses some big
-        // bodies of water"). The reader picks the HIGHEST zoom whose tile count
-        // fits `maxTiles`, so this is ADAPTIVE + performance-bounded: a small
-        // play area gets fine z13 water (catching the lakes); a big NYC+adjacents
-        // bbox auto-steps down to z12/z11 to stay under the budget. The per-poly
-        // clean (truncate+simplify) + the v1131 simplify-before-buffer keep the
-        // heavier set fast.
+        // v1136: read at z11 (REVERTED from the v1132 z13 bump). z13 caught more
+        // water (medium park lakes) but the far larger polygon set made the
+        // downstream dissolve+buffer HANG for a dense metro (NYC) — body-of-water
+        // stopped resolving (the v1007 lesson: z11 is the performance sweet spot;
+        // "water needs no fine detail — we simplify + buffer by kilometres"). z11
+        // misses some medium lakes but RELIABLY computes, which matters more; the
+        // same read feeds same-landmass, so keeping it light fixes both. (A z12
+        // compromise was rejected — v1007 already found z12 too heavy for a dense
+        // metro.)
         const feats = usePack
             ? await fetchLayerPolysFromPM(usePack.pmtiles, bbox, "water", {
-                  targetZoom: Math.min(13, usePack.maxZoom),
-                  maxTiles: 48,
+                  targetZoom: Math.min(11, usePack.maxZoom),
+                  maxTiles: 24,
               })
             : await (async () => {
                   const url = pmtilesUrl.get();
                   if (!url) return null;
                   return fetchBasemapLayerPolys(url, bbox, "water", {
-                      targetZoom: 13,
-                      maxTiles: 48,
+                      targetZoom: 11,
+                      maxTiles: 24,
                   });
               })();
         // eslint-disable-next-line no-console
