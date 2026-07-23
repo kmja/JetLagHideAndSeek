@@ -837,12 +837,29 @@ const bufferedDeterminer = memoize(
         // returned null → no overlay). Buffer+union it OFF the main thread with
         // turf (`bufferAndUnion`), the same region arcgis would produce. Falls
         // back to arcgis below if the worker is unavailable or returns null.
-        if (isWaterQ) {
+        // v1132: extend this OFF-THREAD path to EVERY non-point measuring-geom
+        // (the coastline/border/HSR LINE families too, not just water). arcgis's
+        // geodesic buffer on a dense metro's boundary LINES (NYC's county /
+        // coastline outlines, tens of thousands of vertices) was the shared
+        // "effect runs but the overlay never resolves" hang — county / coastline
+        // buffer never returned. `bufferAndUnion` runs turf off-thread + self-
+        // heals a wedged worker, so the overlay actually lands; arcgis stays the
+        // fallback below.
+        const nonPointGeom = (placeData as Feature[]).some(
+            (f) =>
+                f?.geometry?.type === "LineString" ||
+                f?.geometry?.type === "MultiLineString" ||
+                f?.geometry?.type === "Polygon" ||
+                f?.geometry?.type === "MultiPolygon",
+        );
+        if (isWaterQ || nonPointGeom) {
             const feats = placeData as Feature[];
             // v1009/v1011: body-of-water AND coastline both buffer basemap water
             // (whole water vs sea-only) through the union-first worker path.
-            // Diagnose which stage fails when the overlay is empty.
-            if (feats.length > 0) {
+            // Diagnose which stage fails when the overlay is empty. (Water-only:
+            // the border/HSR line families share this path since v1132 but keep
+            // their own diagnostics out of the body-of-water panel line.)
+            if (isWaterQ && feats.length > 0) {
                 reportWaterQuestionDiag(
                     question.type as "body-of-water" | "coastline",
                     feats,
@@ -856,12 +873,12 @@ const bufferedDeterminer = memoize(
                     question.lng,
                 );
                 if (merged) {
-                    reportWaterQuestionResult("bufferAndUnion ok");
+                    if (isWaterQ) reportWaterQuestionResult("bufferAndUnion ok");
                     return merged;
                 }
-                reportWaterQuestionResult("bufferAndUnion → null");
+                if (isWaterQ) reportWaterQuestionResult("bufferAndUnion → null");
             } catch {
-                reportWaterQuestionResult("bufferAndUnion threw");
+                if (isWaterQ) reportWaterQuestionResult("bufferAndUnion threw");
                 /* worker unavailable / union timed out — retry below */
             }
             // v993: if the union failed (most likely a timeout on the detailed

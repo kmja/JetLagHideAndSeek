@@ -477,6 +477,41 @@ build stamp. Current: `v1069`. Use `git log` for the per-version detail;
 - **NEXT: a SINGLE station producer shared by seeker + hider** (shipped in
   v1115 below).
 
+**v1132 — configure-overlay reliability batch (from a live NYC console: every
+question's calculation re-running on its own + measuring-geom overlays never
+resolving).**
+- **Questions' impact calculations re-ran on their own** (`questionImpact.ts`).
+  The basemap-water capture bumps `basemapWaterVersion` on every map idle (pan)
+  AND once when the headless read lands — and the measuring effect depended on
+  `$waterVersion`, so EVERY question re-buffered on a water bump even when it
+  never touches water (golf/park/rail-station point families + admin/border/HSR
+  measuring-geom). Now gated to the ONLY two water-consuming types (body-of-water
+  + coastline via a new `consumesWater`/`relevantWaterVersion`); everything else
+  sees a constant and no longer re-computes on a pan / water bump.
+- **Golf-course (and every point-family) PREVIEW overlay used out-of-area
+  references.** v1131 fixed the real elimination but MISSED the preview's
+  separate point-buffer path (`arcBufferToPoint` on the raw cached points, which
+  sit on a 50 km-padded bbox). The preview now filters the reference SITES to
+  inside the play area (`pointInPlayArea`, full unmasked area) BEFORE buffering,
+  matching the dots + the label + the elimination — so "the math takes into
+  account a location outside the play area" is fixed for golf and all `-full`
+  POIs.
+- **measuring COUNTY-BORDER / COASTLINE overlays never resolved** (the effect
+  ran but `measuringDraftBuffer` hung — no `buffer resolved`). The
+  line/polygon `measuring-geom` families (county/state/international border,
+  HSR) buffered via arcgis's geodesic `arcBufferToPoint`, which stalls/returns
+  null on a dense metro's boundary LINES (NYC's county outlines, tens of
+  thousands of vertices). They now route through the OFF-THREAD worker
+  `bufferAndUnion` (turf, self-heals a wedged worker) like water/coast, with
+  arcgis as the fallback — so the overlay actually lands.
+- **same-landmass no longer HARD-ERRORS** (`matching.ts`). "Couldn't determine
+  your landmass — are you in a body of water?" fired on Manhattan when all three
+  land methods failed (basemap-water covered the frame / per-city coast
+  rate-limited / coarse 1:50m fallback threw). A real seeker is always on land,
+  so instead of blocking the question it falls back to the whole play-area frame
+  as one landmass (a degraded-but-valid answer) with a `[landmass]` diagnostic;
+  the preview still draws nothing.
+
 **v1131 — NYC measuring/matching correctness batch (live-test cluster, all
 sharing the added-adjacents live-Overpass-rate-limit or a stale
 preview≠elimination inconsistency).**

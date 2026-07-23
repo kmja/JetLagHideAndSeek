@@ -774,11 +774,36 @@ export const determineMatchingBoundary = memoize(
                     boundary = landmassPart;
                 }
                 if (!boundary) {
+                    // v1132: a real seeker is ALWAYS on land, so this should
+                    // essentially never happen — it means every land-computation
+                    // method failed (basemap-water covered the frame, per-city
+                    // coast was rate-limited AND the coarse 1:50m fallback threw).
+                    // Rather than a hard error that BLOCKS the question (the
+                    // reported "are you in a body of water?" on Manhattan), fall
+                    // back to the whole play-area frame as ONE landmass — a
+                    // degraded-but-valid answer (everyone shares it) that lets the
+                    // question send. `silent` (the preview) still draws nothing.
                     if (silent) return undefined;
-                    toast.error(
-                        "Couldn't determine your landmass — are you in a body of water?",
+                    // eslint-disable-next-line no-console
+                    console.warn(
+                        "[landmass] all land methods failed — falling back to the whole play area as one landmass",
                     );
-                    throw new Error("No landmass found");
+                    try {
+                        const frame = turf.bboxPolygon(
+                            turf.bbox(mapGeoJSON.get()!) as [
+                                number,
+                                number,
+                                number,
+                                number,
+                            ],
+                        );
+                        boundary = frame as Feature<Polygon>;
+                    } catch {
+                        toast.error(
+                            "Couldn't determine your landmass — are you in a body of water?",
+                        );
+                        throw new Error("No landmass found");
+                    }
                 }
                 // v969 (rulebook audit A3): the ENCLAVE rule — "If the hider
                 // is on a landmass that is entirely surrounded by the landmass

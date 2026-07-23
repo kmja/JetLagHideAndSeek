@@ -371,6 +371,21 @@ export function useQuestionImpact(
     // as tiles load. Re-run the effect when a capture lands so the preview
     // fills in the sea once it's available (the first compute may run before).
     const $waterVersion = useStore(basemapWaterVersion);
+    // v1132: the basemap-water capture bumps `$waterVersion` on every map idle
+    // (capture) AND once when the headless read lands — which re-ran EVERY
+    // question's measuring effect on its own, even ones that never touch water
+    // (golf/park/rail-station point families, and the admin/border/HSR
+    // measuring-geom families) — the reported "calculations rerun on their own
+    // even though I only opened the dialog once". ONLY the two water-consuming
+    // types (`water` = body-of-water, and the `coastline` measuring-geom via
+    // getDissolvedBasemapSea) actually read the capture, so gate the dep to
+    // them; everything else sees a constant and no longer re-buffers on a water
+    // bump / pan.
+    const consumesWater =
+        !!family &&
+        (family.kind === "water" ||
+            (family.kind === "measuring-geom" && type === "coastline"));
+    const relevantWaterVersion = consumesWater ? $waterVersion : 0;
 
     // Warm the family cache if it isn't already (point families only;
     // city / measuring-geom / matching-region are bundled / line- or
@@ -529,8 +544,25 @@ export function useQuestionImpact(
                       (family as { family: FamilyKey }).family,
                   );
                   if (!cached || cached.length === 0) return null;
+                  // v1132: filter the reference SITES to inside the play area
+                  // (rulebook p17 — only in-area locations are in play). The
+                  // cache sits on a 50 km-PADDED bbox, so it includes
+                  // out-of-area POIs (a NJ golf course NW of NYC); buffering
+                  // them made the overlay "take into account a location outside
+                  // the play area" (the reported golf bug). The dots already
+                  // filter to `inAreaCandidates` + the real elimination now
+                  // filters (v1131), so the preview overlay must match. Uses the
+                  // FULL (unmasked) area like the dots/label. Falls through to
+                  // the unfiltered set while the polygon is still loading.
+                  const site = fullPlayArea ?? playArea;
+                  const inArea = site
+                      ? cached.filter((f) =>
+                            pointInPlayArea(site, f.lng, f.lat),
+                        )
+                      : cached;
+                  if (inArea.length === 0) return null;
                   const pts = turf.featureCollection(
-                      cached.map((f) => turf.point([f.lng, f.lat])),
+                      inArea.map((f) => turf.point([f.lng, f.lat])),
                   );
                   return arcBufferToPoint(pts, lat, lng);
               })();
@@ -587,7 +619,17 @@ export function useQuestionImpact(
             cancelled = true;
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [mode, family?.kind, type, playArea, lat, lng, tick, $waterVersion]);
+    }, [
+        mode,
+        family?.kind,
+        type,
+        playArea,
+        fullPlayArea,
+        lat,
+        lng,
+        tick,
+        relevantWaterVersion,
+    ]);
 
     // The real full-geometry region for the current (type, position) is
     // ready (measuring-geom / water). Drives both `loading` and the
