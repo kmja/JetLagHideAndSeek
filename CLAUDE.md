@@ -477,6 +477,20 @@ build stamp. Current: `v1069`. Use `git log` for the per-version detail;
 - **NEXT: a SINGLE station producer shared by seeker + hider** (shipped in
   v1115 below).
 
+**v1137 — ADAPTIVE water-read zoom (z12 where affordable, z11 for a dense
+metro).** Follow-up to v1136's z11 revert. The tile reader
+(`fetchLayerPolysFromPM`) picks the HIGHEST zoom whose tile count fits
+`maxTiles`, so `ensureBasemapWaterForArea` now targets z12 with a conservative
+`maxTiles:30` budget: a modest play area fits z12 (finer water — catches the
+medium park lakes z11 generalizes away), while an NYC-scale bbox exceeds the
+budget and auto-steps down to z11 (whose z12 polygon set is what HUNG the
+dissolve+buffer in v1132/v1136). So it's "the most detail the app can reliably
+handle for THIS area" with NO hang-risk regression for the dense case. z13 stays
+unreachable (targetZoom caps at 12 — it hangs even for a single metro). Getting
+z12+ detail for a dense metro+adjacents would need a seeker-LOCAL high-zoom read
+(a few tiles around the seeker) rather than a whole-area one — noted as a future
+enhancement, not done here.
+
 **v1136 — REVERT the water-read zoom to z11 (z13 hung body-of-water) + landmass
 degrades gracefully when the map data infra is down.**
 - **Body-of-water hung again** after the v1132/v1133 z13 water bump: z13 caught

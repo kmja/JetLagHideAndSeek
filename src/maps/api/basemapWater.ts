@@ -207,26 +207,31 @@ export function ensureBasemapWaterForArea(
         const packOsm = mapGeoLocation.get()?.properties?.osm_id;
         const usePack =
             pack && (packOsm == null || pack.osmId === packOsm) ? pack : null;
-        // v1136: read at z11 (REVERTED from the v1132 z13 bump). z13 caught more
-        // water (medium park lakes) but the far larger polygon set made the
-        // downstream dissolve+buffer HANG for a dense metro (NYC) — body-of-water
-        // stopped resolving (the v1007 lesson: z11 is the performance sweet spot;
-        // "water needs no fine detail — we simplify + buffer by kilometres"). z11
-        // misses some medium lakes but RELIABLY computes, which matters more; the
-        // same read feeds same-landmass, so keeping it light fixes both. (A z12
-        // compromise was rejected — v1007 already found z12 too heavy for a dense
-        // metro.)
+        // v1137: ADAPTIVE zoom — the tile reader picks the HIGHEST zoom whose
+        // tile count fits `maxTiles`, so this reads z12 where the play area is
+        // light enough to afford it (a smaller city → finer water, catching the
+        // medium park lakes z11 generalizes away) but AUTO-STEPS DOWN to z11 for
+        // a dense metro (NYC + adjacents), whose z12 polygon set is what HUNG the
+        // dissolve+buffer (v1136). The `maxTiles:30` budget is deliberately
+        // conservative: a modest bbox fits z12 (~≤30 tiles), an NYC-scale bbox
+        // exceeds it → z11. So it's "the most detail the app can reliably handle
+        // for THIS area", with no hang-risk regression for the dense case. z13 is
+        // NOT reachable (targetZoom caps at 12) — it definitively hangs even for
+        // a single metro. The per-poly clean (truncate+simplify) keeps whatever
+        // zoom is chosen tractable. (Getting z12+ detail for a dense metro would
+        // need a seeker-local high-zoom read, not a whole-area one — a possible
+        // future enhancement.)
         const feats = usePack
             ? await fetchLayerPolysFromPM(usePack.pmtiles, bbox, "water", {
-                  targetZoom: Math.min(11, usePack.maxZoom),
-                  maxTiles: 24,
+                  targetZoom: Math.min(12, usePack.maxZoom),
+                  maxTiles: 30,
               })
             : await (async () => {
                   const url = pmtilesUrl.get();
                   if (!url) return null;
                   return fetchBasemapLayerPolys(url, bbox, "water", {
-                      targetZoom: 11,
-                      maxTiles: 24,
+                      targetZoom: 12,
+                      maxTiles: 30,
                   });
               })();
         // eslint-disable-next-line no-console
