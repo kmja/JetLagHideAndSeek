@@ -4,6 +4,7 @@ import { atom, computed, onSet } from "nanostores";
 
 import type { CategoryId } from "@/lib/categories";
 import type { MapShim } from "@/lib/mapShim";
+import { safeJsonDecode } from "@/lib/persist";
 import type {
     AdditionalMapGeoLocations,
     CustomStation,
@@ -25,29 +26,34 @@ import {
     type Units,
 } from "@/maps/schema";
 
+const DEFAULT_MAP_GEO_LOCATION: OpenStreetMap = {
+    geometry: {
+        coordinates: [36.5748441, 139.2394179],
+        type: "Point",
+    },
+    type: "Feature",
+    properties: {
+        osm_type: "R",
+        osm_id: 382313,
+        extent: [45.7112046, 122.7141754, 20.2145811, 154.205541],
+        country: "Japan",
+        osm_key: "place",
+        countrycode: "JP",
+        osm_value: "country",
+        name: "Japan",
+        type: "country",
+    },
+};
+
 export const mapGeoLocation = persistentAtom<OpenStreetMap>(
     "mapGeoLocation",
-    {
-        geometry: {
-            coordinates: [36.5748441, 139.2394179],
-            type: "Point",
-        },
-        type: "Feature",
-        properties: {
-            osm_type: "R",
-            osm_id: 382313,
-            extent: [45.7112046, 122.7141754, 20.2145811, 154.205541],
-            country: "Japan",
-            osm_key: "place",
-            countrycode: "JP",
-            osm_value: "country",
-            name: "Japan",
-            type: "country",
-        },
-    },
+    DEFAULT_MAP_GEO_LOCATION,
     {
         encode: JSON.stringify,
-        decode: JSON.parse,
+        // v1125: guard structured-atom decode — a quota-truncated / cross-tab
+        // corrupt write must degrade to the default, not throw and brick the
+        // route on reload (see persist.ts).
+        decode: safeJsonDecode(DEFAULT_MAP_GEO_LOCATION),
     },
 );
 
@@ -55,7 +61,7 @@ export const additionalMapGeoLocations = persistentAtom<
     AdditionalMapGeoLocations[]
 >("additionalMapGeoLocations", [], {
     encode: JSON.stringify,
-    decode: JSON.parse,
+    decode: safeJsonDecode<AdditionalMapGeoLocations[]>([]),
 });
 
 /**
@@ -128,7 +134,9 @@ export const permanentOverlay = persistentAtom<FeatureCollection | null>(
     null,
     {
         encode: JSON.stringify,
-        decode: JSON.parse,
+        // v1125: a FeatureCollection is the atom most likely to be
+        // quota-truncated; guard so a partial write degrades to null.
+        decode: safeJsonDecode<FeatureCollection | null>(null),
     },
 );
 
@@ -405,7 +413,9 @@ export const hiderMode = persistentAtom<
       }
 >("isHiderMode", false, {
     encode: JSON.stringify,
-    decode: JSON.parse,
+    decode: safeJsonDecode<false | { latitude: number; longitude: number }>(
+        false,
+    ),
 });
 export const triggerLocalRefresh = atom<number>(0);
 export const displayHidingZones = persistentAtom<boolean>(
@@ -421,7 +431,7 @@ export const displayHidingZonesOptions = persistentAtom<string[]>(
     ["[railway=station]"],
     {
         encode: JSON.stringify,
-        decode: JSON.parse,
+        decode: safeJsonDecode<string[]>(["[railway=station]"]),
     },
 );
 
@@ -483,7 +493,7 @@ export const customStations = persistentAtom<CustomStation[]>(
     [],
     {
         encode: JSON.stringify,
-        decode: JSON.parse,
+        decode: safeJsonDecode<CustomStation[]>([]),
     },
 );
 // Merge same-named stations whose zones overlap (the OSM data often has
@@ -538,7 +548,7 @@ export const disabledStations = persistentAtom<string[]>(
     [],
     {
         encode: JSON.stringify,
-        decode: JSON.parse,
+        decode: safeJsonDecode<string[]>([]),
     },
 );
 export const autoSave = persistentAtom<boolean>("autoSave", true, {
@@ -568,7 +578,7 @@ export const customPresets = persistentAtom<CustomPreset[]>(
     [],
     {
         encode: JSON.stringify,
-        decode: JSON.parse,
+        decode: safeJsonDecode<CustomPreset[]>([]),
     },
 );
 onSet(customPresets, ({ newValue }) => {

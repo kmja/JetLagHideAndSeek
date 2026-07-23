@@ -477,6 +477,29 @@ build stamp. Current: `v1069`. Use `git log` for the per-version detail;
 - **NEXT: a SINGLE station producer shared by seeker + hider** (shipped in
   v1115 below).
 
+**v1125 — architecture-review pass 2: persisted-atom decode hardening (no more
+brick-on-corrupt-storage).** From the review's type-safety findings. nanostores
+calls a persistent atom's `decode()` with NO try/catch — on first read AND on
+every cross-tab `storage` event — so a bare `JSON.parse` on a quota-truncated /
+concurrent-tab-corrupt / schema-drifted value THROWS, bubbles to the route error
+boundary, and bricks the app on reload with no self-heal (the hazard the
+`questions` atom already documents). New `src/lib/persist.ts` `safeJsonDecode(fallback, validate?)`
+centralises the guard; applied to the STRUCTURED atoms most likely to truncate —
+`mapGeoLocation`, `additionalMapGeoLocations`, `permanentOverlay` (a
+FeatureCollection), `customStations`, `customPresets`, `hiderMode`,
+`displayHidingZonesOptions`, `disabledStations` (`context.ts`) + `playArea`
+(`gameSetup.ts`). **`gameSize`** now VALIDATES the enum instead of blind-casting
+(`v as GameSize`) — a corrupt `gameSize` was the ROOT CAUSE of the v807/v821
+NaN-clock brick, so it's coerced to `"medium"` at the source. Primitive atoms
+(boolean/number) are deliberately left on bare `JSON.parse` (a self-written
+primitive essentially never truncates). Also: **`decodeQuestionFromUrl`**
+(`shareLinks.ts`) now validates the untrusted `/h?q=` share-link payload with
+`questionSchema.safeParse` instead of blind-casting a wrong-shape object into the
+elimination engine (matching the sibling `decodeAnswerFromUrl`); and a dead
+`?? trimmed` in `geocode.ts` (unreachable — `filter().join()` returns `""`, not
+nullish) became `||` so a nameless place no longer gets an empty label.
+Unit-tested (`tests/persist.test.ts`).
+
 **v1124 — architecture-review cleanup pass 1: delete ~1,700 lines of dead code +
 fix the last un-hardened prewarm reader (`/api/refs` gzip parse).** From a
 4-agent codebase review (dead code / drift / structure / type-safety).

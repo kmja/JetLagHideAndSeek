@@ -453,9 +453,13 @@ export const forwardGeocodeOne = async (
         const [lat, lng] = coords;
         if (typeof lat !== "number" || typeof lng !== "number") return null;
         const p = first.properties as any;
+        // v1125: use `||`, not `??`, on the joined city/country — `filter().join()`
+        // returns "" (NOT nullish) when both are absent, so `?? trimmed` was
+        // unreachable and a nameless place got an EMPTY displayName. Fall
+        // through the whole chain to the query text.
         const label =
-            p.name ??
-            [p.city, p.country].filter(Boolean).join(", ") ??
+            p.name ||
+            [p.city, p.country].filter(Boolean).join(", ") ||
             trimmed;
         return { lat, lng, displayName: label };
     } catch {

@@ -1,4 +1,4 @@
-import type { Question } from "@/maps/schema";
+import { type Question, questionSchema } from "@/maps/schema";
 
 /**
  * Stateless share-link encoding for the hider/seeker handoff.
@@ -53,7 +53,13 @@ export function decodeQuestionFromUrl(
     }
     if (!raw) return null;
     try {
-        return JSON.parse(decodeURIComponent(raw)) as Question;
+        // v1125: VALIDATE the untrusted share-link payload against the schema
+        // (like the sibling `decodeAnswerFromUrl`), rather than blind-casting a
+        // well-formed-but-wrong-shape object into the elimination engine.
+        const parsed = questionSchema.safeParse(
+            JSON.parse(decodeURIComponent(raw)),
+        );
+        return parsed.success ? (parsed.data as Question) : null;
     } catch {
         return null;
     }

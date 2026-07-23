@@ -14,6 +14,7 @@ import {
     hidingRadius,
     hidingRadiusUnits,
 } from "@/lib/context";
+import { safeJsonDecode } from "@/lib/persist";
 
 /**
  * Game setup state — the result of the 3-step onboarding flow that runs on
@@ -57,7 +58,13 @@ export const playArea = persistentAtom<{
     lng: number;
 } | null>("playArea", null, {
     encode: JSON.stringify,
-    decode: JSON.parse,
+    // v1125: guard the structured decode — a corrupt/truncated write must
+    // degrade to null (→ lobby), not throw and brick the route on reload.
+    decode: safeJsonDecode<{
+        displayName: string;
+        lat: number;
+        lng: number;
+    } | null>(null),
 });
 
 /**
@@ -76,7 +83,14 @@ export const allowedTransit = persistentAtom<TransitMode[]>(
  *  geographic scope of the game and the length of the hiding period. */
 export const gameSize = persistentAtom<GameSize>("gameSize", "medium", {
     encode: (v) => v,
-    decode: (v) => v as GameSize,
+    // v1125: validate the enum, don't blind-cast. A corrupt/off-enum
+    // `gameSize` was the ROOT CAUSE of the v807/v821 NaN-clock brick
+    // (`HIDING_PERIOD_MINUTES[$size]` → undefined → NaN); coerce an unknown
+    // value to "medium" at the source so no size-keyed consumer sees garbage.
+    decode: (v) =>
+        v === "small" || v === "medium" || v === "large"
+            ? v
+            : "medium",
 });
 
 /** Top-right map display toggles. */
