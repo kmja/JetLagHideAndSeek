@@ -477,6 +477,29 @@ build stamp. Current: `v1069`. Use `git log` for the per-version detail;
 - **NEXT: a SINGLE station producer shared by seeker + hider** (shipped in
   v1115 below).
 
+**v1126 — transit-overlay PRELOAD works with added adjacents (the sibling of the
+v1118 fix) + one shared play-area-relation-ids helper.** Reported: a play area
+WITH added adjacent areas preloaded ZERO transit (`transit FAILED subway:0
+ferry:0 train:0 tram:0`), while the SAME cities without adjacents preloaded fine
+(`subway:574 train:4741 …`); HSR always worked (separate path). Root cause:
+`fetchTransitRelations` (`transitRoutes.ts`, the transit-OVERLAY preload +
+toggle path reading `/api/transit/<id>/<mode>`) gated its whole relation-endpoint
+block on `!extrasAdded`, so the moment ONE adjacent was added it SKIPPED straight
+to `if (cacheOnly) return {elements:[]}` → empty for every mode. This is the
+EXACT bug v1118 fixed for the sibling transit-LINE path
+(`fetchPrewarmedTransitRoutes`) — but this path was missed. Now it FANS
+`/api/transit/<id>/<mode>` over EVERY play-area relation (primary + added
+adjacents, `playAreaRelationIdsAll`) and UNIONs (deduped by type/id): a warm city
+is served from R2 even before its adjacents warm (the PRIMARY carries the metro's
+main network), cold relations fire `?warm=1`, and only when NO relation is warm
+does it fall through (live combined-bbox query, or empty in cacheOnly preload).
+- **One shared `playAreaRelationIdsAll()`** (`src/lib/playAreaRelations.ts`) —
+  this helper was hand-copied THREE times (`overpass.ts`
+  `playAreaTransitRelationIds`, `journey/stations.ts` with its own
+  `primaryRelationId`, and referenced from `playAreaPrefetch.ts`); a multi-region
+  play area diverging between two of them is precisely this bug class. All now
+  import the one source.
+
 **v1125 — architecture-review pass 2: persisted-atom decode hardening (no more
 brick-on-corrupt-storage).** From the review's type-safety findings. nanostores
 calls a persistent atom's `decode()` with NO try/catch — on first read AND on

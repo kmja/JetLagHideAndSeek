@@ -12,6 +12,7 @@ import {
 import { devLog, devWarn } from "@/lib/devLog";
 import { combineBoundary } from "@/lib/geometry/client";
 import { playArea } from "@/lib/gameSetup";
+import { playAreaRelationIdsAll } from "@/lib/playAreaRelations";
 import {
     finishLoading,
     setPhase,
@@ -969,37 +970,10 @@ const transitRoutesWarmRequested = new Set<string>();
  *   "bus" reads the ISOLATED bus set (`?mode=bus`, v1102) — a separate R2 key
  *   so its heavy per-metro geometry can't time out the rail set.
  */
-/** Every play-area OSM relation id — primary + added adjacent areas (relations
- *  only). Mirrors `journey/stations.ts playAreaRelationIdsAll` so a multi-region
- *  (added-adjacent) play area is served from prewarm, not forced live. */
-function playAreaTransitRelationIds(): number[] {
-    const ids: number[] = [];
-    const primary = mapGeoLocation.get()?.properties as
-        | { osm_id?: number; osm_type?: string }
-        | undefined;
-    if (
-        primary?.osm_type === "R" &&
-        typeof primary.osm_id === "number" &&
-        primary.osm_id > 0
-    ) {
-        ids.push(primary.osm_id);
-    }
-    for (const e of additionalMapGeoLocations.get()) {
-        if (!e.added) continue;
-        const p = e.location?.properties as
-            | { osm_id?: number; osm_type?: string }
-            | undefined;
-        if (
-            p?.osm_type === "R" &&
-            typeof p.osm_id === "number" &&
-            p.osm_id > 0 &&
-            !ids.includes(p.osm_id)
-        ) {
-            ids.push(p.osm_id);
-        }
-    }
-    return ids;
-}
+/** Every play-area OSM relation id — primary + added adjacent areas. v1126:
+ *  single source (`@/lib/playAreaRelations`) so this can't drift from the twin
+ *  in `journey/stations.ts` / `transitRoutes.ts`. */
+const playAreaTransitRelationIds = playAreaRelationIdsAll;
 
 /** Fetch ONE relation's prewarmed transit-routes set (gzip-tolerant, memoised).
  *  Returns the parsed body on a warm hit, else null (firing a background

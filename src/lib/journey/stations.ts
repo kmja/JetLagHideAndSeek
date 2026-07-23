@@ -24,16 +24,13 @@
 
 import { booleanPointInPolygon, convertLength, type Units } from "@turf/turf";
 
-import {
-    additionalMapGeoLocations,
-    mapGeoLocation,
-    polyGeoJSON,
-} from "@/lib/context";
+import { polyGeoJSON } from "@/lib/context";
 import {
     HIDING_ZONE_FILTERS_BY_MODE,
     hidingZoneFiltersFor,
     type TransitMode,
 } from "@/lib/gameSetup";
+import { playAreaRelationIdsAll as playAreaRelationIdsAllShared } from "@/lib/playAreaRelations";
 import { haversineMeters } from "@/lib/geo";
 import type { StationPlace } from "@/maps/api";
 import { safeJsonFromCachedResponse } from "@/maps/api/cache";
@@ -303,47 +300,14 @@ function cullElementsToPlayArea(
     });
 }
 
-/** The primary play-area OSM relation id, or null for a custom-drawn /
- *  non-relation play area (which has no prewarm entry to hit). */
-function primaryRelationId(): number | null {
-    const p = mapGeoLocation.get()?.properties as
-        | { osm_id?: number; osm_type?: string }
-        | undefined;
-    if (p?.osm_type === "R" && typeof p.osm_id === "number" && p.osm_id > 0) {
-        return p.osm_id;
-    }
-    return null;
-}
-
 /**
- * Every play-area OSM relation id — the primary PLUS each ADDED adjacent
- * area (`additionalMapGeoLocations` entries with `.added===true` that are
- * relations). Subtracted areas (`.added===false`) are excluded; the
- * combined polygon already carves them out, so their stations are culled.
- * Mirrors `playAreaRelationIds().all` in playAreaPrefetch.ts. This is the
- * set the station prewarm endpoint is fanned over so an added adjacent
- * area is prewarmed exactly like the primary.
+ * Every play-area OSM relation id — the primary PLUS each ADDED adjacent area.
+ * v1126: single source (`@/lib/playAreaRelations`) — this used to be a private
+ * copy here (with its own `primaryRelationId`), a twin in `overpass.ts`, and a
+ * third in `playAreaPrefetch.ts`; a multi-region play area diverging between
+ * two of them is exactly the class of bug the fan-over-relations fixes address.
  */
-function playAreaRelationIdsAll(): number[] {
-    const ids: number[] = [];
-    const primary = primaryRelationId();
-    if (primary !== null) ids.push(primary);
-    for (const e of additionalMapGeoLocations.get()) {
-        if (!e.added) continue;
-        const p = e.location?.properties as
-            | { osm_id?: number; osm_type?: string }
-            | undefined;
-        if (
-            p?.osm_type === "R" &&
-            typeof p.osm_id === "number" &&
-            p.osm_id > 0 &&
-            !ids.includes(p.osm_id)
-        ) {
-            ids.push(p.osm_id);
-        }
-    }
-    return ids;
-}
+const playAreaRelationIdsAll = playAreaRelationIdsAllShared;
 
 /** Fetch one relation's prewarmed all-mode station field. Returns null on
  *  a MISS (the endpoint's `cache` marker — not warmed yet — or an

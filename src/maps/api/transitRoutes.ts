@@ -5,9 +5,9 @@ import { pointInPlayArea } from "@/maps/geo-utils/playAreaIndex";
 import {
     additionalMapGeoLocations,
     mapGeoJSON,
-    mapGeoLocation,
     polyGeoJSON,
 } from "@/lib/context";
+import { playAreaRelationIdsAll } from "@/lib/playAreaRelations";
 import { safeJsonFromCachedResponse } from "@/maps/api/cache";
 import { TRANSIT_BY_RELATION_BASE } from "@/maps/api/constants";
 import { getOverpassData } from "@/maps/api/overpass";
@@ -185,56 +185,69 @@ async function fetchTransitRelations(
     // still go down the bbox path; that's intentional: there's no single
     // relation id to key on, and the cron only prewarms single-relation
     // cities, so the relation path's value space matches the prewarm's.
-    const primary = mapGeoLocation.get();
-    const props = primary?.properties as
-        | { osm_id?: number; osm_type?: string }
-        | undefined;
-    const extrasAdded = additionalMapGeoLocations
-        .get()
-        .some((e) => e.added);
-    if (
-        !extrasAdded &&
-        props?.osm_type === "R" &&
-        typeof props.osm_id === "number" &&
-        props.osm_id > 0
-    ) {
-        const relId = props.osm_id;
-        try {
-            const resp = await fetch(
-                `${TRANSIT_BY_RELATION_BASE}/${relId}/${routeType}`,
-            );
-            if (resp.ok) {
-                // v1116: gzip-TOLERANT parse. Plain `resp.json()` THROWS on a
-                // double-/residual-gzipped R2 body (the v738/v739 class) at the
-                // 0x1f gzip magic byte, and the catch below swallowed it — so
-                // the client fell to LIVE Overpass EVEN FOR A FULLY-WARM CITY
-                // (the reported NYC/Stockholm `transit FAILED subway:0 …` +
-                // the live `/api/interpreter` 500/502). Preload (cacheOnly)
-                // then reported 0; the overlay toggle fell through to the live
-                // bbox query below. `safeJsonFromCachedResponse` peels every
-                // gzip layer (and parses plain JSON identically), matching the
-                // v1078 fix already on the sibling `/api/transit-routes` path.
-                let data: { elements?: unknown[] } | null = null;
-                try {
-                    data = (await safeJsonFromCachedResponse(resp)) as {
-                        elements?: unknown[];
-                    };
-                } catch (e) {
-                    console.warn(
-                        `[transit] ${routeType} r${relId}: R2 body parse failed → falling back`,
-                        e,
-                    );
+    // v1126: FAN the relation endpoint over EVERY play-area relation (primary +
+    // added adjacent areas) and UNION the results — a multi-region play area is
+    // served from R2 too. The old `!extrasAdded` guard SKIPPED this whole block
+    // the moment ONE adjacent was added, so in cacheOnly (preload) mode the
+    // function returned `{elements:[]}` for every mode → the reported
+    // Stockholm/NYC-plus-adjacents `transit FAILED subway:0 ferry:0 …` (HSR
+    // still worked because it uses a separate path). Mirrors v1118's fix to the
+    // sibling transit-LINE path (`fetchPrewarmedTransitRoutes`): the PRIMARY
+    // alone already carries a metro's main network, so a warm city is served
+    // Overpass-free even before its adjacents warm; cold relations fire
+    // `?warm=1` for next time; only when NO relation is warm do we fall through
+    // (to the live combined-bbox query — or empty, in cacheOnly preload mode).
+    const relIds = playAreaRelationIdsAll();
+    if (relIds.length > 0) {
+        const seen = new Set<string>();
+        const union: unknown[] = [];
+        let anyWarm = false;
+        for (const relId of relIds) {
+            let els: unknown[] | null = null;
+            try {
+                const resp = await fetch(
+                    `${TRANSIT_BY_RELATION_BASE}/${relId}/${routeType}`,
+                );
+                if (resp.ok) {
+                    // v1116: gzip-TOLERANT parse. Plain `resp.json()` THROWS on
+                    // a double-/residual-gzipped R2 body (the v738/v739 class)
+                    // at the 0x1f magic byte; `safeJsonFromCachedResponse`
+                    // peels every gzip layer (and parses plain JSON
+                    // identically), matching the sibling `/api/transit-routes`.
+                    let data: { elements?: unknown[] } | null = null;
+                    try {
+                        data = (await safeJsonFromCachedResponse(resp)) as {
+                            elements?: unknown[];
+                        };
+                    } catch (e) {
+                        console.warn(
+                            `[transit] ${routeType} r${relId}: R2 body parse failed`,
+                            e,
+                        );
+                    }
+                    const e = data?.elements;
+                    if (Array.isArray(e) && e.length > 0) els = e;
                 }
-                const els = data?.elements;
-                if (Array.isArray(els) && els.length > 0) return data!;
-                // Empty/unparseable body = miss / no-boundary marker. Fire a
-                // background warm and fall through to the bbox path so the user
-                // still gets data this session.
+            } catch {
+                /* network issue → treat this relation as cold */
+            }
+            if (els) {
+                anyWarm = true;
+                // Dedup by type/id — an adjacent's padded bbox can re-return a
+                // route relation the primary already covered.
+                for (const el of els) {
+                    const o = el as { type?: string; id?: number };
+                    const k = `${o.type}/${o.id}`;
+                    if (seen.has(k)) continue;
+                    seen.add(k);
+                    union.push(el);
+                }
+            } else {
+                // Cold/empty relation — warm it so the next load is served.
                 requestWarmTransit(relId, routeType);
             }
-        } catch {
-            /* network issue → fall through */
         }
+        if (anyWarm) return { elements: union };
     }
 
     // v1088: the preload never goes LIVE — a cold mode returns empty (already
