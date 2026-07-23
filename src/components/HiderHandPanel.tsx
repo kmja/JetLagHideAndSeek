@@ -544,7 +544,6 @@ function DiscardPile() {
                             key={`${card.id}-${i}`}
                             card={card}
                             gameSize={$gameSize}
-                            size="compact"
                             selectionIndicator="none"
                         />
                     ))}

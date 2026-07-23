@@ -13,6 +13,7 @@ import {
     REFS_BY_RELATION_BASE,
     REGISTER_AREA_URL,
 } from "@/maps/api/constants";
+import { safeJsonFromCachedResponse } from "@/maps/api/cache";
 import { getOverpassData } from "@/maps/api/overpass";
 import { CacheType } from "@/maps/api/types";
 import {
@@ -770,7 +771,14 @@ async function runBboxOverpassFetch(
                         allHit = false;
                         return;
                     }
-                    const data = (await resp.json()) as {
+                    // v1124: parse via the gzip-peeling helper, NOT bare
+                    // resp.json() — a double-/residual-gzipped R2 body (the
+                    // v738/v739 class) throws resp.json() at the 0x1f magic
+                    // byte, and this catch would treat that as a cache miss →
+                    // a LIVE combined-bbox Overpass query for a fully-WARM
+                    // city (the `/api/refs` London bug). This reader was the
+                    // one relation-endpoint parse the v1116 sweep missed.
+                    const data = (await safeJsonFromCachedResponse(resp)) as {
                         elements?: any[];
                         cache?: string;
                     };

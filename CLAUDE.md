@@ -477,6 +477,35 @@ build stamp. Current: `v1069`. Use `git log` for the per-version detail;
 - **NEXT: a SINGLE station producer shared by seeker + hider** (shipped in
   v1115 below).
 
+**v1124 — architecture-review cleanup pass 1: delete ~1,700 lines of dead code +
+fix the last un-hardened prewarm reader (`/api/refs` gzip parse).** From a
+4-agent codebase review (dead code / drift / structure / type-safety).
+- **Dead code removed (11 files, verified zero non-comment refs; `tsc` clean):**
+  `CacheStatus.tsx` + `CacheStatusPill.tsx` (unused cache-status UI),
+  `SeekerLivePositions.tsx` (seeker pins now inline in the maps),
+  `multiplayer/OnlinePlaySection.tsx` + `multiplayer/PresenceIndicators.tsx`
+  (host/join folded into Welcome/lobby, v925/v932), `HouseRulesSection.tsx`,
+  `hooks/useFitFontSize.ts` (lobby title shrink removed v857),
+  `maps/api/adjacentReadyCities.ts` (superseded by the warm-city filter,
+  v1061/v1065), `lib/mapTiles.ts` (Leaflet-era orphan),
+  `DebugLaunchButton.tsx` (replaced by the header wordmark trigger, v747),
+  `SeekerTripPlannerLauncher.tsx` (pill removed v617). Plus the `CardTile`
+  `size?`/`CardTileSize` deprecated no-op prop + its one call site.
+- **`/api/refs/<id>` reader gzip-hardened** (`playAreaPrefetch.ts`) — it was the
+  ONE relation-endpoint reader the v1116 sweep missed: it parsed with bare
+  `resp.json()`, so a double-/residual-gzipped R2 body (the v738/v739 class)
+  threw at the `0x1f` magic byte and the catch treated it as a cache MISS → a
+  LIVE combined-bbox Overpass query for a fully-WARM city (the original
+  `/api/refs` London bug). Now parses via `safeJsonFromCachedResponse` like
+  every sibling reader.
+- **Deferred (flagged for review, NOT deleted):** the trip-route-on-map cluster
+  (`TripRouteLayers`/`HiderZoneRoute`/`useOwnedTripRoute` + `tripRouteFC`) is
+  written ONLY by `HiderZoneRoute`, which is mounted NOWHERE — so the hider's
+  trip route never draws on the map. That's a possible FEATURE REGRESSION, not
+  clean dead code, so it needs a decision (re-mount vs remove). `TravelTimesOverlay`
+  removal was left too (it has vestigial atom readers in `Map.tsx` /
+  `MapOverlayLoadingToasts` to clean up in the same pass).
+
 **v1123 — station dedup covers same-COMPLEX different-name nodes (token
 containment), both roles.** NYC showed a station complex split into several
 dots the name-keyed dedup couldn't merge: "Grand Central" / "Grand Central

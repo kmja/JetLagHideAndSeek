@@ -77,10 +77,6 @@ const cu = (n: number) => `${n}cqw`;
 
 /* ────────────────── Public API ────────────────── */
 
-/** @deprecated Kept only so old `size="compact"` call-sites still type
- *  — the card no longer re-lays-out by size (v912). */
-export type CardTileSize = "default" | "compact";
-
 export function CardTile({
     card,
     gameSize,
@@ -93,8 +89,6 @@ export function CardTile({
 }: {
     card: Card;
     gameSize: GameSize;
-    /** @deprecated no longer changes the layout — see the v912 note. */
-    size?: CardTileSize;
     selected?: boolean;
     onClick?: () => void;
     selectionIndicator?: "checkbox" | "ring" | "none";
