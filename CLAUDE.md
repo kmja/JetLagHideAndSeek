@@ -477,6 +477,53 @@ build stamp. Current: `v1069`. Use `git log` for the per-version detail;
 - **NEXT: a SINGLE station producer shared by seeker + hider** (shipped in
   v1115 below).
 
+**v1131 — NYC measuring/matching correctness batch (live-test cluster, all
+sharing the added-adjacents live-Overpass-rate-limit or a stale
+preview≠elimination inconsistency).**
+- **measuring COUNTY BORDER (`admin2-border`) shows no overlay** while matching
+  county draws a clean one — the two used DIFFERENT data sources: matching reads
+  the prewarmed `/api/admin/<id>/6` R2 data, measuring ran a LIVE
+  `findPlacesInZone` relation query that got rate-limited in NYC-with-adjacents →
+  empty → no overlay. `measuring.ts admin2-border` now reads `fetchPrewarmedAreaAdmin(6)`
+  first (the SAME data matching uses), falling back to the live query on a cold
+  area. Overpass-free for a warm city.
+- **SEA-LEVEL description fixed** (`subtypes.ts`) — "Higher or lower altitude?" →
+  "Closer or further from sea level?" (the question is distance-from-sea-level,
+  not signed altitude — matches the v969 `absElevation` semantics).
+- **SEA-LEVEL: water wrongly marked "further from sea level"** (`elevation.ts`
+  `seaLevelRegion`). A body of water is at sea level (|elevation| = 0 = the
+  closest possible), so it MUST always be in the "closer" region — but the coarse
+  DEM grid (~600 m) + isoband interpolation across a narrow channel (NYC's East
+  River) carved part of the water out. `seaLevelRegion` now UNIONS the basemap
+  water polygons (`getBasemapWaterPolys`, the SAME Protomaps source
+  body-of-water uses) into the closer region, so open water always reads as
+  closer to sea level. No capture → the DEM result stands (never worse).
+- **body-of-water / COASTLINE intermittent "no overlay"** (`geometry/worker.ts`
+  `bufferAndUnionImpl`). Body-of-water still uses the PROTOMAPS basemap water as
+  its primary source (`getDissolvedBasemapWater`) — unchanged. The intermittent
+  failure was the BUFFER step: a dense coastal metro's unioned sea (NYC's Hudson +
+  East River + harbour + ocean, tens of thousands of vertices) made `turf.buffer`
+  choke and return undefined → no overlay. The union is now SIMPLIFIED (~55 m,
+  invisible against a km-scale buffer) before buffering, so the buffer stays fast
+  + reliable.
+- **measuring HSR question not disabled in NYC + nearest HSR reported a UK line
+  5244 km away.** The availability gate (`subtypeAvailability.ts computeHsrPresent`)
+  ran a LIVE `[highspeed=yes]` poly query that got rate-limited → null → stayed
+  AVAILABLE. It now uses `buildHsrQuery()`: null (the play area's country isn't a
+  prewarmed HSR country — the US) is a definitive "no HSR here" → DISABLE, zero
+  network; an HSR country reads its cached national network (R2 hit) and tests
+  whether any line crosses the play-area polygon. So NYC's HSR tile is disabled
+  and the absurd cross-border UK-line label never surfaces.
+- **measuring `*-full` POI (golf course etc.) elimination used OUT-OF-AREA
+  references** (`measuring.ts`). The reference cache / findPlacesInZone fast path
+  is keyed on a 50 km-PADDED bbox, so `data.elements` included POIs outside the
+  play area (a NJ golf course NW of NYC). The configure PREVIEW already filters
+  candidates to the play area (`inAreaCandidates`, rulebook p17), so the
+  elimination disagreed with the drawn overlay AND the in-area nearest-reference
+  label. The `*-full` elimination now filters references to inside the
+  play-area polygon (`pointInPlayArea`), matching the preview + label + the
+  rulebook (only in-area locations are in play).
+
 **v1130 — curse-reveal star back (wavy-edged) + station-property matching
 questions go Overpass-free (added-adjacents rate-limit fix).**
 - **Curse-reveal shape is a FIVE-POINTED STAR again** (`CurseRevealOverlay`),

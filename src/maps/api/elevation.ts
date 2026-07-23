@@ -1,6 +1,8 @@
 import * as turf from "@turf/turf";
 import type { Feature, MultiPolygon, Polygon } from "geojson";
 
+import { getBasemapWaterPolys } from "@/maps/api/basemapWater";
+
 import { ELEVATION_TILE_BASE } from "./constants";
 
 /**
@@ -276,15 +278,43 @@ export async function seaLevelRegion(
     // band range string in `absElevation`. The lower band is the
     // "closer to sea level" region.
     const lowerKey = `${min - 1}-${seekerAbs}`;
-    const lower = bands.features.find(
-        (f: any) => f.properties?.absElevation === lowerKey,
-    );
-    if (!lower) {
+    const lower =
+        (bands.features.find(
+            (f: any) => f.properties?.absElevation === lowerKey,
+        ) as Feature<Polygon | MultiPolygon> | undefined) ??
         // Band labelling varies slightly by turf version — fall back to
         // taking the first feature, which is the lowest band.
-        const first = bands.features[0];
-        if (!first) return null;
-        return first as Feature<Polygon | MultiPolygon>;
+        (bands.features[0] as Feature<Polygon | MultiPolygon> | undefined);
+    if (!lower) return null;
+
+    // v1131: a BODY OF WATER is at sea level (|elevation| = 0 = the closest
+    // any point can be), so it MUST be inside the "closer to sea level"
+    // region — never "further". The coarse DEM grid (~600 m samples) plus
+    // isoband interpolation across a narrow channel (NYC's East River) can
+    // otherwise carve part of the water out (the reported "water marked
+    // further"). Fold the basemap water polygons (captured off the map, the
+    // SAME source body-of-water uses) into the closer region so open water
+    // always reads as closer to sea level. No capture yet → the DEM result
+    // stands (best-effort, never worse).
+    return unionWater(lower, bbox);
+}
+
+/** Union the "closer to sea level" region with any captured basemap water
+ *  in the bbox — water is at sea level, so it's always closer. */
+function unionWater(
+    region: Feature<Polygon | MultiPolygon>,
+    bbox: Bbox,
+): Feature<Polygon | MultiPolygon> {
+    const water = getBasemapWaterPolys(bbox);
+    if (!water || water.length === 0) return region;
+    let acc = region;
+    for (const w of water) {
+        try {
+            const u = turf.union(turf.featureCollection([acc as any, w as any]));
+            if (u) acc = u as Feature<Polygon | MultiPolygon>;
+        } catch {
+            /* skip a malformed water polygon */
+        }
     }
-    return lower as Feature<Polygon | MultiPolygon>;
+    return acc;
 }

@@ -25,6 +25,7 @@ import {
     prettifyLocation,
     QuestionSpecificLocation,
 } from "@/maps/api";
+import { fetchPrewarmedAreaAdmin } from "@/maps/api/adminBoundary";
 import { fetchAreaCoastlineLines } from "@/maps/api/coast";
 import { seaLevelRegion } from "@/maps/api/elevation";
 import {
@@ -49,7 +50,10 @@ import {
     holedMask,
     modifyMapData,
 } from "@/maps/geo-utils";
-import { playAreaSignature } from "@/maps/geo-utils/playAreaIndex";
+import {
+    playAreaSignature,
+    pointInPlayArea,
+} from "@/maps/geo-utils/playAreaIndex";
 import type {
     APILocations,
     HomeGameMeasuringQuestions,
@@ -369,25 +373,42 @@ export const determineMeasuringBoundary = async (
                 return [turf.multiPolygon([])];
             }
 
+            // v1131: restrict the elimination reference set to features
+            // INSIDE the play-area polygon (rulebook p17 — only in-area
+            // locations are in play). The reference cache / findPlacesInZone
+            // fast path is keyed on a 50 km-PADDED bbox, so `data.elements`
+            // includes out-of-area POIs (a NJ golf course NW of an NYC play
+            // area). The configure PREVIEW already filters candidates to the
+            // play area (`inAreaCandidates`, questionImpact), so the
+            // elimination MUST match it or the drawn overlay disagrees with
+            // the answer — the reported "the math takes into account a
+            // location outside the play area". Falls through to the
+            // unfiltered set while the polygon is still loading.
+            const golfPoly = polyGeoJSON.get();
+            const golfPts = data.elements
+                // v970 (rulebook audit B): re-check tags client-side so the
+                // cached paths' exclusions (golf driving ranges / mini golf)
+                // apply to this LIVE query too — label and cut agree.
+                .filter(
+                    (x: any) =>
+                        !x.tags || apiLocationMatches(location, x.tags),
+                )
+                .map((x: any) => ({
+                    lng: x.center ? x.center.lon : x.lon,
+                    lat: x.center ? x.center.lat : x.lat,
+                }))
+                .filter(
+                    (c: { lng: number; lat: number }) =>
+                        !golfPoly ||
+                        pointInPlayArea(golfPoly as any, c.lng, c.lat),
+                );
+            if (golfPts.length === 0) return [turf.multiPolygon([])];
             return [
                 turf.combine(
                     turf.featureCollection(
-                        data.elements
-                            // v970 (rulebook audit B): re-check tags
-                            // client-side so the cached paths' exclusions
-                            // (golf driving ranges / mini golf) apply to
-                            // this LIVE query too — label and cut agree.
-                            .filter(
-                                (x: any) =>
-                                    !x.tags ||
-                                    apiLocationMatches(location, x.tags),
-                            )
-                            .map((x: any) =>
-                                turf.point([
-                                    x.center ? x.center.lon : x.lon,
-                                    x.center ? x.center.lat : x.lat,
-                                ]),
-                            ),
+                        golfPts.map((c: { lng: number; lat: number }) =>
+                            turf.point([c.lng, c.lat]),
+                        ),
                     ),
                 ).features[0],
             ];
@@ -505,13 +526,24 @@ export const determineMeasuringBoundary = async (
             // geometry, then convert each boundary POLYGON to its outline
             // LINE so the seeker-distance buffer measures distance to the
             // border, same as admin1/coastline.
+            //
+            // v1131: read the PREWARMED admin geometry first (the SAME
+            // relation-id-keyed `/api/admin/<id>/6` data the matching county
+            // question uses), so a warm city is Overpass-free — the live
+            // `findPlacesInZone` poly query got rate-limited in a dense
+            // metro WITH added adjacents (NYC), so the measuring county
+            // border drew nothing while matching county — which reads the
+            // prewarmed data — showed a clean overlay (the reported bug).
+            // Falls back to the live relation query on a cold area.
+            const prewarmedAdmin = await fetchPrewarmedAreaAdmin(6);
             const relFeatures = osmtogeojson(
-                await findPlacesInZone(
-                    '["admin_level"="6"]["boundary"="administrative"]',
-                    undefined,
-                    "relation",
-                    "geom",
-                ),
+                prewarmedAdmin ??
+                    (await findPlacesInZone(
+                        '["admin_level"="6"]["boundary"="administrative"]',
+                        undefined,
+                        "relation",
+                        "geom",
+                    )),
             ).features;
             const lines: Feature[] = [];
             for (const f of relFeatures) {

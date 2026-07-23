@@ -12,13 +12,15 @@ import { fetchAreaCoastlineLines } from "@/maps/api/coast";
 import {
     fetchBorders0Land,
     fetchBorders1States,
-    findPlacesInZone,
+    getOverpassData,
 } from "@/maps/api/overpass";
 import {
+    buildHsrQuery,
     countInPlayArea,
     type FamilyKey,
     prefetchCategory,
 } from "@/maps/api/playAreaPrefetch";
+import { CacheType } from "@/maps/api/types";
 
 /**
  * Minimum number of in-play-area reference instances for a subtype's
@@ -251,18 +253,36 @@ const linePresentCache = new Map<string, boolean>();
 const linePresentPending = new Set<string>();
 
 async function computeHsrPresent(): Promise<boolean | null> {
+    // v1131: don't rely on a LIVE `[highspeed=yes]` poly query — in a dense
+    // metro WITH added adjacents (NYC) it gets rate-limited and throws →
+    // null → the gate stays AVAILABLE and the HSR question is never disabled
+    // even though there's no HSR for thousands of km (the reported bug). Use
+    // the SAME cached country HSR data the elimination + nearest-reference
+    // read: `buildHsrQuery()` is null unless the play area's country is a
+    // prewarmed HSR country, so a non-HSR country (the US) is a definitive
+    // "no HSR here" → DISABLE, no network at all. If it IS an HSR country,
+    // read the cached (R2-hit) national network and test whether any line
+    // actually crosses the play-area polygon.
+    const query = buildHsrQuery();
+    if (!query) return false; // country has no HSR network → disable
+    const area = playAreaPolygon();
+    if (!area) return null;
     try {
-        const data = await findPlacesInZone(
-            "[highspeed=yes]",
-            undefined,
-            "nwr",
-            "geom",
-            [],
-            0,
-            true, // silent — a gate must never toast
+        const data = await getOverpassData(query, undefined, CacheType.ZONE_CACHE);
+        const geo = osmtogeojson(data as never);
+        const frame = turf.bboxPolygon(
+            turf.bbox(area) as [number, number, number, number],
         );
-        const geo = osmtogeojson(data);
-        return (geo.features?.length ?? 0) > 0;
+        for (const f of geo.features) {
+            try {
+                if (!turf.booleanIntersects(f, frame)) continue;
+                if (turf.booleanIntersects(f as never, area as never))
+                    return true;
+            } catch {
+                /* skip a malformed HSR line */
+            }
+        }
+        return false;
     } catch {
         return null;
     }

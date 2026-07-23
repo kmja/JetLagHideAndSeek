@@ -510,7 +510,16 @@ function bufferAndUnionImpl(
         if (waterUnion) {
             let ok = false;
             try {
-                const b = turfBuffer(waterUnion as never, r, {
+                // v1131: SIMPLIFY the unioned water before buffering. A dense
+                // coastal metro's sea (NYC's Hudson + East River + harbour +
+                // ocean, tens of thousands of vertices) makes `turf.buffer`
+                // choke and return undefined → no overlay (the recurring
+                // "coastline / body-of-water shows no overlay" bug). A ~55 m
+                // simplify is invisible against a km-scale buffer but keeps
+                // the buffer fast + reliable. `gentleSimplify` never throws,
+                // returns the input if the simplified result is degenerate.
+                const buf = gentleSimplify(waterUnion, 0.0005);
+                const b = turfBuffer(buf as never, r, {
                     units: "kilometers",
                 }) as Feature<Polygon | MultiPolygon> | undefined;
                 if (b && b.geometry && area(b) > 0) {

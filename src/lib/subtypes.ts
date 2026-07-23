@@ -128,7 +128,7 @@ export const SUBTYPES: Record<
         { value: "admin1-border", label: "1st admin div. border", icon: Milestone, description: "Closer or further to a state / canton / prefecture border?", validSizes: ALL },
         { value: "admin2-border", label: "2nd admin div. border", icon: Milestone, description: "Closer or further to a county / district border?", validSizes: ALL },
         // Natural
-        { value: "sea-level", label: "Sea level (altitude)", icon: Compass, description: "Higher or lower altitude? (Phone compass — sometimes inaccurate.)", validSizes: ALL },
+        { value: "sea-level", label: "Sea level (altitude)", icon: Compass, description: "Closer or further from sea level? (Phone altitude — sometimes inaccurate.)", validSizes: ALL },
         { value: "body-of-water", label: "Body of water", icon: Sailboat, description: "Closer or further to any named body of water (no pools)?", validSizes: ALL },
         { value: "coastline", label: "Coastline", icon: Anchor, description: "Closer or further to the coast? (Straits under {{km:2}} don't count.)", validSizes: ALL },
         { value: "peak-full", label: "Mountain", icon: Mountain, description: "Closer or further to a mountain?", validSizes: ALL },
