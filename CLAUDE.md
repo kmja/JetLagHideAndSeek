@@ -477,6 +477,24 @@ build stamp. Current: `v1069`. Use `git log` for the per-version detail;
 - **NEXT: a SINGLE station producer shared by seeker + hider** (shipped in
   v1115 below).
 
+**v1144 — chunking dropped the OCEAN: flatten MultiPolygon before per-cell
+clip.** v1143 was seam-free but the overlay ignored the ocean/shoreline while
+still counting inland lakes (reported: "the pieces don't follow the shoreline …
+lakes within the landmasses are taken into account, but the actual shoreline and
+ocean seems to not be"). Root cause: the dissolved basemap water is ONE
+MultiPolygon (the big ocean member + dozens of pond/river members), and the
+per-cell `intersect(waterMultiPolygon, cellBox)` silently returned nothing for
+the ocean member — so the ocean was DROPPED from every cell while inland ponds
+(that clipped) survived. `intersect` (polygon-clipping) is far more robust
+polygon-vs-box than MultiPolygon-vs-box. Fix in `bufferWaterGridImpl`
+(`geometry/worker.ts`): EXPLODE every water MultiPolygon into individual Polygon
+features (`explodePolys`) before the grid loop, so each per-cell clip is the
+robust polygon-vs-box case; plus a fully-submerged-cell fallback (if a cell's
+centre is inside a water polygon, the whole cell box is water) so a deep-ocean
+cell is never lost even if `intersect` returns empty on full containment. The
+`[bow]` diagnostic now reports the MultiPolygon member count (`sub=N`) so the
+ocean's presence in the input is visible.
+
 **v1143 — chunking seam fix: cells OVERLAP instead of tiling.** v1142 killed the
 spikes but a sawtooth SEAM still ran where cells met. Root cause: each cell's
 buffered region was clipped to its cell rectangle so the pieces would abut, but

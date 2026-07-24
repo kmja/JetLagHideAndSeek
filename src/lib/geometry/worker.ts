@@ -395,6 +395,22 @@ const isPolyFeat = (f: Feature): boolean =>
 const isLineFeat = (f: Feature): boolean =>
     f.geometry?.type === "LineString" || f.geometry?.type === "MultiLineString";
 
+/** Explode a Polygon/MultiPolygon feature into INDIVIDUAL Polygon features (one
+ *  per MultiPolygon member), preserving properties. Per-cell `intersect` is far
+ *  more robust polygon-vs-box than MultiPolygon-vs-box (v1144). */
+function explodePolys(f: Feature): Feature<Polygon>[] {
+    const g = f.geometry;
+    if (g?.type === "Polygon") return [f as Feature<Polygon>];
+    if (g?.type === "MultiPolygon") {
+        return (g.coordinates as number[][][][]).map((rings) => ({
+            type: "Feature",
+            properties: f.properties ?? {},
+            geometry: { type: "Polygon", coordinates: rings },
+        }));
+    }
+    return [];
+}
+
 /** Douglas-Peucker simplify that never throws — returns the input on failure or
  *  if the simplified result is degenerate. `tol` in degrees. */
 function gentleSimplify<T extends Feature>(f: T, tol: number): T {
@@ -691,30 +707,53 @@ function bufferWaterGridImpl(
     const marginLng = r / (111 * cosLat) + 0.0008;
     const tol = Math.min(0.005, Math.max(0.0005, r / 10 / 111));
 
-    const polyTargets = targets.filter(isPolyFeat);
+    // v1144: FLATTEN MultiPolygons into individual Polygon features before
+    // clipping. `intersect` (polygon-clipping) is FAR more robust polygon-vs-box
+    // than MultiPolygon-vs-box — the dissolved basemap water is ONE MultiPolygon
+    // (the big OCEAN plus dozens of ponds/river pieces), and intersecting that
+    // whole MultiPolygon per cell silently returned nothing for the ocean part,
+    // so the ocean/shoreline was DROPPED while inland ponds (that happened to
+    // clip) survived (the reported "ocean not taken into account"). Exploding to
+    // single polygons makes each per-cell clip the robust polygon-vs-box case.
+    const polyTargets = targets.filter(isPolyFeat).flatMap(explodePolys);
     const lineTargets = targets.filter(isLineFeat);
+    const waterAreaPieces = waterAreas.flatMap(explodePolys);
 
     const cellRegions: Feature<Polygon | MultiPolygon>[] = [];
     // v1141.1: clip POLYGONS with `intersect` (robust martinez clipping), NOT
     // `bboxClip`. bboxClip is Sutherland–Hodgman, which on a big concave water
-    // MultiPolygon produces spurious degenerate edges running along the cut
-    // boundary; buffering those made the star/triangle SPIKES in the overlay.
-    // `intersect` against the box polygon gives a clean clipped polygon. Lines
-    // keep `bboxClip` (no fill, so no spike problem).
+    // polygon produces spurious degenerate edges running along the cut boundary;
+    // buffering those made the star/triangle SPIKES. `intersect` against the box
+    // gives a clean clipped polygon. Lines keep `bboxClip` (no fill, no spikes).
     const clipPolyTo = (
-        f: Feature,
+        f: Feature<Polygon>,
         box: [number, number, number, number],
     ): Feature<Polygon | MultiPolygon> | null => {
+        const boxPoly = bboxPolygon(box);
         try {
-            const boxPoly = bboxPolygon(box);
             const c = intersect(
                 featureCollection([f as never, boxPoly as never]),
             ) as Feature<Polygon | MultiPolygon> | null;
-            if (!c?.geometry || area(c) <= 0) return null;
-            return c;
+            if (c?.geometry && area(c) > 0) return c;
         } catch {
-            return null;
+            /* intersect failed on a complex/invalid polygon — fallbacks below */
         }
+        // FALLBACK 1: the cell is FULLY inside this water polygon (a box whose
+        // centre is submerged) → the whole box is water. intersect can return
+        // empty on a full-containment case for some inputs, which would drop a
+        // deep-ocean cell; never lose it.
+        try {
+            const c = turfPoint([
+                (box[0] + box[2]) / 2,
+                (box[1] + box[3]) / 2,
+            ]);
+            if (booleanPointInPolygon(c, f)) {
+                return boxPoly as Feature<Polygon>;
+            }
+        } catch {
+            /* ignore */
+        }
+        return null;
     };
     const clipLineTo = (f: Feature, box: [number, number, number, number]) => {
         try {
@@ -773,7 +812,7 @@ function bufferWaterGridImpl(
                 }
             }
             // Water-areas (coarse sea): union in as-is, clipped to the cell.
-            for (const wa of waterAreas) {
+            for (const wa of waterAreaPieces) {
                 const cl = clipPolyTo(wa, expBox);
                 if (cl) bufParts.push(cl);
             }

@@ -792,14 +792,20 @@ function reportWaterQuestionDiag(
     let polys = 0;
     let lines = 0;
     let verts = 0;
+    let subPolys = 0; // v1144: MultiPolygon members (the ocean is one big member)
     for (const f of feats) {
         const t = f.geometry?.type;
-        if (t === "Polygon" || t === "MultiPolygon") polys++;
-        else if (t === "LineString" || t === "MultiLineString") lines++;
+        if (t === "Polygon" || t === "MultiPolygon") {
+            polys++;
+            subPolys +=
+                t === "MultiPolygon"
+                    ? (f.geometry as MultiPolygon).coordinates.length
+                    : 1;
+        } else if (t === "LineString" || t === "MultiLineString") lines++;
         verts += countVertices(f.geometry);
     }
     waterDiagTag = kind === "coastline" ? "coast" : "bow";
-    waterDiagPrefix = `${waterDiagTag}: src=${source} feats=${feats.length} (poly=${polys} line=${lines}) verts=${verts}`;
+    waterDiagPrefix = `${waterDiagTag}: src=${source} feats=${feats.length} (poly=${polys} sub=${subPolys} line=${lines}) verts=${verts}`;
     // eslint-disable-next-line no-console
     console.log(`[${waterDiagTag}] input ${waterDiagPrefix}`);
 }
