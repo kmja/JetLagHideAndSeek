@@ -42,6 +42,7 @@ import { filterCoastlineByStraitRule } from "@/maps/questions/coastlineStrait";
 import {
     basemapWaterKindSummary,
     basemapWaterVersion,
+    biggestOceanInteriorPoint,
     getDissolvedBasemapSea,
     getDissolvedBasemapWater,
     hasBasemapWater,
@@ -935,6 +936,24 @@ const bufferedDeterminer = memoize(
                             let areaInfo = "";
                             try {
                                 areaInfo = ` area=${Math.round(turf.area(gridded) / 1e6)}km²`;
+                                // v1145 DECISIVE: is a KNOWN open-ocean point in
+                                // the result? distance 0 → it MUST be "closer".
+                                // N = the ocean was dropped from the region.
+                                const $m2 = mapGeoJSON.get();
+                                const op = $m2
+                                    ? biggestOceanInteriorPoint(
+                                          bbox4(turf.bbox($m2)),
+                                      )
+                                    : null;
+                                if (op) {
+                                    const inRes = turf.booleanPointInPolygon(
+                                        turf.point(op),
+                                        gridded as never,
+                                    );
+                                    areaInfo += ` ocean@${op[1].toFixed(3)},${op[0].toFixed(3)}-in-result=${inRes ? "Y" : "N"}`;
+                                } else {
+                                    areaInfo += " ocean-pt=none";
+                                }
                             } catch {
                                 /* ignore */
                             }

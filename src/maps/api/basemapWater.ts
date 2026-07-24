@@ -751,6 +751,44 @@ export function basemapWaterKindSummary(
 }
 
 /**
+ * v1145 DIAGNOSTIC: a representative interior point of the BIGGEST ocean/sea-kind
+ * water polygon for the current play area — i.e. a point that is DEFINITELY in
+ * open water. Used to check whether the buffer RESULT actually contains the
+ * ocean (distance 0 → must be "closer"). `null` if no ocean-kind water.
+ */
+export function biggestOceanInteriorPoint(
+    bbox?: [number, number, number, number],
+): [number, number] | null {
+    const polys = getBasemapWaterPolys(bbox);
+    if (!polys || polys.length === 0) return null;
+    let biggest: Feature<Polygon | MultiPolygon> | null = null;
+    let biggestKm2 = 0;
+    for (const p of polys) {
+        const kind = ((p.properties as { kind?: string } | null)?.kind ?? "")
+            .trim()
+            .toLowerCase();
+        if (!/^(ocean|sea|bay|strait|channel)$/.test(kind)) continue;
+        try {
+            const km2 = turf.area(p);
+            if (km2 > biggestKm2) {
+                biggestKm2 = km2;
+                biggest = p;
+            }
+        } catch {
+            /* skip */
+        }
+    }
+    if (!biggest) return null;
+    try {
+        const pt = turf.pointOnFeature(biggest);
+        const c = pt.geometry.coordinates as [number, number];
+        return [c[0], c[1]];
+    } catch {
+        return null;
+    }
+}
+
+/**
  * Attach a water-capture handler to a MapLibre map. Captures on the map's first
  * idle and on every subsequent idle (tiles load progressively; a pan/zoom loads
  * more). Returns a cleanup that detaches the handler. Intended to be called

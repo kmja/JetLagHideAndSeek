@@ -477,6 +477,19 @@ build stamp. Current: `v1069`. Use `git log` for the per-version detail;
 - **NEXT: a SINGLE station producer shared by seeker + hider** (shipped in
   v1115 below).
 
+**v1146 — body-of-water diagnostic round 2: is the ocean in the RESULT?** The
+v1145 on-phone `[bow]` readout confirmed the ocean IS in the input
+(`biggest=ocean/822km²`, `ocean:9`) and the dissolve produced a 1158-member
+MultiPolygon (`sub=1158`); the chunked result was `area=3889km²`. A new unit
+test feeding the ocean as ONE 576-member MultiPolygon still PASSES (the algorithm
+covers it), so area alone can't say whether the ocean is in the region. v1146
+adds the decisive check: `biggestOceanInteriorPoint` (`basemapWater.ts`) returns
+a representative point of the biggest ocean/sea polygon (definitely open water,
+distance 0 → MUST be "closer"), and the `[bow]` line now reports
+`ocean@lat,lng-in-result=Y/N`. N ⇒ the ocean is genuinely dropped from the region
+(look harder at the real geometry); Y ⇒ the region is correct and the problem is
+downstream (rendering / preview clipping), not the buffer. Diagnostic build.
+
 **v1145 — body-of-water "ocean ignored": REVERT v1144 + add tests & on-phone
 diagnostics (stop guessing).** v1144's flatten-MultiPolygon fix didn't help; the
 overlay still counted inland lakes but IGNORED the open ocean/shoreline. Reverted

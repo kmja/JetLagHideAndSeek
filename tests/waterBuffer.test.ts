@@ -115,6 +115,42 @@ describe("body-of-water buffer", () => {
         expect(inside(region, 0.65, 0.1)).toBe(true);
     });
 
+    it("chunked covers an ocean that is ONE MultiPolygon with MANY members", () => {
+        // The REAL failure shape (v1145 diag: sub=1158): the dissolved water is
+        // ONE feature whose geometry is a MultiPolygon with hundreds of members
+        // (the ocean + a big grid of tile-fragment pieces). Per-cell
+        // intersect(hugeMultiPolygon, box) must still clip the ocean member.
+        const members: number[][][] = [];
+        // A 24×24 grid of small adjacent squares tiling the RIGHT half (ocean),
+        // as separate MultiPolygon members (≈576, real order of magnitude).
+        for (let gx = 0; gx < 24; gx++) {
+            for (let gy = 0; gy < 24; gy++) {
+                const w0 = 0.6 + (gx / 24) * 0.4;
+                const e0 = 0.6 + ((gx + 1) / 24) * 0.4;
+                const s0 = (gy / 24) * 1;
+                const n0 = ((gy + 1) / 24) * 1;
+                members.push([rect(w0, s0, e0, n0)]);
+            }
+        }
+        members.push([POND]);
+        const bigMulti: Feature<MultiPolygon> = {
+            type: "Feature",
+            properties: {},
+            geometry: { type: "MultiPolygon", coordinates: members },
+        };
+        const region = bufferWaterGridImpl({
+            features: [bigMulti],
+            bbox: BBOX,
+            seeker: SEEKER,
+            grid: 4,
+        });
+        expect(region).not.toBeNull();
+        // The ocean interior MUST be covered.
+        expect(inside(region, 0.8, 0.5)).toBe(true);
+        expect(inside(region, 0.95, 0.5)).toBe(true);
+        expect(inside(region, 0.7, 0.9)).toBe(true);
+    });
+
     it("chunked covers an ocean supplied as MANY tile-piece features (undissolved)", () => {
         // If the dissolve fails upstream, the buffer gets the RAW tile pieces:
         // many separate small polygon features that together form the ocean.
