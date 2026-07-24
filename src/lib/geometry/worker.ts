@@ -784,19 +784,17 @@ function bufferWaterGridImpl(
                     ? bufParts[0]
                     : unionPolygonsGently(bufParts);
             if (!cellUnion) continue;
-            // Clip the cell's region to the (unexpanded) cell so cells tile
-            // cleanly and the final union stays small.
-            try {
-                const cellPoly = bboxPolygon([cw, cs, ce, cn]);
-                const clipped = intersect(
-                    featureCollection([cellUnion as never, cellPoly as never]),
-                ) as Feature<Polygon | MultiPolygon> | null;
-                if (clipped && clipped.geometry && area(clipped) > 0) {
-                    cellRegions.push(clipped);
-                }
-            } catch {
-                cellRegions.push(cellUnion);
-            }
+            // v1142.1: do NOT clip the cell's buffered region to the cell
+            // rectangle. Cutting each cell at the hard cell boundary was meant to
+            // make cells tile edge-to-edge, but float error + the final-union
+            // simplify left a jagged SEAM where the abutting edges failed to
+            // dissolve (the sawtooth). Instead let the cells OVERLAP: each cell
+            // buffers water covering ≥ r beyond it (per-axis margin), so the union
+            // of the unclipped per-cell buffers equals the buffer of ALL the water
+            // — with NO internal cut edges, so nothing can leave a seam. The
+            // outer boundary is identical; the region is clipped to the play area
+            // downstream anyway, so extending past the bbox edge is harmless.
+            cellRegions.push(cellUnion);
         }
     }
     if (cellRegions.length === 0) return null;

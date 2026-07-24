@@ -477,6 +477,18 @@ build stamp. Current: `v1069`. Use `git log` for the per-version detail;
 - **NEXT: a SINGLE station producer shared by seeker + hider** (shipped in
   v1115 below).
 
+**v1143 — chunking seam fix: cells OVERLAP instead of tiling.** v1142 killed the
+spikes but a sawtooth SEAM still ran where cells met. Root cause: each cell's
+buffered region was clipped to its cell rectangle so the pieces would abut, but
+float error + the final-union simplify left the abutting edges undissolved (the
+sawtooth). `bufferWaterGridImpl` (`geometry/worker.ts`) no longer clips a cell's
+buffer to the cell rectangle — the cells OVERLAP (each already buffers water
+covering ≥ r beyond it, per the per-axis margin), so the union of the unclipped
+per-cell buffers equals the buffer of ALL the water with NO internal cut edges,
+so nothing can leave a seam. The outer boundary is identical, and the region is
+clipped to the play area downstream anyway, so a cell buffer extending past the
+bbox edge is harmless.
+
 **v1142 — chunking artifact fix: robust polygon clip + per-axis cell margin.**
 v1141's chunked body-of-water COMPUTED for NYC+adjacents but the overlay was
 covered in angular star/triangle SPIKES instead of following the shoreline. Two
