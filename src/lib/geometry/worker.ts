@@ -419,6 +419,30 @@ function unionPolygonsGently(
 ): Feature<Polygon | MultiPolygon> | null {
     const ps = polys.filter(isPolyFeat);
     if (ps.length === 0) return null;
+    if (ps.length === 1) return ps[0] as Feature<Polygon | MultiPolygon>;
+    // v1139: FAST PATH — union ALL polygons in ONE polygon-clipping sweep-line
+    // call. turf.union over a whole FeatureCollection is O((n+k) log n); the
+    // incremental fold below is O(N × accumulator) — each step re-unions the
+    // GROWING sea with one more piece, which is what TIMED OUT the dissolve on a
+    // weak mobile CPU for a dense metro's tile-clipped water (dozens–hundreds of
+    // pieces). The inputs are already cleaned (truncate+simplify per poly), so
+    // the single call usually succeeds; only on a throw (one self-intersecting
+    // piece) do we fall back to the robust incremental union that skips the
+    // offender. This is the biggest lever for "works on PC, not Android".
+    try {
+        const all = union(featureCollection(ps) as never) as Feature<
+            Polygon | MultiPolygon
+        > | null;
+        if (all && all.geometry && area(all) > 0) {
+            return geomVertexCount(all.geometry) > UNION_ACC_SIMPLIFY_AT
+                ? (gentleSimplify(all, 0.0003) as Feature<
+                      Polygon | MultiPolygon
+                  >)
+                : all;
+        }
+    } catch {
+        /* fall back to the robust incremental union below */
+    }
     // Union the largest first so the accumulator starts with the sea/major body.
     ps.sort((a, b) => {
         try {
@@ -557,6 +581,17 @@ function bufferAndUnionImpl(
     }
     if (parts.length === 0) return null;
     if (parts.length === 1) return parts[0];
+    // v1139: FAST PATH — one sweep-line union of ALL buffered parts (see
+    // unionPolygonsGently). The incremental fold is the slow O(N × accumulator)
+    // fallback for when a part is bad.
+    try {
+        const all = union(featureCollection(parts) as never) as Feature<
+            Polygon | MultiPolygon
+        > | null;
+        if (all && all.geometry && area(all) > 0) return all;
+    } catch {
+        /* fall back to the incremental union below */
+    }
     // Incremental union — union each part into the accumulator; on a per-part
     // failure keep the accumulator (which already holds the sea) and skip only
     // the offending part, instead of collapsing the whole result.

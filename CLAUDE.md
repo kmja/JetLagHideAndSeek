@@ -477,6 +477,22 @@ build stamp. Current: `v1069`. Use `git log` for the per-version detail;
 - **NEXT: a SINGLE station producer shared by seeker + hider** (shipped in
   v1115 below).
 
+**v1139 — water dissolve/buffer union is a SINGLE sweep-line call, not an
+incremental fold (the real fix for body-of-water timing out on mobile).** The
+v1138 device budget didn't help — a modern Android reports 8 "cores" (throttled
+big.LITTLE), so `hardwareConcurrency` never flagged it as low-end. The actual
+bottleneck was the union ALGORITHM: `unionPolygonsGently` (dissolve) and
+`bufferAndUnionImpl` (buffer) both folded polygons INCREMENTALLY — each step
+re-unioned the GROWING sea accumulator with one more piece, O(N × total_verts),
+which for a dense metro's dozens–hundreds of tile-clipped water polygons blew
+past the 30 s worker timeout on a weak CPU. Both now try ONE
+`turf.union(featureCollection(all))` first — a polygon-clipping sweep-line union
+of every polygon at once, O((n+k) log n) — falling back to the robust
+incremental fold only if the single call throws on a self-intersecting piece
+(the inputs are pre-cleaned, so it usually succeeds). Device-independent; the
+biggest lever for "works on PC, not Android". (If it still times out on the
+heaviest metros, the next step is geographic chunking across the worker pool.)
+
 **v1138 — "How to play" closes-on-open fix + device-aware water budget +
 transit-line single-line auto-open.**
 - **"How to play" closed as soon as it opened** (`HowToPlaySheet` /
