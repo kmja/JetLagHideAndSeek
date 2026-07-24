@@ -1,0 +1,146 @@
+import { booleanPointInPolygon, point } from "@turf/turf";
+import type { Feature, MultiPolygon, Polygon } from "geojson";
+import { describe, expect, it } from "vitest";
+
+import {
+    bufferAndUnionImpl,
+    bufferWaterGridImpl,
+} from "@/lib/geometry/worker";
+
+/**
+ * Regression tests for the body-of-water buffer — specifically whether the
+ * GEOGRAPHIC CHUNKING (`bufferWaterGridImpl`, v1141) produces the SAME "closer
+ * than my nearest water" region as the non-chunked `bufferAndUnionImpl`.
+ *
+ * The reported bug (v1141–v1144, NYC + adjacents): the overlay counted inland
+ * ponds but IGNORED the open ocean/shoreline. These tests reproduce that with
+ * synthetic geometry — a big OCEAN polygon on the right + a small inland POND —
+ * fed as ONE dissolved MultiPolygon (exactly how `getDissolvedBasemapWater`
+ * hands it to the buffer). A point INSIDE the ocean has distance 0 to water, so
+ * it MUST be in the "closer" region regardless of the buffer radius; if chunking
+ * drops the ocean, that assertion fails.
+ */
+
+// Axis-aligned rectangle ring [ [lng,lat], ... ] (closed).
+function rect(
+    w: number,
+    s: number,
+    e: number,
+    n: number,
+): number[][] {
+    return [
+        [w, s],
+        [e, s],
+        [e, n],
+        [w, n],
+        [w, s],
+    ];
+}
+
+// The dissolved basemap water = ONE MultiPolygon feature: a big OCEAN (right
+// half) + a small inland POND (left).
+const OCEAN = rect(0.6, 0, 1, 1);
+const POND = rect(0.2, 0.2, 0.24, 0.24);
+const water: Feature<MultiPolygon> = {
+    type: "Feature",
+    properties: {},
+    geometry: {
+        type: "MultiPolygon",
+        coordinates: [[OCEAN], [POND]],
+    },
+};
+
+const BBOX: [number, number, number, number] = [0, 0, 1, 1];
+// Seeker on land, ~0.1° (≈11 km) west of the ocean shore (x=0.6).
+const SEEKER = { lat: 0.5, lng: 0.5 };
+
+const inside = (
+    region: Feature<Polygon | MultiPolygon> | null,
+    lng: number,
+    lat: number,
+): boolean =>
+    region != null && booleanPointInPolygon(point([lng, lat]), region as never);
+
+describe("body-of-water buffer", () => {
+    it("non-chunked (bufferAndUnion) covers the ocean interior + shore band", () => {
+        const region = bufferAndUnionImpl({ features: [water], seeker: SEEKER });
+        expect(region).not.toBeNull();
+        // Deep inside the ocean → distance 0 → always "closer".
+        expect(inside(region, 0.8, 0.5)).toBe(true);
+        expect(inside(region, 0.95, 0.5)).toBe(true);
+        // Inland pond interior → distance 0 → "closer".
+        expect(inside(region, 0.22, 0.22)).toBe(true);
+        // Land just west of the ocean shore (≈5.5 km < r) → "closer".
+        expect(inside(region, 0.55, 0.5)).toBe(true);
+        // Far corner, beyond r from all water → NOT "closer".
+        expect(inside(region, 0.02, 0.98)).toBe(false);
+    });
+
+    it("chunked (bufferWaterGrid, 4x4) covers the ocean interior + shore band", () => {
+        const region = bufferWaterGridImpl({
+            features: [water],
+            bbox: BBOX,
+            seeker: SEEKER,
+            grid: 4,
+        });
+        expect(region).not.toBeNull();
+        // THE CRITICAL ASSERTION: the ocean must not be dropped by chunking.
+        expect(inside(region, 0.8, 0.5)).toBe(true);
+        expect(inside(region, 0.95, 0.5)).toBe(true);
+        expect(inside(region, 0.22, 0.22)).toBe(true);
+        expect(inside(region, 0.55, 0.5)).toBe(true);
+        expect(inside(region, 0.02, 0.98)).toBe(false);
+    });
+
+    it("chunked covers an ocean that has an ISLAND HOLE", () => {
+        // Ocean (right half) with an island hole in the middle of it — the real
+        // sea has islands, which become holes in the water polygon.
+        const oceanWithHole: Feature<Polygon> = {
+            type: "Feature",
+            properties: {},
+            geometry: {
+                type: "Polygon",
+                coordinates: [OCEAN, rect(0.75, 0.45, 0.8, 0.5)],
+            },
+        };
+        const region = bufferWaterGridImpl({
+            features: [oceanWithHole],
+            bbox: BBOX,
+            seeker: SEEKER,
+            grid: 4,
+        });
+        expect(region).not.toBeNull();
+        // Open ocean away from the island hole → covered.
+        expect(inside(region, 0.9, 0.9)).toBe(true);
+        expect(inside(region, 0.65, 0.1)).toBe(true);
+    });
+
+    it("chunked covers an ocean supplied as MANY tile-piece features (undissolved)", () => {
+        // If the dissolve fails upstream, the buffer gets the RAW tile pieces:
+        // many separate small polygon features that together form the ocean.
+        const pieces: Feature<Polygon>[] = [];
+        for (let gx = 6; gx < 10; gx++) {
+            for (let gy = 0; gy < 10; gy++) {
+                pieces.push({
+                    type: "Feature",
+                    properties: { kind: "ocean" },
+                    geometry: {
+                        type: "Polygon",
+                        coordinates: [
+                            rect(gx / 10, gy / 10, (gx + 1) / 10, (gy + 1) / 10),
+                        ],
+                    },
+                });
+            }
+        }
+        const region = bufferWaterGridImpl({
+            features: pieces,
+            bbox: BBOX,
+            seeker: SEEKER,
+            grid: 4,
+        });
+        expect(region).not.toBeNull();
+        expect(inside(region, 0.8, 0.5)).toBe(true);
+        expect(inside(region, 0.95, 0.5)).toBe(true);
+    });
+});

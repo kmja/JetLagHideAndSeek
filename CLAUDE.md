@@ -477,6 +477,30 @@ build stamp. Current: `v1069`. Use `git log` for the per-version detail;
 - **NEXT: a SINGLE station producer shared by seeker + hider** (shipped in
   v1115 below).
 
+**v1145 — body-of-water "ocean ignored": REVERT v1144 + add tests & on-phone
+diagnostics (stop guessing).** v1144's flatten-MultiPolygon fix didn't help; the
+overlay still counted inland lakes but IGNORED the open ocean/shoreline. Reverted
+v1144 and built real instrumentation instead of another speculative patch:
+- **Unit tests** (`tests/waterBuffer.test.ts`): `bufferWaterGridImpl` +
+  `bufferAndUnionImpl` are now exported from `geometry/worker.ts` (the
+  `self.onmessage` assignment is guarded so the module imports in node) and tested
+  against synthetic water — a big OCEAN polygon + an inland POND fed as one
+  dissolved MultiPolygon, PLUS an ocean-with-island-hole and the ocean as many
+  undissolved tile pieces. A point INSIDE the ocean has distance 0, so it MUST be
+  in the "closer" region. **All pass** → the chunking algorithm is correct for
+  realistic geometry, so the bug is NOT the algorithm — it's the INPUT (the ocean
+  isn't in the water set the buffer receives, or the real ocean geometry is
+  pathological beyond these shapes).
+- **On-phone diagnostic** (the phone can only read the debug panel's
+  `lastBodyOfWaterDiag`, not the console): the `[bow]` line now reports the
+  PRE-dissolve water KIND histogram + biggest member (`basemapWaterKindSummary`,
+  `basemapWater.ts`) — e.g. `water=42 [ocean:1 lake:3 …] biggest=ocean/450km²` —
+  which decisively shows whether the ocean/sea is even in the captured water set
+  (dissolve loses per-member `kind`, so it must be read before). Also adds the
+  dissolved MultiPolygon member count (`sub=N`) and the chunked result AREA
+  (`area=Nkm²`), so a large ocean member + a tiny result area would pinpoint a
+  drop. Diagnostic build — awaiting the new `[bow]` readout to localize the cause.
+
 **v1143 — chunking seam fix: cells OVERLAP instead of tiling.** v1142 killed the
 spikes but a sawtooth SEAM still ran where cells met. Root cause: each cell's
 buffered region was clipped to its cell rectangle so the pieces would abut, but

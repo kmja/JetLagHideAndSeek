@@ -40,6 +40,7 @@ import {
 } from "@/lib/geometry/client";
 import { filterCoastlineByStraitRule } from "@/maps/questions/coastlineStrait";
 import {
+    basemapWaterKindSummary,
     basemapWaterVersion,
     getDissolvedBasemapSea,
     getDissolvedBasemapWater,
@@ -788,18 +789,25 @@ function reportWaterQuestionDiag(
     kind: "body-of-water" | "coastline",
     feats: Feature[],
     source: string,
+    extra?: string,
 ): void {
     let polys = 0;
     let lines = 0;
     let verts = 0;
+    let subPolys = 0; // MultiPolygon members — the OCEAN is one big member.
     for (const f of feats) {
         const t = f.geometry?.type;
-        if (t === "Polygon" || t === "MultiPolygon") polys++;
-        else if (t === "LineString" || t === "MultiLineString") lines++;
+        if (t === "Polygon" || t === "MultiPolygon") {
+            polys++;
+            subPolys +=
+                t === "MultiPolygon"
+                    ? (f.geometry as MultiPolygon).coordinates.length
+                    : 1;
+        } else if (t === "LineString" || t === "MultiLineString") lines++;
         verts += countVertices(f.geometry);
     }
     waterDiagTag = kind === "coastline" ? "coast" : "bow";
-    waterDiagPrefix = `${waterDiagTag}: src=${source} feats=${feats.length} (poly=${polys} line=${lines}) verts=${verts}`;
+    waterDiagPrefix = `${waterDiagTag}: src=${source} feats=${feats.length} (poly=${polys} sub=${subPolys} line=${lines}) verts=${verts}${extra ? ` | ${extra}` : ""}`;
     // eslint-disable-next-line no-console
     console.log(`[${waterDiagTag}] input ${waterDiagPrefix}`);
 }
@@ -883,10 +891,23 @@ const bufferedDeterminer = memoize(
             // the border/HSR line families share this path since v1132 but keep
             // their own diagnostics out of the body-of-water panel line.)
             if (isWaterQ && feats.length > 0) {
+                // v1145 DIAGNOSTIC: include the PRE-dissolve water KIND histogram
+                // (dissolve loses per-member kind) so the panel shows whether the
+                // ocean/sea is actually in the water set feeding the buffer.
+                let kindInfo = "";
+                try {
+                    const $m = mapGeoJSON.get();
+                    kindInfo = $m
+                        ? basemapWaterKindSummary(bbox4(turf.bbox($m)))
+                        : "";
+                } catch {
+                    /* ignore */
+                }
                 reportWaterQuestionDiag(
                     question.type as "body-of-water" | "coastline",
                     feats,
                     hasBasemapWater() ? "basemap-water" : "cold-osm",
+                    kindInfo,
                 );
             }
             // v1141: for a WATER question over a LARGE play area (NYC + adjacents),
@@ -911,8 +932,14 @@ const bufferedDeterminer = memoize(
                             grid,
                         );
                         if (gridded) {
+                            let areaInfo = "";
+                            try {
+                                areaInfo = ` area=${Math.round(turf.area(gridded) / 1e6)}km²`;
+                            } catch {
+                                /* ignore */
+                            }
                             reportWaterQuestionResult(
-                                `bufferWaterGrid ok (${grid}x${grid})`,
+                                `bufferWaterGrid ok (${grid}x${grid})${areaInfo}`,
                             );
                             return gridded;
                         }

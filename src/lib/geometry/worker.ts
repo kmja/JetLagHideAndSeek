@@ -487,7 +487,7 @@ function unionPolygonsGently(
     return acc;
 }
 
-function bufferAndUnionImpl(
+export function bufferAndUnionImpl(
     p: BufferAndUnionPayload,
 ): Feature<Polygon | MultiPolygon> | null {
     const feats = (p.features ?? []).filter((f) => f && f.geometry);
@@ -643,7 +643,7 @@ function bufferAndUnionImpl(
  * never freezes the UI. `__waterArea`-tagged features (the coarse sea, v987) are
  * unioned in AS-IS per cell (never buffered), matching bufferAndUnionImpl.
  */
-function bufferWaterGridImpl(
+export function bufferWaterGridImpl(
     p: BufferWaterGridPayload,
 ): Feature<Polygon | MultiPolygon> | null {
     const feats = (p.features ?? []).filter((f) => f && f.geometry);
@@ -874,7 +874,7 @@ function landFromWaterImpl(
     return best ?? parts[0] ?? frame;
 }
 
-self.onmessage = async (e: MessageEvent<InMessage>) => {
+const handleGeometryMessage = async (e: MessageEvent<InMessage>) => {
     const msg = e.data;
     const { id, type } = msg;
     try {
@@ -943,3 +943,9 @@ self.onmessage = async (e: MessageEvent<InMessage>) => {
         self.postMessage({ id, ok: false, error: String(err) });
     }
 };
+
+// Guard so this module can be imported in a non-worker env (unit tests) without
+// throwing on `self`. The pure geometry impls below are exported for testing.
+if (typeof self !== "undefined") {
+    self.onmessage = handleGeometryMessage;
+}

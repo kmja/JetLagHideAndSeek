@@ -715,6 +715,42 @@ export function hasBasemapWater(): boolean {
 }
 
 /**
+ * v1145 DIAGNOSTIC: a compact summary of the captured basemap water for the
+ * current play area (before dissolve, so per-member `kind` is still present).
+ * Answers "is the ocean/sea actually in the water set that feeds the buffer?" —
+ * a histogram of `kind` + the biggest member's area/kind. Cheap; read-only.
+ */
+export function basemapWaterKindSummary(
+    bbox?: [number, number, number, number],
+): string {
+    const polys = getBasemapWaterPolys(bbox);
+    if (!polys || polys.length === 0) return "water=none";
+    const kinds = new Map<string, number>();
+    let biggestKm2 = 0;
+    let biggestKind = "?";
+    for (const p of polys) {
+        const kind =
+            ((p.properties as { kind?: string } | null)?.kind ?? "").trim() ||
+            "untagged";
+        kinds.set(kind, (kinds.get(kind) ?? 0) + 1);
+        try {
+            const km2 = turf.area(p) / 1e6;
+            if (km2 > biggestKm2) {
+                biggestKm2 = km2;
+                biggestKind = kind;
+            }
+        } catch {
+            /* skip unmeasurable */
+        }
+    }
+    const hist = [...kinds.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .map(([k, n]) => `${k}:${n}`)
+        .join(" ");
+    return `water=${polys.length} [${hist}] biggest=${biggestKind}/${Math.round(biggestKm2)}km²`;
+}
+
+/**
  * Attach a water-capture handler to a MapLibre map. Captures on the map's first
  * idle and on every subsequent idle (tiles load progressively; a pan/zoom loads
  * more). Returns a cleanup that detaches the handler. Intended to be called
