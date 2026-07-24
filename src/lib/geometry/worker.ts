@@ -679,15 +679,44 @@ function bufferWaterGridImpl(
     const N = Math.max(1, Math.min(8, Math.round(p.grid) || 3));
     const cellW = (e - w) / N;
     const cellH = (n - s) / N;
-    // r (km) → degrees, plus a small epsilon so a cell-boundary sliver isn't lost.
-    const marginDeg = r / 111 + 0.0008;
+    // r (km) → degrees, PER AXIS. A degree of latitude is ~111 km everywhere,
+    // but a degree of longitude shrinks with latitude (≈111·cos(lat) km), so a
+    // single r/111 margin under-covers east/west — water within r km of a cell
+    // but beyond ~cos(lat)·r would be excluded, leaving GAPS at vertical seams.
+    // The margin must be ≥ r km in every direction so a cell's buffer of the
+    // clipped water equals the buffer of the full water WITHIN the cell. Plus a
+    // small epsilon so a cell-boundary sliver isn't lost.
+    const cosLat = Math.max(0.2, Math.cos((p.seeker.lat * Math.PI) / 180));
+    const marginLat = r / 111 + 0.0008;
+    const marginLng = r / (111 * cosLat) + 0.0008;
     const tol = Math.min(0.005, Math.max(0.0005, r / 10 / 111));
 
     const polyTargets = targets.filter(isPolyFeat);
     const lineTargets = targets.filter(isLineFeat);
 
     const cellRegions: Feature<Polygon | MultiPolygon>[] = [];
-    const clipTo = (f: Feature, box: [number, number, number, number]) => {
+    // v1141.1: clip POLYGONS with `intersect` (robust martinez clipping), NOT
+    // `bboxClip`. bboxClip is Sutherland–Hodgman, which on a big concave water
+    // MultiPolygon produces spurious degenerate edges running along the cut
+    // boundary; buffering those made the star/triangle SPIKES in the overlay.
+    // `intersect` against the box polygon gives a clean clipped polygon. Lines
+    // keep `bboxClip` (no fill, so no spike problem).
+    const clipPolyTo = (
+        f: Feature,
+        box: [number, number, number, number],
+    ): Feature<Polygon | MultiPolygon> | null => {
+        try {
+            const boxPoly = bboxPolygon(box);
+            const c = intersect(
+                featureCollection([f as never, boxPoly as never]),
+            ) as Feature<Polygon | MultiPolygon> | null;
+            if (!c?.geometry || area(c) <= 0) return null;
+            return c;
+        } catch {
+            return null;
+        }
+    };
+    const clipLineTo = (f: Feature, box: [number, number, number, number]) => {
         try {
             const c = bboxClip(f as never, box) as Feature | undefined;
             if (!c?.geometry) return null;
@@ -706,10 +735,10 @@ function bufferWaterGridImpl(
             const cs = s + j * cellH;
             const cn = s + (j + 1) * cellH;
             const expBox: [number, number, number, number] = [
-                cw - marginDeg,
-                cs - marginDeg,
-                ce + marginDeg,
-                cn + marginDeg,
+                cw - marginLng,
+                cs - marginLat,
+                ce + marginLng,
+                cn + marginLat,
             ];
             const bufParts: Feature<Polygon | MultiPolygon>[] = [];
 
@@ -717,7 +746,7 @@ function bufferWaterGridImpl(
             // buffer by the global r).
             if (r > 0) {
                 const localPolys = polyTargets
-                    .map((f) => clipTo(f, expBox))
+                    .map((f) => clipPolyTo(f, expBox))
                     .filter(Boolean) as Feature[];
                 const merged = unionPolygonsGently(localPolys);
                 if (merged) {
@@ -731,7 +760,7 @@ function bufferWaterGridImpl(
                     }
                 }
                 for (const lf of lineTargets) {
-                    const cl = clipTo(lf, expBox);
+                    const cl = clipLineTo(lf, expBox);
                     if (!cl) continue;
                     try {
                         const b = turfBuffer(gentleSimplify(cl, 0.0003), r, {
@@ -745,10 +774,8 @@ function bufferWaterGridImpl(
             }
             // Water-areas (coarse sea): union in as-is, clipped to the cell.
             for (const wa of waterAreas) {
-                const cl = clipTo(wa, expBox);
-                if (cl && isPolyFeat(cl)) {
-                    bufParts.push(cl as Feature<Polygon | MultiPolygon>);
-                }
+                const cl = clipPolyTo(wa, expBox);
+                if (cl) bufParts.push(cl);
             }
 
             if (bufParts.length === 0) continue;

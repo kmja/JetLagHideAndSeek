@@ -477,6 +477,25 @@ build stamp. Current: `v1069`. Use `git log` for the per-version detail;
 - **NEXT: a SINGLE station producer shared by seeker + hider** (shipped in
   v1115 below).
 
+**v1142 — chunking artifact fix: robust polygon clip + per-axis cell margin.**
+v1141's chunked body-of-water COMPUTED for NYC+adjacents but the overlay was
+covered in angular star/triangle SPIKES instead of following the shoreline. Two
+bugs in `bufferWaterGridImpl` (`geometry/worker.ts`):
+- **`bboxClip` on the water polygon → spikes.** Clipping the water to each cell
+  used `turf.bboxClip` (Sutherland–Hodgman), which on a big concave water
+  MultiPolygon emits spurious DEGENERATE edges running along the cut boundary;
+  buffering those produced the spikes. Polygons are now clipped with
+  `turf.intersect` against the cell box (robust martinez clipping → a clean
+  clipped polygon); LINE targets keep `bboxClip` (no fill, no spike problem).
+- **Single-axis margin → seams.** The cell was expanded by `r/111` in BOTH axes,
+  but a degree of longitude is only ~`111·cos(lat)` km, so east/west the margin
+  under-covered by ~`cos(lat)` — water within `r` km of a cell but beyond
+  `cos(lat)·r` was excluded, risking GAPS at vertical seams. The margin is now
+  PER-AXIS (`marginLat = r/111`, `marginLng = r/(111·cos(lat))`) so a cell's
+  buffer of the clipped water equals the buffer of the full water within the
+  cell in every direction, and adjacent cells meet with matching geometry that
+  the final union dissolves cleanly.
+
 **v1141 — body-of-water GEOGRAPHIC CHUNKING (full detail, split into tractable
 cells) — the real fix for NYC + adjacents on Android.** v1139/v1140 (sweep-line
 union + bbox-scaled read/simplify) still timed out on Android for NYC + several
