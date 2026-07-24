@@ -477,6 +477,18 @@ build stamp. Current: `v1069`. Use `git log` for the per-version detail;
 - **NEXT: a SINGLE station producer shared by seeker + hider** (shipped in
   v1115 below).
 
+**v1147 — body-of-water diagnostic round 3: fix the ocean test-point + report
+post-dissolve biggest member.** v1146 reported `ocean@40.580,-73.301-in-result=N`
+— but that point is EAST of the NYC play-area bbox (open Atlantic), because
+`pointOnFeature` of the huge ocean polygon landed outside the play area, so "not
+in result" was meaningless. Two diagnostic fixes: (1) `biggestOceanInteriorPoint`
+now CLIPS the ocean to the play-area bbox before picking the point, so it's
+genuinely ocean AND inside the play area — a real Y/N. (2) the `[bow]` line adds
+`dBig=Nkm²`, the biggest member area AFTER dissolve — since `sub=1158` is
+suspicious (dissolving 57 pieces shouldn't yield 1158 members), this shows
+whether the 822 km² ocean SURVIVED the dissolve as one member or got shattered.
+Diagnostic build.
+
 **v1146 — body-of-water diagnostic round 2: is the ocean in the RESULT?** The
 v1145 on-phone `[bow]` readout confirmed the ocean IS in the input
 (`biggest=ocean/822km²`, `ocean:9`) and the dissolve produced a 1158-member

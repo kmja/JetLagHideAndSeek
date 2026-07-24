@@ -780,7 +780,21 @@ export function biggestOceanInteriorPoint(
     }
     if (!biggest) return null;
     try {
-        const pt = turf.pointOnFeature(biggest);
+        // The ocean polygon extends FAR beyond the play area — `pointOnFeature`
+        // of the raw polygon can land outside the bbox (open Atlantic), giving a
+        // meaningless "not in result". CLIP the ocean to the play-area bbox first
+        // so the point is genuinely ocean AND inside the play area.
+        let target: Feature<Polygon | MultiPolygon> = biggest;
+        if (bbox) {
+            const clipped = turf.intersect(
+                turf.featureCollection([
+                    biggest as never,
+                    turf.bboxPolygon(bbox) as never,
+                ]),
+            ) as Feature<Polygon | MultiPolygon> | null;
+            if (clipped?.geometry) target = clipped;
+        }
+        const pt = turf.pointOnFeature(target);
         const c = pt.geometry.coordinates as [number, number];
         return [c[0], c[1]];
     } catch {

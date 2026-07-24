@@ -796,19 +796,31 @@ function reportWaterQuestionDiag(
     let lines = 0;
     let verts = 0;
     let subPolys = 0; // MultiPolygon members — the OCEAN is one big member.
+    let dissolvedBiggestKm2 = 0; // biggest member AFTER dissolve (ocean survives?)
     for (const f of feats) {
         const t = f.geometry?.type;
         if (t === "Polygon" || t === "MultiPolygon") {
             polys++;
-            subPolys +=
+            const g = f.geometry as Polygon | MultiPolygon;
+            const memberRings =
                 t === "MultiPolygon"
-                    ? (f.geometry as MultiPolygon).coordinates.length
-                    : 1;
+                    ? (g as MultiPolygon).coordinates
+                    : [(g as Polygon).coordinates];
+            subPolys += memberRings.length;
+            for (const rings of memberRings) {
+                try {
+                    const km2 =
+                        turf.area(turf.polygon(rings as number[][][])) / 1e6;
+                    if (km2 > dissolvedBiggestKm2) dissolvedBiggestKm2 = km2;
+                } catch {
+                    /* skip degenerate member */
+                }
+            }
         } else if (t === "LineString" || t === "MultiLineString") lines++;
         verts += countVertices(f.geometry);
     }
     waterDiagTag = kind === "coastline" ? "coast" : "bow";
-    waterDiagPrefix = `${waterDiagTag}: src=${source} feats=${feats.length} (poly=${polys} sub=${subPolys} line=${lines}) verts=${verts}${extra ? ` | ${extra}` : ""}`;
+    waterDiagPrefix = `${waterDiagTag}: src=${source} feats=${feats.length} (poly=${polys} sub=${subPolys} dBig=${Math.round(dissolvedBiggestKm2)}km² line=${lines}) verts=${verts}${extra ? ` | ${extra}` : ""}`;
     // eslint-disable-next-line no-console
     console.log(`[${waterDiagTag}] input ${waterDiagPrefix}`);
 }
