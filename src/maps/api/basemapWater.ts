@@ -186,17 +186,23 @@ const ensured = new Map<string, Promise<void>>();
 const ENSURE_AWAIT_CAP_MS = 4500;
 
 /**
- * v1138: DEVICE-AWARE water tile budget. Body-of-water's dissolve+buffer of a
- * dense metro's water (NYC + adjacents) completes on a PC but TIMES OUT on a
- * weaker mobile CPU (fewer cores) — the reported "works on PC, not Android".
- * The tile reader picks the highest zoom whose tile count fits this budget, so
- * a SMALLER budget forces a lower zoom → fewer, larger polygons → a far lighter
- * dissolve+buffer that a phone can actually finish. High-end devices keep the
- * z12-where-it-fits detail; low-end phones drop to a coarser (but computable)
- * water set. `hardwareConcurrency` is the reliable signal everywhere;
- * `deviceMemory` (Chromium-only) refines it when present.
+ * v1140: water tile budget scaled by PLAY-AREA SIZE (device-independent) plus a
+ * best-effort device reducer. Body-of-water's dissolve+buffer of a dense metro's
+ * water (NYC + adjacents) completes on a PC but TIMED OUT on a phone. The v1138
+ * core-count heuristic MISSED modern Android (8 throttled big.LITTLE "cores"
+ * report as high-end), so the primary signal here is BBOX AREA: a large play
+ * area (NYC + several adjacents) reads a COARSER zoom → far fewer water polygons
+ * → a dissolve+buffer any device can finish; a small area keeps the fine z12
+ * detail. The tile reader picks the highest zoom whose count fits the budget.
+ * `hardwareConcurrency`/`deviceMemory` still trim it further where they read as
+ * low-end (they never over-report, so a false "high-end" just falls back to the
+ * area signal). Coarser water on a huge bbox is fine — we buffer by kilometres.
  */
-function waterTileBudget(): number {
+function waterTileBudget(bbox: [number, number, number, number]): number {
+    // Rough play-area span in square degrees (lng × lat).
+    const areaDeg2 = Math.abs(bbox[2] - bbox[0]) * Math.abs(bbox[3] - bbox[1]);
+    // NYC ≈ 0.15 deg², NYC + adjacents ≈ 0.3–0.6 deg².
+    let budget = areaDeg2 > 0.22 ? 12 : areaDeg2 > 0.08 ? 20 : 30;
     const cores =
         typeof navigator !== "undefined" &&
         typeof navigator.hardwareConcurrency === "number"
@@ -208,12 +214,9 @@ function waterTileBudget(): number {
             "number"
             ? (navigator as { deviceMemory?: number }).deviceMemory!
             : 8;
-    // Low-end phone: force a coarse, computable water set.
-    if (cores <= 4 || mem <= 3) return 12;
-    // Mid-range.
-    if (cores <= 6 || mem <= 5) return 20;
-    // Desktop / high-end: finest the adaptive reader will take.
-    return 30;
+    if (cores <= 4 || mem <= 3) budget = Math.min(budget, 12);
+    else if (cores <= 6 || mem <= 5) budget = Math.min(budget, 20);
+    return budget;
 }
 
 export function ensureBasemapWaterForArea(
@@ -253,7 +256,7 @@ export function ensureBasemapWaterForArea(
         // zoom is chosen tractable. (Getting z12+ detail for a dense metro would
         // need a seeker-local high-zoom read, not a whole-area one — a possible
         // future enhancement.)
-        const maxTiles = waterTileBudget();
+        const maxTiles = waterTileBudget(bbox);
         const feats = usePack
             ? await fetchLayerPolysFromPM(usePack.pmtiles, bbox, "water", {
                   targetZoom: Math.min(12, usePack.maxZoom),

@@ -477,6 +477,28 @@ build stamp. Current: `v1069`. Use `git log` for the per-version detail;
 - **NEXT: a SINGLE station producer shared by seeker + hider** (shipped in
   v1115 below).
 
+**v1140 — body-of-water on mobile, round 2: bbox-scaled water detail +
+buffer-distance-scaled simplify.** The v1139 sweep-line union helped but
+body-of-water STILL timed out on Android for NYC + adjacents. Two more
+device-INDEPENDENT levers (the v1138 core-count heuristic missed modern Android's
+8 throttled cores):
+- **Water read detail now scales with PLAY-AREA SIZE, not device** (`waterTileBudget(bbox)`,
+  `basemapWater.ts`). A large bbox (NYC + several adjacents ≈ 0.3–0.6 deg²) reads
+  a COARSER zoom (budget 12 → the reader steps down to ~z10, a handful of tiles)
+  → far fewer water polygons → a dissolve+buffer any device finishes; a small
+  single-city area keeps the fine z12 detail. Coarse water on a huge play area is
+  fine — we buffer by kilometres. The core-count/`deviceMemory` reducer still
+  trims further where it reads as low-end (it never over-reports, so a false
+  "high-end" just falls back to the area signal).
+- **Pre-buffer simplify scaled to the buffer distance `r`** (`bufferAndUnionImpl`,
+  `geometry/worker.ts`). The water is simplified to ~`r/10` (clamped
+  [~55 m, ~550 m]) before `turf.buffer` — invisible against the km-scale buffer
+  it feeds, but a far-from-water seeker (large `r`, the expensive buffer) now
+  simplifies hard, keeping the buffer fast on a weak CPU; a near-water seeker
+  (tiny `r`) stays crisp.
+Both reduce the READ (fewer tiles to decode) AND the COMPUTE. Trade-off: a
+huge play area's body-of-water is now coarser everywhere, but it WORKS on mobile.
+
 **v1139 — water dissolve/buffer union is a SINGLE sweep-line call, not an
 incremental fold (the real fix for body-of-water timing out on mobile).** The
 v1138 device budget didn't help — a modern Android reports 8 "cores" (throttled
