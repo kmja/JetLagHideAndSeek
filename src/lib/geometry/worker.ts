@@ -8,6 +8,7 @@ import type {
 
 import {
     area,
+    bboxClip,
     bboxPolygon,
     booleanPointInPolygon,
     buffer as turfBuffer,
@@ -15,6 +16,7 @@ import {
     difference,
     distance as turfDistance,
     featureCollection,
+    intersect,
     point as turfPoint,
     pointToLineDistance,
     polygon,
@@ -120,6 +122,12 @@ type BufferAndUnionPayload = {
     features: Feature[];
     seeker: { lat: number; lng: number };
 };
+type BufferWaterGridPayload = {
+    features: Feature[];
+    bbox: [number, number, number, number];
+    seeker: { lat: number; lng: number };
+    grid: number;
+};
 type LandFromWaterPayload = {
     water: Feature[];
     bbox: [number, number, number, number];
@@ -136,6 +144,11 @@ type InMessage =
           id: number;
           type: "bufferAndUnion";
           payload: BufferAndUnionPayload;
+      }
+    | {
+          id: number;
+          type: "bufferWaterGrid";
+          payload: BufferWaterGridPayload;
       }
     | {
           id: number;
@@ -614,6 +627,156 @@ function bufferAndUnionImpl(
 }
 
 /**
+ * v1141: GEOGRAPHIC CHUNKING of the "closer than my nearest water" buffer.
+ *
+ * Buffering a dense metro's whole water set at once TIMED OUT for NYC+adjacents
+ * even off the main thread — the bbox is just too big. This splits the play area
+ * into a `grid`×`grid` tiling and computes each cell INDEPENDENTLY: clip the
+ * water to the cell (expanded by the buffer radius `r`, so water just outside a
+ * cell that would buffer into it is included), dissolve+buffer that LOCAL water
+ * by the GLOBAL `r`, then clip the result back to the cell. The union of the
+ * cells is the full region — at FULL detail, just split into tractable pieces.
+ * Keeping the detail is the point: the user prefers a slow, detailed overlay to
+ * a fast coarse one. `r` is computed ONCE over all the water so a cell far from
+ * any water still uses the true global nearest-water distance (not a huge local
+ * one). Runs entirely in the worker (off the main thread), so the long compute
+ * never freezes the UI. `__waterArea`-tagged features (the coarse sea, v987) are
+ * unioned in AS-IS per cell (never buffered), matching bufferAndUnionImpl.
+ */
+function bufferWaterGridImpl(
+    p: BufferWaterGridPayload,
+): Feature<Polygon | MultiPolygon> | null {
+    const feats = (p.features ?? []).filter((f) => f && f.geometry);
+    if (feats.length === 0) return null;
+    const seeker = turfPoint([p.seeker.lng, p.seeker.lat]);
+
+    // Split water-areas (union as-is) from buffer targets, exactly like
+    // bufferAndUnionImpl.
+    const waterAreas: Feature<Polygon | MultiPolygon>[] = [];
+    const targets: Feature[] = [];
+    for (const f of feats) {
+        if ((f.properties as { __waterArea?: boolean })?.__waterArea === true) {
+            if (isPolyFeat(f)) {
+                waterAreas.push(f as Feature<Polygon | MultiPolygon>);
+            }
+        } else {
+            targets.push(f);
+        }
+    }
+
+    // GLOBAL nearest-water distance (km) over the buffer targets.
+    let minKm = Infinity;
+    for (const f of targets) {
+        const d = distanceToFeatureKm(seeker, f);
+        if (Number.isFinite(d) && d < minKm) minKm = d;
+    }
+    const r = Number.isFinite(minKm) ? Math.max(minKm, 0.01) : 0;
+    // If there are no buffer targets (only water-areas), fall back to the
+    // non-gridded path — nothing to buffer per cell.
+    if (r === 0 && waterAreas.length === 0) return null;
+
+    const [w, s, e, n] = p.bbox;
+    const N = Math.max(1, Math.min(8, Math.round(p.grid) || 3));
+    const cellW = (e - w) / N;
+    const cellH = (n - s) / N;
+    // r (km) → degrees, plus a small epsilon so a cell-boundary sliver isn't lost.
+    const marginDeg = r / 111 + 0.0008;
+    const tol = Math.min(0.005, Math.max(0.0005, r / 10 / 111));
+
+    const polyTargets = targets.filter(isPolyFeat);
+    const lineTargets = targets.filter(isLineFeat);
+
+    const cellRegions: Feature<Polygon | MultiPolygon>[] = [];
+    const clipTo = (f: Feature, box: [number, number, number, number]) => {
+        try {
+            const c = bboxClip(f as never, box) as Feature | undefined;
+            if (!c?.geometry) return null;
+            const co = (c.geometry as { coordinates?: unknown[] }).coordinates;
+            if (!co || co.length === 0) return null;
+            return c;
+        } catch {
+            return null;
+        }
+    };
+
+    for (let i = 0; i < N; i++) {
+        for (let j = 0; j < N; j++) {
+            const cw = w + i * cellW;
+            const ce = w + (i + 1) * cellW;
+            const cs = s + j * cellH;
+            const cn = s + (j + 1) * cellH;
+            const expBox: [number, number, number, number] = [
+                cw - marginDeg,
+                cs - marginDeg,
+                ce + marginDeg,
+                cn + marginDeg,
+            ];
+            const bufParts: Feature<Polygon | MultiPolygon>[] = [];
+
+            // Buffer the LOCAL polygon water (dissolve the few local pieces,
+            // buffer by the global r).
+            if (r > 0) {
+                const localPolys = polyTargets
+                    .map((f) => clipTo(f, expBox))
+                    .filter(Boolean) as Feature[];
+                const merged = unionPolygonsGently(localPolys);
+                if (merged) {
+                    try {
+                        const b = turfBuffer(gentleSimplify(merged, tol), r, {
+                            units: "kilometers",
+                        }) as Feature<Polygon | MultiPolygon> | undefined;
+                        if (b && b.geometry && area(b) > 0) bufParts.push(b);
+                    } catch {
+                        /* skip */
+                    }
+                }
+                for (const lf of lineTargets) {
+                    const cl = clipTo(lf, expBox);
+                    if (!cl) continue;
+                    try {
+                        const b = turfBuffer(gentleSimplify(cl, 0.0003), r, {
+                            units: "kilometers",
+                        }) as Feature<Polygon | MultiPolygon> | undefined;
+                        if (b && b.geometry && area(b) > 0) bufParts.push(b);
+                    } catch {
+                        /* skip */
+                    }
+                }
+            }
+            // Water-areas (coarse sea): union in as-is, clipped to the cell.
+            for (const wa of waterAreas) {
+                const cl = clipTo(wa, expBox);
+                if (cl && isPolyFeat(cl)) {
+                    bufParts.push(cl as Feature<Polygon | MultiPolygon>);
+                }
+            }
+
+            if (bufParts.length === 0) continue;
+            const cellUnion =
+                bufParts.length === 1
+                    ? bufParts[0]
+                    : unionPolygonsGently(bufParts);
+            if (!cellUnion) continue;
+            // Clip the cell's region to the (unexpanded) cell so cells tile
+            // cleanly and the final union stays small.
+            try {
+                const cellPoly = bboxPolygon([cw, cs, ce, cn]);
+                const clipped = intersect(
+                    featureCollection([cellUnion as never, cellPoly as never]),
+                ) as Feature<Polygon | MultiPolygon> | null;
+                if (clipped && clipped.geometry && area(clipped) > 0) {
+                    cellRegions.push(clipped);
+                }
+            } catch {
+                cellRegions.push(cellUnion);
+            }
+        }
+    }
+    if (cellRegions.length === 0) return null;
+    return unionPolygonsGently(cellRegions);
+}
+
+/**
  * v1011: the seeker's LANDMASS from the basemap `water` layer — the SAME source
  * body-of-water buffers, so `same-landmass` and `body-of-water` agree on where
  * the water is (the user's ask: "why don't we use the same base calculation as
@@ -727,6 +890,9 @@ self.onmessage = async (e: MessageEvent<InMessage>) => {
             self.postMessage({ id, ok: true, result });
         } else if (type === "bufferAndUnion") {
             const result = bufferAndUnionImpl(msg.payload);
+            self.postMessage({ id, ok: true, result });
+        } else if (type === "bufferWaterGrid") {
+            const result = bufferWaterGridImpl(msg.payload);
             self.postMessage({ id, ok: true, result });
         } else if (type === "landFromWater") {
             const result = landFromWaterImpl(msg.payload);

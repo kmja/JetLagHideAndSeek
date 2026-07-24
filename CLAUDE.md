@@ -477,6 +477,38 @@ build stamp. Current: `v1069`. Use `git log` for the per-version detail;
 - **NEXT: a SINGLE station producer shared by seeker + hider** (shipped in
   v1115 below).
 
+**v1141 — body-of-water GEOGRAPHIC CHUNKING (full detail, split into tractable
+cells) — the real fix for NYC + adjacents on Android.** v1139/v1140 (sweep-line
+union + bbox-scaled read/simplify) still timed out on Android for NYC + several
+adjacent areas — buffering the whole dense water field in one `turf.buffer` +
+`union` is intractable there once the bbox is big enough (the user confirmed:
+"just NYC primary worked, but with adjacents it didn't" → it's purely bbox size).
+Rather than coarsen (which the user explicitly rejected — "I would prefer a
+detailed overlay, it doesn't matter if the load time is long"), the buffer is now
+computed by GEOGRAPHIC CHUNKING in the geometry worker: new op
+**`bufferWaterGrid`** (`geometry/worker.ts` `bufferWaterGridImpl` +
+`geometry/client.ts` wrapper) splits the play-area bbox into an N×N grid and
+computes each cell INDEPENDENTLY — clip the water to the cell (expanded by the
+buffer radius `r` so water just outside a cell that would buffer into it is
+included), dissolve+buffer that LOCAL water by the GLOBAL nearest-water distance
+`r` (computed once over ALL water, so a cell far from any water still uses the
+true global radius, not a huge local one), clip the buffered cell back to its
+cell rectangle, then union the cells. No single turf call ever sees the whole
+field, so it stays tractable on a weak CPU; full detail is preserved (the buffer
+distance is unchanged — only the compute is split). `__waterArea`-tagged features
+(the coarse sea, v987) are unioned in AS-IS per cell (never buffered), matching
+`bufferAndUnionImpl`. `measuring.ts`'s `bufferedDeterminer` water branch routes a
+water question through it FIRST when the play-area bbox is large, with the grid
+size scaled to bbox AREA (`waterGridSize`: <0.05 deg² → grid 1 = no chunking ≈
+plain `bufferAndUnion`; up to 6×6 for a huge play area) — device-INDEPENDENT (the
+split is driven by geography, not `hardwareConcurrency`, which modern Android
+under-reports). Falls through to `bufferAndUnion` → arcgis if the grid path
+returns null / throws, so it never regresses below v1140. Runs entirely in the
+worker, so the long compute never freezes the UI. (Considered but NOT chosen:
+server-side compute in the Cloudflare Worker — its CPU limits per request make a
+dense-metro dissolve+buffer riskier there than client chunking, and it would add
+a deploy + a heavy R2/edge path for what the client can now do at full detail.)
+
 **v1140 — body-of-water on mobile, round 2: bbox-scaled water detail +
 buffer-distance-scaled simplify.** The v1139 sweep-line union helped but
 body-of-water STILL timed out on Android for NYC + adjacents. Two more

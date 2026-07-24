@@ -173,6 +173,7 @@ function call<T>(
         | "holedMask"
         | "bufferPoints"
         | "bufferAndUnion"
+        | "bufferWaterGrid"
         | "landFromWater"
         | "dissolveWater",
     payload: unknown,
@@ -304,6 +305,34 @@ export async function bufferAndUnion(
     return call<Feature<Polygon | MultiPolygon> | null>("bufferAndUnion", {
         features,
         seeker: { lat, lng },
+    });
+}
+
+/**
+ * v1141: the body-of-water "closer than my nearest water" region built by
+ * GEOGRAPHIC CHUNKING, OFF the main thread. `bufferAndUnion` unions + buffers
+ * a dense metro's WHOLE water field at once, which times out on a weak mobile
+ * CPU for a big play area (NYC + adjacents). This grids the bbox into cells,
+ * dissolves + buffers each cell's LOCAL water by the global nearest-water
+ * distance, clips each buffered cell back to its cell rectangle, then unions
+ * the cells — so no single turf call ever sees the whole field. Full detail is
+ * preserved (the buffer distance is unchanged); only the load is split up. The
+ * user explicitly prefers a detailed overlay even at a longer load time.
+ * REJECTS if the worker is unavailable so the caller keeps its `bufferAndUnion`
+ * / arcgis fallback. `null` on a degenerate input.
+ */
+export async function bufferWaterGrid(
+    features: Feature[],
+    bbox: [number, number, number, number],
+    lat: number,
+    lng: number,
+    grid: number,
+): Promise<Feature<Polygon | MultiPolygon> | null> {
+    return call<Feature<Polygon | MultiPolygon> | null>("bufferWaterGrid", {
+        features,
+        bbox,
+        seeker: { lat, lng },
+        grid,
     });
 }
 

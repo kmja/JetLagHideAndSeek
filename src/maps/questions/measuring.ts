@@ -33,7 +33,11 @@ import {
     requestWaterWarmAll,
 } from "@/maps/api/water";
 import { fetchPrewarmedRailStationElements } from "@/lib/journey/stations";
-import { bufferAndUnion, bufferPointsUnion } from "@/lib/geometry/client";
+import {
+    bufferAndUnion,
+    bufferPointsUnion,
+    bufferWaterGrid,
+} from "@/lib/geometry/client";
 import { filterCoastlineByStraitRule } from "@/maps/questions/coastlineStrait";
 import {
     basemapWaterVersion,
@@ -147,6 +151,25 @@ function bbox4(b: GeoJSON.BBox | number[]): Bbox4 {
 
 function widenedBbox(b: GeoJSON.BBox | number[], pad = 3): Bbox4 {
     return [b[0] - pad, b[1] - pad, b[2] + pad, b[3] + pad];
+}
+
+/**
+ * v1141: how finely to GEOGRAPHICALLY CHUNK the body-of-water buffer, by
+ * play-area bbox AREA (deg²). A single city fits `bufferAndUnion` fine (grid 1
+ * = no chunking); NYC + several adjacents (~0.3–0.6 deg²) needs the field split
+ * into cells so no single turf call sees the whole dense water field and times
+ * out on a weak mobile CPU. Device-independent (the actual "works on PC, not
+ * Android" lever) — the split is driven by geography, not `hardwareConcurrency`
+ * (modern Android reports 8 throttled cores and never flags as low-end).
+ */
+function waterGridSize(b: Bbox4): number {
+    const areaDeg2 = Math.max(0, (b[2] - b[0]) * (b[3] - b[1]));
+    if (areaDeg2 < 0.05) return 1; // single city — no chunking
+    if (areaDeg2 < 0.15) return 2;
+    if (areaDeg2 < 0.3) return 3;
+    if (areaDeg2 < 0.5) return 4;
+    if (areaDeg2 < 0.8) return 5;
+    return 6;
 }
 
 function bboxesIntersect(a: Bbox4, b: Bbox4): boolean {
@@ -865,6 +888,40 @@ const bufferedDeterminer = memoize(
                     feats,
                     hasBasemapWater() ? "basemap-water" : "cold-osm",
                 );
+            }
+            // v1141: for a WATER question over a LARGE play area (NYC + adjacents),
+            // buffering the whole dense water field at once times out even
+            // off-thread. GEOGRAPHIC CHUNKING splits the bbox into a grid and
+            // buffers each cell's local water independently, at full detail, then
+            // unions the cells — the user prefers a slow detailed overlay to a
+            // fast coarse one. The grid size scales with the bbox area; a small
+            // single-city area gets grid 1 (≈ the plain `bufferAndUnion` path, no
+            // wasted chunking overhead), so this only kicks in when needed. Falls
+            // through to `bufferAndUnion` if the grid path returns null / throws.
+            if (isWaterQ && feats.length > 0) {
+                const $map = mapGeoJSON.get();
+                const grid = $map ? waterGridSize(bbox4(turf.bbox($map))) : 1;
+                if (grid >= 2) {
+                    try {
+                        const gridded = await bufferWaterGrid(
+                            feats,
+                            bbox4(turf.bbox($map!)),
+                            question.lat,
+                            question.lng,
+                            grid,
+                        );
+                        if (gridded) {
+                            reportWaterQuestionResult(
+                                `bufferWaterGrid ok (${grid}x${grid})`,
+                            );
+                            return gridded;
+                        }
+                        reportWaterQuestionResult("bufferWaterGrid → null");
+                    } catch {
+                        reportWaterQuestionResult("bufferWaterGrid threw");
+                        /* fall through to bufferAndUnion below */
+                    }
+                }
             }
             try {
                 const merged = await bufferAndUnion(
