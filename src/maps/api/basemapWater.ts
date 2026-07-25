@@ -781,11 +781,18 @@ export function basemapWaterKindSummary(
     const kinds = new Map<string, number>();
     let biggestKm2 = 0;
     let biggestKind = "?";
+    let named = 0; // v1152: how many basemap water polys carry a NAME (rulebook
+    // counts only NAMED bodies) — to decide if the basemap is a viable named
+    // source or if we must use OSM.
+    const sampleNames: string[] = [];
     for (const p of polys) {
-        const kind =
-            ((p.properties as { kind?: string } | null)?.kind ?? "").trim() ||
-            "untagged";
+        const props = (p.properties as { kind?: string; name?: string } | null) ?? {};
+        const kind = (props.kind ?? "").trim() || "untagged";
         kinds.set(kind, (kinds.get(kind) ?? 0) + 1);
+        if (typeof props.name === "string" && props.name.trim()) {
+            named++;
+            if (sampleNames.length < 3) sampleNames.push(props.name.trim());
+        }
         try {
             const km2 = turf.area(p) / 1e6;
             if (km2 > biggestKm2) {
@@ -800,7 +807,8 @@ export function basemapWaterKindSummary(
         .sort((a, b) => b[1] - a[1])
         .map(([k, n]) => `${k}:${n}`)
         .join(" ");
-    return `water=${polys.length} [${hist}] biggest=${biggestKind}/${Math.round(biggestKm2)}km²`;
+    const nameSample = sampleNames.length ? ` eg(${sampleNames.join(",")})` : "";
+    return `water=${polys.length} named=${named}${nameSample} [${hist}] biggest=${biggestKind}/${Math.round(biggestKm2)}km²`;
 }
 
 /**

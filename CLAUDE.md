@@ -477,6 +477,18 @@ build stamp. Current: `v1069`. Use `git log` for the per-version detail;
 - **NEXT: a SINGLE station producer shared by seeker + hider** (shipped in
   v1115 below).
 
+**v1152 — rulebook "named body of water" diagnostic (which source has names?).**
+The rulebook counts only NAMED bodies of water (excluding pools), but the current
+source (Protomaps basemap `water` layer) includes unnamed ponds. Before filtering
+on name, need to know whether the basemap water polygons even CARRY names (the
+nearest-water label has only ever shown "Shoreline"/"Water", never a real name —
+suggesting they may not; OSM reliably does). Added `named=N eg(…)` to the `[bow]`
+kind-summary diagnostic (`basemapWaterKindSummary`) — no behavior change — to
+settle it: a healthy `named=N` with real sample names ⇒ filter the basemap by
+name (cheap, no cache changes); `named=0` ⇒ the basemap has no names and we must
+source named water from OSM (`/api/water`, whose filter also needs relaxing to
+include named ponds, only pools excluded per rulebook). Diagnostic build.
+
 **v1151 — coarsen the COASTLINE, keep ponds fine (perf for the z13 read).** The
 ocean/sea/bay is the largest, most-vertex-heavy water and shows up in every
 coastal cell, so it dominates the per-cell clip/buffer + the label scan — yet its
