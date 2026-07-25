@@ -201,8 +201,17 @@ const ENSURE_AWAIT_CAP_MS = 4500;
 function waterTileBudget(bbox: [number, number, number, number]): number {
     // Rough play-area span in square degrees (lng × lat).
     const areaDeg2 = Math.abs(bbox[2] - bbox[0]) * Math.abs(bbox[3] - bbox[1]);
-    // NYC ≈ 0.15 deg², NYC + adjacents ≈ 0.3–0.6 deg².
-    let budget = areaDeg2 > 0.22 ? 12 : areaDeg2 > 0.08 ? 20 : 30;
+    // v1150: read FINER (z13) so small park ponds / creeks are captured — they
+    // were generalized away at the old coarse read (the 12-tile budget forced a
+    // BIG bbox down to ~z10), so a large area with only small ponds in it read as
+    // "further from water" even though those ponds each carve a big "closer" disk
+    // (the reported Belmont/Bellerose case). A z13 tile is ~0.044°, so NYC +
+    // adjacents (~0.5°×0.4° ≈ 125 tiles) fits a ~200 budget → z13; a huge area
+    // steps down to z12. The larger water set is safe now that the buffer chunks
+    // + dissolves per-cell (v1150) — the global dissolve no longer runs on it.
+    // The tile reads are concurrent range reads off the in-memory pack + bounded
+    // by the 4.5 s await cap, so no hard freeze.
+    let budget = areaDeg2 > 0.8 ? 80 : areaDeg2 > 0.05 ? 200 : 400;
     const cores =
         typeof navigator !== "undefined" &&
         typeof navigator.hardwareConcurrency === "number"
@@ -214,8 +223,10 @@ function waterTileBudget(bbox: [number, number, number, number]): number {
             "number"
             ? (navigator as { deviceMemory?: number }).deviceMemory!
             : 8;
-    if (cores <= 4 || mem <= 3) budget = Math.min(budget, 12);
-    else if (cores <= 6 || mem <= 5) budget = Math.min(budget, 20);
+    // A genuinely low-end device still trims the fan-out (fewer tiles → a coarser
+    // step-down), but never below what catches medium water.
+    if (cores <= 4 || mem <= 3) budget = Math.min(budget, 64);
+    else if (cores <= 6 || mem <= 5) budget = Math.min(budget, 120);
     return budget;
 }
 
@@ -259,20 +270,20 @@ export function ensureBasemapWaterForArea(
         const maxTiles = waterTileBudget(bbox);
         const feats = usePack
             ? await fetchLayerPolysFromPM(usePack.pmtiles, bbox, "water", {
-                  targetZoom: Math.min(12, usePack.maxZoom),
+                  targetZoom: Math.min(13, usePack.maxZoom),
                   maxTiles,
               })
             : await (async () => {
                   const url = pmtilesUrl.get();
                   if (!url) return null;
                   return fetchBasemapLayerPolys(url, bbox, "water", {
-                      targetZoom: 12,
+                      targetZoom: 13,
                       maxTiles,
                   });
               })();
         // eslint-disable-next-line no-console
         console.log(
-            `[water] headless read: ${feats ? feats.length : "null"} water polys @z11`,
+            `[water] headless read: ${feats ? feats.length : "null"} water polys (target z13, budget ${maxTiles})`,
         );
         if (!feats || feats.length === 0) return;
         let entry = cache.get(key);
@@ -404,6 +415,12 @@ export function nearestBasemapWater(
         lng: number;
         distanceMeters: number;
     } | null = null;
+    // v1150: the finer z13 read yields far more polygons — a cheap point→bbox
+    // lower-bound lets us SKIP the expensive polygonToLine + nearestPointOnLine
+    // for any polygon whose bbox is already farther than the current best, so the
+    // label doesn't block the main thread scanning ~1500 polys.
+    const mPerDegLat = 111_320;
+    const mPerDegLng = 111_320 * Math.cos((lat * Math.PI) / 180);
     for (const w of entry.polys) {
         try {
             const props = (w.properties ?? {}) as {
@@ -415,6 +432,13 @@ export function nearestBasemapWater(
                 (props.kind === "ocean" || props.kind === "sea"
                     ? "Shoreline"
                     : "Water");
+            if (best) {
+                const b = turf.bbox(w);
+                const dx = lng < b[0] ? b[0] - lng : lng > b[2] ? lng - b[2] : 0;
+                const dy = lat < b[1] ? b[1] - lat : lat > b[3] ? lat - b[3] : 0;
+                const lowerBoundM = Math.hypot(dx * mPerDegLng, dy * mPerDegLat);
+                if (lowerBoundM > best.distanceMeters) continue;
+            }
             // Inside the water → distance 0, reference point is the seeker.
             if (turf.booleanPointInPolygon(pt, w)) {
                 return { name, lat, lng, distanceMeters: 0 };
@@ -506,6 +530,14 @@ async function getDissolvedWater(
     // eslint-disable-next-line no-console
     console.log(`[${tag}] after ensure: polys=${polys ? polys.length : "null"}`);
     if (!polys || polys.length === 0) return null;
+    // v1150: SKIP the global dissolve for a LARGE water set (the finer z13 read
+    // yields hundreds of tile-fragment + pond pieces). Unioning that many pieces
+    // into one shape is the dissolve that HUNG at z13 (v1136). The body-of-water
+    // buffer now DISSOLVES per-cell (v1150 chunking), so it doesn't need a
+    // pre-dissolved shape — return the raw pieces and let each cell union only its
+    // local few. (Small z12 sets still dissolve once + cache, which the non-chunked
+    // small-bbox path + the label rely on.)
+    if (polys.length > 150) return polys;
     // v1014: key on CONTENT (play area + poly count), NOT the water version.
     // The headless read bumps the version when it lands, which re-ran
     // questionImpact — and with the version in the key that second compute

@@ -477,6 +477,30 @@ build stamp. Current: `v1069`. Use `git log` for the per-version detail;
 - **NEXT: a SINGLE station producer shared by seeker + hider** (shipped in
   v1115 below).
 
+**v1150 — body-of-water reads z13 so small park ponds COUNT (per-cell dissolve
+makes the finer water tractable).** Now that the chunked buffer is clean (v1149),
+raised the basemap-water read from a coarse zoom to **z13** — the old read
+(12-tile budget, which forced a big NYC+adjacents bbox down to ~z10) generalized
+small park ponds/creeks away, so a large area whose ONLY water was a few park
+ponds read as "further from water" even though each pond carves a ~1.3 km
+"closer" disk (the reported Belmont/Bellerose case). z13's much larger water set
+(hundreds–thousands of tile-fragment + pond pieces) would have re-triggered the
+v1136 global-dissolve hang, so three changes make it tractable: (1)
+`bufferWaterGridImpl` (`geometry/worker.ts`) no longer globally UNIONs the water —
+it consistently simplifies each piece once (keeping the v1149 neighbour-agreement
+property) then dissolves only the LOCAL pieces PER CELL, with a cheap per-piece
+bbox pre-filter so a cell only clips the pieces overlapping it (not ~1500 ×
+16 cells of `intersect`); (2) `getDissolvedWater` (`basemapWater.ts`) SKIPS the
+global dissolve for a large set (>150 pieces) and returns the raw pieces, since
+the buffer dissolves per-cell; (3) `waterTileBudget` raised (~200 for
+NYC+adjacents → z13, huge areas step down to z12) and the read targets z13. Also
+bbox-pre-filtered `nearestBasemapWater` (the label) so scanning the bigger poly
+set doesn't block the main thread. New unit test: many separate small ponds
+(z13-style) are each counted AND the region matches the non-chunked ground truth
+(< 5% symmetric difference). Reads are concurrent range reads off the in-memory
+pack + bounded by the 4.5 s await cap, so no hard freeze; the user accepts a
+longer load for the added detail.
+
 **v1149 — chunking artifact FIXED: global-simplify + clip-buffer-to-cell (the
 real fix, with a shape test).** The v1148 CLIP readout (`ocean-in: buf=Y
 playArea=Y yes=Y`, 73% coverage) proved the region's COVERAGE was right — the 

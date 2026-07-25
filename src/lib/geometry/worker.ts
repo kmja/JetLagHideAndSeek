@@ -374,6 +374,30 @@ function distanceToFeatureKm(
  * compute without freezing the app or choking arcgis (the v982/v983 "no overlay"
  * regression). `null` on a degenerate input (caller falls back to arcgis).
  */
+/** [minLng, minLat, maxLng, maxLat] of a polygon geometry (own walk — cheaper
+ *  than turf.bbox's feature wrapping, and we call it per water piece). */
+function geomBbox(
+    g: Polygon | MultiPolygon,
+): [number, number, number, number] {
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    const rings =
+        g.type === "Polygon"
+            ? g.coordinates
+            : (g.coordinates as number[][][][]).flat();
+    for (const ring of rings as number[][][]) {
+        for (const c of ring) {
+            if (c[0] < minX) minX = c[0];
+            if (c[0] > maxX) maxX = c[0];
+            if (c[1] < minY) minY = c[1];
+            if (c[1] > maxY) maxY = c[1];
+        }
+    }
+    return [minX, minY, maxX, maxY];
+}
+
 /** Count the coordinate vertices of a geometry (any type). */
 function geomVertexCount(g: Feature["geometry"] | undefined): number {
     if (!g || !("coordinates" in g)) return 0;
@@ -694,25 +718,37 @@ export function bufferWaterGridImpl(
     const polyTargets = targets.filter(isPolyFeat);
     const lineTargets = targets.filter(isLineFeat);
 
-    // v1149: GLOBAL simplify of the water ONCE, before the cell loop, so every
-    // cell buffers the SAME shared water. This is the load-bearing fix for the
-    // "impossibly narrow channels / self-wrapping shapes" (v1148 screenshot):
-    // v1142 simplified each cell's water INDEPENDENTLY, so adjacent cells' buffers
-    // disagreed at the shared edge → seams; v1143 dropped the clip-to-cell to
-    // hide the seams, but then the buffer of each cell's CUT EDGE (the straight
-    // box boundary where the water was clipped) was kept, and unioning those
-    // overlapping cut-edge buffers produced the notches/channels. With ONE global
-    // simplify, adjacent cells clip identical water so their buffers AGREE at the
-    // shared edge, and clipping each cell's buffer back to its cell (below)
-    // removes the cut-edge artifact AND tiles cleanly (no seam, since the buffers
-    // already agree). `unionPolygonsGently` on a single dissolved feature is a
-    // no-op; the simplify is cheap (O(n), not the expensive buffer).
-    const globalWater = polyTargets.length
-        ? (() => {
-              const u = unionPolygonsGently(polyTargets);
-              return u ? gentleSimplify(u, tol) : null;
-          })()
-        : null;
+    // v1149/v1150: consistently simplify EACH water piece ONCE, before the cell
+    // loop, at the same tolerance — so every cell clips the SAME shared water and
+    // adjacent cells AGREE at the shared edge. This is the load-bearing fix for
+    // the "impossibly narrow channels / self-wrapping shapes" (v1148): v1142
+    // simplified each cell's water INDEPENDENTLY → seams; v1143 dropped the
+    // clip-to-cell to hide the seams, but then each cell's CUT EDGE got buffered
+    // and unioning the overlapping cut-edge buffers made the notches/channels.
+    // With ONE consistent simplify + clip-to-cell (below), neighbours agree and
+    // there's no cut-edge artifact.
+    //
+    // v1150: DON'T globally UNION the pieces here — the union of a dense z13 water
+    // set (hundreds–thousands of tile-fragment + pond polygons) is the dissolve
+    // that HUNG at z13 (v1136). Instead keep the pieces separate and DISSOLVE only
+    // the LOCAL pieces PER CELL (few pieces per cell), so the expensive global
+    // dissolve never runs. Per-piece simplify is O(total verts), cheap. (For the
+    // common z12 case the input is already ONE dissolved feature, so this is a
+    // single simplified piece — identical to v1149.)
+    const globalPieces = polyTargets
+        .map((p) => gentleSimplify(p, tol))
+        .filter((p) => {
+            try {
+                return area(p) > 0;
+            } catch {
+                return false;
+            }
+        }) as Feature<Polygon | MultiPolygon>[];
+    // v1150: precompute each piece's [minLng,minLat,maxLng,maxLat] ONCE, so a
+    // cell can cheaply skip pieces that don't overlap it (a bbox test) instead of
+    // running the expensive `intersect` for every piece × every cell — z13's ~1500
+    // pieces × 16 cells would be 24k intersects otherwise.
+    const pieceBounds = globalPieces.map((p) => geomBbox(p.geometry));
 
     const cellRegions: Feature<Polygon | MultiPolygon>[] = [];
     // Clip POLYGONS with `intersect` (robust martinez clipping), NOT `bboxClip`
@@ -759,14 +795,37 @@ export function bufferWaterGridImpl(
             ];
             const bufParts: Feature<Polygon | MultiPolygon>[] = [];
 
-            // Buffer the GLOBAL water clipped to this cell's expanded box, by the
-            // global r. No per-cell simplify (the water is already globally
-            // simplified), so neighbours agree at shared edges.
-            if (r > 0 && globalWater) {
-                const clipped = clipPolyTo(globalWater, expBox);
-                if (clipped) {
+            // Clip the LOCAL water pieces to this cell's expanded box, DISSOLVE
+            // just those few local pieces, and buffer the result by the global r.
+            // No per-cell simplify (the pieces are already globally simplified),
+            // so neighbours agree at shared edges. The per-axis margin guarantees
+            // both neighbours see the same water within r of the shared edge, so
+            // their local dissolves + buffers agree there.
+            if (r > 0 && globalPieces.length) {
+                const localClipped: Feature<Polygon | MultiPolygon>[] = [];
+                for (let pi = 0; pi < globalPieces.length; pi++) {
+                    const pb = pieceBounds[pi];
+                    // Cheap bbox reject: skip a piece that can't touch this cell's
+                    // expanded box before the expensive `intersect`.
+                    if (
+                        pb[0] > expBox[2] ||
+                        pb[2] < expBox[0] ||
+                        pb[1] > expBox[3] ||
+                        pb[3] < expBox[1]
+                    )
+                        continue;
+                    const c = clipPolyTo(globalPieces[pi], expBox);
+                    if (c) localClipped.push(c);
+                }
+                const merged =
+                    localClipped.length === 0
+                        ? null
+                        : localClipped.length === 1
+                          ? localClipped[0]
+                          : unionPolygonsGently(localClipped);
+                if (merged) {
                     try {
-                        const b = turfBuffer(clipped as never, r, {
+                        const b = turfBuffer(merged as never, r, {
                             units: "kilometers",
                         }) as Feature<Polygon | MultiPolygon> | undefined;
                         if (b && b.geometry && area(b) > 0) bufParts.push(b);

@@ -240,6 +240,47 @@ describe("body-of-water buffer", () => {
         expect(ratio).toBeLessThan(0.05);
     });
 
+    it("chunked counts MANY separate small ponds (z13-style) with a clean shape", () => {
+        // z13 reads small park ponds as many SEPARATE small polygon features
+        // (undissolved). The per-cell-dissolve path must count every one AND match
+        // the non-chunked region (no artifacts from the separate pieces).
+        const ponds: Feature<Polygon>[] = [];
+        const centres: Array<[number, number]> = [];
+        for (let a = 0; a < 5; a++) {
+            for (let b = 0; b < 5; b++) {
+                const cx = 0.12 + a * 0.18;
+                const cy = 0.12 + b * 0.18;
+                ponds.push({
+                    type: "Feature",
+                    properties: { kind: "water" },
+                    geometry: {
+                        type: "Polygon",
+                        coordinates: [rect(cx, cy, cx + 0.015, cy + 0.015)],
+                    },
+                });
+                centres.push([cx + 0.007, cy + 0.007]);
+            }
+        }
+        const truthRaw = bufferAndUnionImpl({ features: ponds, seeker: SEEKER });
+        const chunked = bufferWaterGridImpl({
+            features: ponds,
+            bbox: BBOX,
+            seeker: SEEKER,
+            grid: 4,
+        });
+        expect(chunked).not.toBeNull();
+        // Every pond interior (distance 0) must be in the region.
+        for (const [lng, lat] of centres) {
+            expect(inside(chunked, lng, lat)).toBe(true);
+        }
+        // And the shape matches the non-chunked ground truth (bbox-clipped).
+        const box = bboxPolygon(BBOX);
+        const truth = intersect(
+            featureCollection([truthRaw as never, box as never]),
+        ) as Feature<Polygon | MultiPolygon> | null;
+        expect(symDiffRatio(chunked, truth)).toBeLessThan(0.05);
+    });
+
     it("chunked covers an ocean supplied as MANY tile-piece features (undissolved)", () => {
         // If the dissolve fails upstream, the buffer gets the RAW tile pieces:
         // many separate small polygon features that together form the ocean.
