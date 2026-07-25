@@ -694,13 +694,30 @@ export function bufferWaterGridImpl(
     const polyTargets = targets.filter(isPolyFeat);
     const lineTargets = targets.filter(isLineFeat);
 
+    // v1149: GLOBAL simplify of the water ONCE, before the cell loop, so every
+    // cell buffers the SAME shared water. This is the load-bearing fix for the
+    // "impossibly narrow channels / self-wrapping shapes" (v1148 screenshot):
+    // v1142 simplified each cell's water INDEPENDENTLY, so adjacent cells' buffers
+    // disagreed at the shared edge → seams; v1143 dropped the clip-to-cell to
+    // hide the seams, but then the buffer of each cell's CUT EDGE (the straight
+    // box boundary where the water was clipped) was kept, and unioning those
+    // overlapping cut-edge buffers produced the notches/channels. With ONE global
+    // simplify, adjacent cells clip identical water so their buffers AGREE at the
+    // shared edge, and clipping each cell's buffer back to its cell (below)
+    // removes the cut-edge artifact AND tiles cleanly (no seam, since the buffers
+    // already agree). `unionPolygonsGently` on a single dissolved feature is a
+    // no-op; the simplify is cheap (O(n), not the expensive buffer).
+    const globalWater = polyTargets.length
+        ? (() => {
+              const u = unionPolygonsGently(polyTargets);
+              return u ? gentleSimplify(u, tol) : null;
+          })()
+        : null;
+
     const cellRegions: Feature<Polygon | MultiPolygon>[] = [];
-    // v1141.1: clip POLYGONS with `intersect` (robust martinez clipping), NOT
-    // `bboxClip`. bboxClip is Sutherland–Hodgman, which on a big concave water
-    // MultiPolygon produces spurious degenerate edges running along the cut
-    // boundary; buffering those made the star/triangle SPIKES in the overlay.
-    // `intersect` against the box polygon gives a clean clipped polygon. Lines
-    // keep `bboxClip` (no fill, so no spike problem).
+    // Clip POLYGONS with `intersect` (robust martinez clipping), NOT `bboxClip`
+    // (Sutherland–Hodgman spikes on a concave water polygon). Lines keep
+    // `bboxClip` (no fill, no spikes).
     const clipPolyTo = (
         f: Feature,
         box: [number, number, number, number],
@@ -742,16 +759,14 @@ export function bufferWaterGridImpl(
             ];
             const bufParts: Feature<Polygon | MultiPolygon>[] = [];
 
-            // Buffer the LOCAL polygon water (dissolve the few local pieces,
-            // buffer by the global r).
-            if (r > 0) {
-                const localPolys = polyTargets
-                    .map((f) => clipPolyTo(f, expBox))
-                    .filter(Boolean) as Feature[];
-                const merged = unionPolygonsGently(localPolys);
-                if (merged) {
+            // Buffer the GLOBAL water clipped to this cell's expanded box, by the
+            // global r. No per-cell simplify (the water is already globally
+            // simplified), so neighbours agree at shared edges.
+            if (r > 0 && globalWater) {
+                const clipped = clipPolyTo(globalWater, expBox);
+                if (clipped) {
                     try {
-                        const b = turfBuffer(gentleSimplify(merged, tol), r, {
+                        const b = turfBuffer(clipped as never, r, {
                             units: "kilometers",
                         }) as Feature<Polygon | MultiPolygon> | undefined;
                         if (b && b.geometry && area(b) > 0) bufParts.push(b);
@@ -763,7 +778,7 @@ export function bufferWaterGridImpl(
                     const cl = clipLineTo(lf, expBox);
                     if (!cl) continue;
                     try {
-                        const b = turfBuffer(gentleSimplify(cl, 0.0003), r, {
+                        const b = turfBuffer(gentleSimplify(cl, tol), r, {
                             units: "kilometers",
                         }) as Feature<Polygon | MultiPolygon> | undefined;
                         if (b && b.geometry && area(b) > 0) bufParts.push(b);
@@ -772,7 +787,8 @@ export function bufferWaterGridImpl(
                     }
                 }
             }
-            // Water-areas (coarse sea): union in as-is, clipped to the cell.
+            // Water-areas (coarse sea): included as-is (never buffered), clipped
+            // to the expanded box.
             for (const wa of waterAreas) {
                 const cl = clipPolyTo(wa, expBox);
                 if (cl) bufParts.push(cl);
@@ -784,20 +800,39 @@ export function bufferWaterGridImpl(
                     ? bufParts[0]
                     : unionPolygonsGently(bufParts);
             if (!cellUnion) continue;
-            // v1142.1: do NOT clip the cell's buffered region to the cell
-            // rectangle. Cutting each cell at the hard cell boundary was meant to
-            // make cells tile edge-to-edge, but float error + the final-union
-            // simplify left a jagged SEAM where the abutting edges failed to
-            // dissolve (the sawtooth). Instead let the cells OVERLAP: each cell
-            // buffers water covering ≥ r beyond it (per-axis margin), so the union
-            // of the unclipped per-cell buffers equals the buffer of ALL the water
-            // — with NO internal cut edges, so nothing can leave a seam. The
-            // outer boundary is identical; the region is clipped to the play area
-            // downstream anyway, so extending past the bbox edge is harmless.
-            cellRegions.push(cellUnion);
+            // v1149: CLIP the cell's buffered region back to the (unexpanded)
+            // cell rectangle. This removes the cut-edge artifact (the buffer of
+            // the box-boundary cut, which lies OUTSIDE the cell) — the source of
+            // the notches/channels. Because every cell buffers the SAME globally-
+            // simplified water, adjacent cells' buffers AGREE along the shared
+            // cell edge, so the clipped pieces meet exactly and the final union
+            // dissolves them with no seam.
+            try {
+                const cellPoly = bboxPolygon([cw, cs, ce, cn]);
+                const clippedCell = intersect(
+                    featureCollection([cellUnion as never, cellPoly as never]),
+                ) as Feature<Polygon | MultiPolygon> | null;
+                if (clippedCell?.geometry && area(clippedCell) > 0) {
+                    cellRegions.push(clippedCell);
+                }
+            } catch {
+                cellRegions.push(cellUnion);
+            }
         }
     }
     if (cellRegions.length === 0) return null;
+    // v1149: union the cell-clipped regions WITHOUT a post-simplify — the shared
+    // cell edges are exact (same boundary value both sides) and dissolve cleanly;
+    // a post-simplify could re-jag them into a seam. `union` over the whole set
+    // is one sweep-line pass.
+    try {
+        const all = union(featureCollection(cellRegions) as never) as Feature<
+            Polygon | MultiPolygon
+        > | null;
+        if (all?.geometry && area(all) > 0) return all;
+    } catch {
+        /* fall back to the gentle incremental union */
+    }
     return unionPolygonsGently(cellRegions);
 }
 

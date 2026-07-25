@@ -477,6 +477,29 @@ build stamp. Current: `v1069`. Use `git log` for the per-version detail;
 - **NEXT: a SINGLE station producer shared by seeker + hider** (shipped in
   v1115 below).
 
+**v1149 — chunking artifact FIXED: global-simplify + clip-buffer-to-cell (the
+real fix, with a shape test).** The v1148 CLIP readout (`ocean-in: buf=Y
+playArea=Y yes=Y`, 73% coverage) proved the region's COVERAGE was right — the 
+bug was the SHAPE: the v1148 screenshot showed self-wrapping regions with sharp
+V-notches and sub-kilometre channels, which a true 1.3 km distance buffer
+(curvature radius ≥ 1.3 km) physically can't produce. Every prior unit test
+checked point-in-polygon (coverage), so it missed this. Root cause was the
+chunking dilemma: v1142 clipped each cell's buffer to its cell rect (removes the
+box-edge cut-artifact) but simplified each cell's water INDEPENDENTLY, so
+neighbours disagreed at the shared edge → seams; v1143 dropped the clip to hide
+the seams, but then the buffer of each cell's straight CUT EDGE was kept and
+unioning the overlapping cut-edge buffers made the notches/channels. Fix
+(`bufferWaterGridImpl`, `geometry/worker.ts`): simplify the water ONCE GLOBALLY
+before the cell loop, so every cell buffers the SAME shared water and adjacent
+cells AGREE at the shared edge; then clip each cell's buffer back to its cell
+rect (removes the cut-edge artifact) — the two together tile cleanly with no seam
+AND no notches. The final cell-union skips the post-simplify that could re-jag the
+shared edges. **New shape test** (`tests/waterBuffer.test.ts`): buffers a JAGGED
+concave shoreline (+ inland ponds) both chunked and non-chunked, clips both to the
+bbox, and asserts the symmetric-difference area is < 5% of the ground truth —
+catching notch/channel/seam artifacts that point-coverage tests can't (it flagged
+21% before the fix's fair comparison; passes now).
+
 **v1148 — body-of-water: the BUFFER is correct, the CLIP is the suspect.** v1147's
 corrected (in-bbox) ocean point reported `dBig=3057km²` (ocean survived dissolve)
 and `ocean-in-result=Y` — so the chunked buffer DOES include the ocean. The whole

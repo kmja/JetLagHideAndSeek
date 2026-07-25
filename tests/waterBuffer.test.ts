@@ -1,4 +1,12 @@
-import { booleanPointInPolygon, point } from "@turf/turf";
+import {
+    area as turfArea,
+    bboxPolygon,
+    booleanPointInPolygon,
+    difference,
+    featureCollection,
+    intersect,
+    point,
+} from "@turf/turf";
 import type { Feature, MultiPolygon, Polygon } from "geojson";
 import { describe, expect, it } from "vitest";
 
@@ -60,6 +68,59 @@ const inside = (
     lat: number,
 ): boolean =>
     region != null && booleanPointInPolygon(point([lng, lat]), region as never);
+
+/** Symmetric-difference area ÷ reference area — how much the chunked region
+ *  deviates from the non-chunked ground truth. Artifacts (notches / channels /
+ *  seams) show up as a large ratio even when point-coverage tests pass. */
+function symDiffRatio(
+    chunked: Feature<Polygon | MultiPolygon> | null,
+    truth: Feature<Polygon | MultiPolygon> | null,
+): number {
+    if (!chunked || !truth) return 1;
+    const refA = turfArea(truth as never);
+    if (refA <= 0) return 1;
+    let sym = 0;
+    try {
+        const a = difference(
+            featureCollection([chunked as never, truth as never]),
+        );
+        const b = difference(
+            featureCollection([truth as never, chunked as never]),
+        );
+        sym =
+            (a ? turfArea(a as never) : 0) + (b ? turfArea(b as never) : 0);
+    } catch {
+        return 1;
+    }
+    return sym / refA;
+}
+
+// A jagged, CONCAVE shoreline (the real failure — clean rectangles hid the
+// artifacts). The ocean is the right side; its shore (left edge) is a fine
+// zigzag, and there are a couple of inland ponds.
+function jaggedWater(): Feature<MultiPolygon> {
+    const shoreRing: number[][] = [];
+    const STEPS = 200;
+    for (let k = 0; k <= STEPS; k++) {
+        const lat = (k / STEPS) * 1;
+        const lng = 0.6 + 0.04 * Math.sin(lat * 40) + 0.02 * Math.sin(lat * 13);
+        shoreRing.push([lng, lat]);
+    }
+    // Close the ocean polygon around the right side.
+    shoreRing.push([1, 1], [1, 0], shoreRing[0]);
+    return {
+        type: "Feature",
+        properties: {},
+        geometry: {
+            type: "MultiPolygon",
+            coordinates: [
+                [shoreRing],
+                [rect(0.2, 0.2, 0.24, 0.24)],
+                [rect(0.35, 0.7, 0.38, 0.73)],
+            ],
+        },
+    };
+}
 
 describe("body-of-water buffer", () => {
     it("non-chunked (bufferAndUnion) covers the ocean interior + shore band", () => {
@@ -149,6 +210,34 @@ describe("body-of-water buffer", () => {
         expect(inside(region, 0.8, 0.5)).toBe(true);
         expect(inside(region, 0.95, 0.5)).toBe(true);
         expect(inside(region, 0.7, 0.9)).toBe(true);
+    });
+
+    it("chunked matches the NON-chunked region on a jagged shoreline (no artifacts)", () => {
+        // THE SHAPE TEST: the chunked buffer must produce ~the same region as the
+        // non-chunked ground truth. Notches / channels / seams from chunking show
+        // up as a large symmetric difference even though point-coverage passes.
+        const w = jaggedWater();
+        const truthRaw = bufferAndUnionImpl({ features: [w], seeker: SEEKER });
+        const chunked = bufferWaterGridImpl({
+            features: [w],
+            bbox: BBOX,
+            seeker: SEEKER,
+            grid: 4,
+        });
+        expect(truthRaw).not.toBeNull();
+        expect(chunked).not.toBeNull();
+        // The chunked result is bbox-clipped (cells tile the bbox); the
+        // non-chunked buffer extends r beyond the bbox. Clip the ground truth to
+        // the bbox so we compare the SAME extent — otherwise the out-of-bbox band
+        // dwarfs any real artifact.
+        const box = bboxPolygon(BBOX);
+        const truth = intersect(
+            featureCollection([truthRaw as never, box as never]),
+        ) as Feature<Polygon | MultiPolygon> | null;
+        const ratio = symDiffRatio(chunked, truth);
+        // Allow a small margin for the global simplify; artifacts would blow this
+        // well past a few percent.
+        expect(ratio).toBeLessThan(0.05);
     });
 
     it("chunked covers an ocean supplied as MANY tile-piece features (undissolved)", () => {
