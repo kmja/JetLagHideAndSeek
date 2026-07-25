@@ -477,6 +477,14 @@ build stamp. Current: `v1069`. Use `git log` for the per-version detail;
 - **NEXT: a SINGLE station producer shared by seeker + hider** (shipped in
   v1115 below).
 
+**v1153 — the `named=` readout is on the CLIP line now (the bow line was
+overwritten).** v1152 added `named=N` to the `bow:` kind-summary line, but the
+`questionImpact.ts` CLIP diagnostic runs AFTER the buffer and OVERWRITES
+`lastBodyOfWaterDiag`, so the panel only ever showed the CLIP line — the `named=`
+field never appeared. Folded `basemapWaterKindSummary` (with `named=N eg(…)`)
+into the CLIP line itself, so the phone actually shows whether the basemap water
+carries names. Diagnostic build.
+
 **v1152 — rulebook "named body of water" diagnostic (which source has names?).**
 The rulebook counts only NAMED bodies of water (excluding pools), but the current
 source (Protomaps basemap `water` layer) includes unnamed ponds. Before filtering

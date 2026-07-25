@@ -45,6 +45,7 @@ import {
 } from "@/lib/context";
 import { LOCATION_FIRST_TAG } from "@/maps/api";
 import {
+    basemapWaterKindSummary,
     basemapWaterVersion,
     biggestOceanInteriorPoint,
 } from "@/maps/api/basemapWater";
@@ -650,8 +651,24 @@ export function useQuestionImpact(
                         const yesKm2 = yes
                             ? Math.round(turf.area(yes) / 1e6)
                             : 0;
+                        // v1153: fold the NAMED-water readout into the CLIP line
+                        // (which overwrites the bow line), so the phone actually
+                        // shows whether the basemap water carries names.
+                        let kindInfo = "";
+                        try {
+                            kindInfo = ` | ${basemapWaterKindSummary(
+                                turf.bbox(playArea) as [
+                                    number,
+                                    number,
+                                    number,
+                                    number,
+                                ],
+                            )}`;
+                        } catch {
+                            /* ignore */
+                        }
                         lastBodyOfWaterDiag.set(
-                            `CLIP ocean-in: buf=${inb ? "Y" : "N"} playArea=${inpa ? "Y" : "N"} yes=${inyes ? "Y" : "N"} | playArea=${paKm2}km² yes=${yesKm2}km²`,
+                            `CLIP ocean-in: buf=${inb ? "Y" : "N"} playArea=${inpa ? "Y" : "N"} yes=${inyes ? "Y" : "N"} | playArea=${paKm2}km² yes=${yesKm2}km²${kindInfo}`,
                         );
                     } catch {
                         /* ignore */
