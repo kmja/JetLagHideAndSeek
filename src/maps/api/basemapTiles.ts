@@ -165,12 +165,19 @@ export async function fetchLayerNamedPointsFromPM(
 }
 
 /**
- * v1157 DIAGNOSTIC: probe how many features of a source-layer carry a NAME at
- * each of several zooms, over a small central tile sample of `bbox`. The `water`
- * polygon layer has names at z9 (388/448) but none at z13 — this finds the
- * highest zoom that still carries water names (so we can source named bodies
- * from it). Reads only a few central tiles per zoom (name-presence, not full
- * coverage). Returns "z10:C/nN(a|b) z11:… z12:…".
+ * v1160 DIAGNOSTIC: compare the NAME SETS of a source-layer across zooms over the
+ * SAME geography, to answer "are the names at a higher zoom a subset of a lower
+ * zoom's?" (the v1157 count probe couldn't — its fixed 2×2 tile sample covered a
+ * different-sized area per zoom, so the counts weren't comparable). Reads a
+ * common CENTRAL sub-bbox (~1/3 of the play-area span) at each zoom — every zoom
+ * covers the identical geography, just at different tile counts — collects the
+ * set of names, and reports per zoom: the set size, how many of its names are IN
+ * the lowest zoom's set (`∈zLO`), and how many are NEW (not in the lowest set).
+ * A `new:0` at a higher zoom ⇒ the lowest zoom is a superset (safe to source
+ * names there). A `new:>0` ⇒ the lowest zoom MISSES those bodies (generalized
+ * away), so it's NOT a complete source. Also reports `zLO-only` — names the
+ * lowest zoom has that the highest lost (fragmented). Returns
+ * "set z10=A z11=B(∈z10:x,new:y) z12=C(…) | z10-only-vs-z12=z".
  */
 export async function probeLayerNamesAcrossZooms(
     pm: PMTiles,
@@ -181,22 +188,29 @@ export async function probeLayerNamesAcrossZooms(
     const [minLng, minLat, maxLng, maxLat] = bbox;
     const cLng = (minLng + maxLng) / 2;
     const cLat = (minLat + maxLat) / 2;
-    const parts: string[] = [];
+    // A central sub-bbox = 1/3 of the play-area span in each dimension, so the
+    // highest zoom stays a manageable tile count and every zoom covers the SAME
+    // ground (fair set comparison).
+    const hw = (maxLng - minLng) / 6;
+    const hh = (maxLat - minLat) / 6;
+    const sub: [number, number, number, number] = [
+        cLng - hw,
+        cLat - hh,
+        cLng + hw,
+        cLat + hh,
+    ];
+    const sets: Array<{ z: number; names: Set<string> }> = [];
     for (const z of zooms) {
-        const x0 = tileXOf(cLng, z);
-        const y0 = tileYOf(cLat, z);
-        // 2×2 central sample — enough to see whether names are present at all.
-        const tiles: Array<[number, number]> = [
-            [x0, y0],
-            [x0 + 1, y0],
-            [x0, y0 + 1],
-            [x0 + 1, y0 + 1],
-        ];
-        let count = 0;
-        let named = 0;
-        const samples: string[] = [];
+        const xa = tileXOf(sub[0], z);
+        const xb = tileXOf(sub[2], z);
+        const ya = tileYOf(sub[3], z);
+        const yb = tileYOf(sub[1], z);
+        const tiles: Array<[number, number]> = [];
+        for (let x = xa; x <= xb; x++)
+            for (let y = ya; y <= yb; y++) tiles.push([x, y]);
+        const names = new Set<string>();
         await Promise.all(
-            tiles.map(async ([x, y]) => {
+            tiles.slice(0, 40).map(async ([x, y]) => {
                 try {
                     const resp = await pm.getZxy(z, x, y);
                     if (!resp || !resp.data) return;
@@ -206,15 +220,12 @@ export async function probeLayerNamesAcrossZooms(
                     const layer = vt.layers[sourceLayer];
                     if (!layer) return;
                     for (let i = 0; i < layer.length; i++) {
-                        count++;
                         try {
                             const nm = (
                                 layer.feature(i).properties as { name?: string }
                             ).name;
-                            if (typeof nm === "string" && nm.trim()) {
-                                named++;
-                                if (samples.length < 2) samples.push(nm.trim());
-                            }
+                            if (typeof nm === "string" && nm.trim())
+                                names.add(nm.trim());
                         } catch {
                             /* skip */
                         }
@@ -224,11 +235,24 @@ export async function probeLayerNamesAcrossZooms(
                 }
             }),
         );
-        parts.push(
-            `z${z}:${count}/n${named}${samples.length ? `(${samples.join("|")})` : ""}`,
-        );
+        sets.push({ z, names });
     }
-    return parts.join(" ");
+    if (sets.length === 0) return "set no-data";
+    const base = sets[0];
+    const parts = sets.map((s) => {
+        if (s.z === base.z) return `z${s.z}=${s.names.size}`;
+        let inBase = 0;
+        let novel = 0;
+        for (const n of s.names) {
+            if (base.names.has(n)) inBase++;
+            else novel++;
+        }
+        return `z${s.z}=${s.names.size}(∈z${base.z}:${inBase},new:${novel})`;
+    });
+    const top = sets[sets.length - 1];
+    let baseOnly = 0;
+    for (const n of base.names) if (!top.names.has(n)) baseOnly++;
+    return `set ${parts.join(" ")} | z${base.z}-only-vs-z${top.z}=${baseOnly}`;
 }
 
 /** URL variant of {@link probeLayerNamesAcrossZooms} — reads from the master

@@ -776,11 +776,15 @@ export function basemapCoastLines(
 }
 
 /**
- * v1157 DIAGNOSTIC: the layer inventory (v1156) showed water NAMES live in the
- * `water` POLYGON layer itself — present at z9 (388/448 named: "Wallkill River",
- * "Rockaway River") but gone by z13 (named=0). To source named bodies we need
- * the highest zoom that still carries names with usable geometry, so this probes
- * the `water` layer's name count at z10/z11/z12. Memoised per play area.
+ * v1160 DIAGNOSTIC: water NAMES live in the `water` POLYGON layer, present at low
+ * zooms but gone by z13. The v1157 count probe (fixed 2×2 tile sample) could NOT
+ * tell us which zoom to source names from, because each zoom's sample covered a
+ * different-sized area — the counts weren't comparable, and different sample
+ * names per zoom hinted (correctly) that generalization surfaces DIFFERENT bodies
+ * per zoom, not a clean superset. This probes the actual name SETS over the SAME
+ * central sub-bbox at z10/z11/z12 and reports the overlap (`∈z10` / `new` /
+ * `z10-only`), which decisively answers "is a lower zoom a superset of the higher
+ * ones' names, or does it miss small bodies?". Memoised per play area.
  */
 let namedProbe: { key: string; result: string } | null = null;
 export async function probeNamedWaterLabels(
@@ -816,8 +820,8 @@ export async function probeNamedWaterLabels(
     } catch (e) {
         result = `water-names: err ${String(e).slice(0, 40)}`;
     }
-    // Only cache a REAL read (has a "z"-prefixed zoom entry); retry a failure.
-    if (result.includes("z10:")) {
+    // Only cache a REAL read (has a "z10=" set entry); retry a failure.
+    if (result.includes("z10=")) {
         namedProbe = { key, result };
     }
     return result;

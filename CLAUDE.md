@@ -432,6 +432,19 @@ bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
 build stamp. Current: `v1069`. Use `git log` for the per-version detail;
 
+**v1161 — water-name probe rebuilt as a NAME-SET comparison (the v1157 count
+probe couldn't answer the real question).** The v1157 probe read a fixed 2×2
+central tile sample per zoom, but a z10 tile covers ~16× a z12 tile's area — so
+`z10:140 z11:82 z12:32` compared DIFFERENT-sized regions, and the different
+sample names per zoom actually hinted that generalization surfaces different
+bodies per zoom (small creeks only at high zoom, large bays only at low), NOT
+that z10 is a superset. So "use z10" was unjustified. `probeLayerNamesAcrossZooms`
+(`basemapTiles.ts`) now reads the actual name SETS over the SAME central sub-bbox
+(~1/3 of the play-area span) at z10/z11/z12 and reports, per zoom, set size +
+how many names are IN the z10 set (`∈z10`) vs NEW (`new:`), plus `z10-only`. A
+`new:0` at z12 ⇒ z10 is a superset (safe source); `new:>0` ⇒ z10 MISSES those
+small bodies and isn't complete. Decisive — read it back on the `[bow]` line.
+
 **v1160 — subtype-picker lag REAL fix (`countInPlayArea` cache) + revert the
 v1157 loading veil.**
 - **The 2.8 s block was `countInPlayArea`, not the union.** The v1159 union
