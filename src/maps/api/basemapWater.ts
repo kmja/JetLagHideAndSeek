@@ -312,6 +312,23 @@ export function ensureBasemapWaterForArea(
             // near-coincident vertices together and `simplify` (~30 m, invisible
             // against a ≥km water buffer) drops the redundant density, so the
             // union is fast. Skip anything that cleans to zero area.
+            // v1151: simplify by KIND. The OCEAN/sea/bay is the largest,
+            // most-vertex-heavy water and appears in every coastal cell, so it
+            // dominates the per-cell clip/buffer + the label scan — yet its exact
+            // shoreline is invisible in the result (the "closer" band is ~km wide
+            // and the buffer smooths the shore). So coarsen the coastline HARD
+            // (~250 m) while keeping inland ponds/lakes FINE (~33 m) so a small
+            // park pond stays crisp and countable. This is the perf win for the
+            // finer z13 read: it slashes the ocean's vertex count with no visible
+            // effect, keeping the detail only where it changes the answer.
+            const rawKind = (
+                (f.properties as { kind?: string } | null)?.kind ?? ""
+            )
+                .trim()
+                .toLowerCase();
+            const isCoastalWater = /^(ocean|sea|bay|strait|channel)$/.test(
+                rawKind,
+            );
             let cg = g as Polygon | MultiPolygon;
             try {
                 const cleaned = turf.simplify(
@@ -319,7 +336,11 @@ export function ensureBasemapWaterForArea(
                         turf.feature(cg),
                         { precision: 5, coordinates: 2, mutate: false },
                     ),
-                    { tolerance: 0.0003, highQuality: false, mutate: true },
+                    {
+                        tolerance: isCoastalWater ? 0.0022 : 0.0003,
+                        highQuality: false,
+                        mutate: true,
+                    },
                 ) as Feature<Polygon | MultiPolygon>;
                 if (cleaned?.geometry && turf.area(cleaned) > 0) {
                     cg = cleaned.geometry as Polygon | MultiPolygon;

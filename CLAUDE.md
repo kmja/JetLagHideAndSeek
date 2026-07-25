@@ -477,6 +477,20 @@ build stamp. Current: `v1069`. Use `git log` for the per-version detail;
 - **NEXT: a SINGLE station producer shared by seeker + hider** (shipped in
   v1115 below).
 
+**v1151 — coarsen the COASTLINE, keep ponds fine (perf for the z13 read).** The
+ocean/sea/bay is the largest, most-vertex-heavy water and shows up in every
+coastal cell, so it dominates the per-cell clip/buffer + the label scan — yet its
+exact shoreline is invisible in the result (the "closer" band is ~km wide and the
+buffer smooths the shore; simplify mostly removes along-shore wiggle, so the
+perpendicular distance barely moves). So `ensureBasemapWaterForArea`
+(`basemapWater.ts`) now simplifies water BY KIND at storage: ocean/sea/bay/strait/
+channel to ~250 m, inland ponds/lakes kept ~33 m — so a small park pond stays
+crisp + countable (the v1150 win) while the coastline's vertex count drops ~5–8×,
+lightening the buffer + label with no visible effect on the answer. Answers the
+user's "reduce detail just for the coastline, keep detail on water far from
+shore." (Read cost is the tile COUNT, not per-tile ocean detail, so this targets
+the downstream processing, which is where the ocean actually dominates.)
+
 **v1150 — body-of-water reads z13 so small park ponds COUNT (per-cell dissolve
 makes the finer water tractable).** Now that the chunked buffer is clean (v1149),
 raised the basemap-water read from a coarse zoom to **z13** — the old read
