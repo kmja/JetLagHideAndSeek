@@ -432,6 +432,25 @@ bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
 build stamp. Current: `v1069`. Use `git log` for the per-version detail;
 
+**v1158 — subtype-picker lag DIAGNOSTIC (measure, don't guess).** The user
+clarified the "lag" is opening the matching/measuring/tentacle subtype-picker
+DRAWERS (the "subpages of questions"), NOT the configure dialog. Those three are
+exactly the categories with `MIN_INSTANCES > 0`, so `useSubtypeAvailability`
+runs its gating computes on open (family warming, admin-span, coast presence,
+HSR/border presence); photo (no min) opens fast, which is why it wasn't
+reported. No clear this-session regression was findable by inspection (the one
+changed gate, `computeHsrPresent` v1131, got FASTER for non-HSR countries), so
+rather than ship a speculative fix this adds instrumentation: a **longtask
+PerformanceObserver** over the first 1.8 s after a picker mounts (the API only
+reports main-thread tasks ≥50 ms, so an empty list ⇒ NO JS block = the lag is
+layout/paint/drawer-animation/perception; a non-empty list gives the block
+magnitude) PLUS **per-compute wall-clock timings** (`timed()` wraps warm /
+admin / coast / line computes). Both fold into `lastSubtypePickerDiag`
+(`debugState.ts`) → a "Subtype open:" line in `DebugPhaseControls` (also
+`[subtypeavail]`-console'd) reading e.g. `open measuring: block=[220] sum=220ms
+/1800ms | warm(3)=140ms admin(2)=180ms coast=90ms`. Open each picker on-device,
+read it back; the numbers pinpoint the block so the actual fix is targeted.
+
 **v1157 — configure-dialog unified loading veil restored + water-name zoom probe.**
 - **The configure question dialog reveals ALL its info at once again**
   (`AddQuestionDialog`). v773 had removed the full-body veil for "progressive

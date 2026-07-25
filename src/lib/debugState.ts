@@ -63,3 +63,14 @@ export const lastBodyOfWaterDiag = atom<string>("");
  * repro can be read back on the phone. Also `console`d with the `[preload]` tag.
  */
 export const lastPreloadDiag = atom<string>("");
+
+/**
+ * v1158: on-device timing for the subtype-picker drawer (matching / measuring /
+ * tentacle "subpages of questions"), which the user reported as laggy to open.
+ * `useSubtypeAvailability` runs per-category gating computes (admin-span, coast,
+ * HSR/border presence, family warming); this records the wall-clock ms each took
+ * on the last open, so a phone tester can read back WHICH compute dominates
+ * instead of us guessing. Set from `subtypeAvailability.ts`, shown in
+ * `DebugPhaseControls`. Also `console`d with the `[subtypeavail]` tag.
+ */
+export const lastSubtypePickerDiag = atom<string>("");

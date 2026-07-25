@@ -23,6 +23,7 @@ import {
     debugPanelOpen,
     lastBodyOfWaterDiag,
     lastPreloadDiag,
+    lastSubtypePickerDiag,
     stationLabelMaxChars,
 } from "@/lib/debugState";
 import { clearAllLocalDataAndReload } from "@/lib/debugTools";
@@ -134,6 +135,7 @@ export function DebugPhaseControls(_props: { floating?: DebugFloating } = {}) {
     const $labelMaxChars = useStore(stationLabelMaxChars);
     const $bowDiag = useStore(lastBodyOfWaterDiag);
     const $preloadDiag = useStore(lastPreloadDiag);
+    const $subtypeDiag = useStore(lastSubtypePickerDiag);
     const $questions = useStore(questions);
     const $inbox = useStore(hiderInbox);
     const $map = useStore(mapContext);
@@ -800,6 +802,19 @@ export function DebugPhaseControls(_props: { floating?: DebugFloating } = {}) {
                     <span className="text-muted-foreground">Preload: </span>
                     <span className="tabular-nums break-all">
                         {$preloadDiag || "— (start a preload to see)"}
+                    </span>
+                </div>
+
+                {/* v1158: subtype-picker open timing — main-thread block magnitude
+                    (longtasks ≥50 ms) + per-compute wall-clock, to pin down the
+                    reported lag opening the matching/measuring/tentacle subpages.
+                    Open a subtype picker, then read this back. */}
+                <div className="text-[11px] rounded border border-border/60 bg-secondary/40 px-2 py-1.5">
+                    <span className="text-muted-foreground">
+                        Subtype open:{" "}
+                    </span>
+                    <span className="tabular-nums break-all">
+                        {$subtypeDiag || "— (open a subtype picker to see)"}
                     </span>
                 </div>
 

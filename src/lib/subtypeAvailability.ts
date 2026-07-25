@@ -6,6 +6,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import { adminTierToOsmLevel } from "@/lib/adminDivisions";
 import { mapGeoLocation, polyGeoJSON } from "@/lib/context";
+import { lastSubtypePickerDiag } from "@/lib/debugState";
 import { LOCATION_FIRST_TAG } from "@/maps/api";
 import { fetchPrewarmedAreaAdmin } from "@/maps/api/adminBoundary";
 import { fetchAreaCoastlineLines } from "@/maps/api/coast";
@@ -42,6 +43,23 @@ const MIN_INSTANCES: Record<string, number> = {
     tentacles: 2,
     measuring: 1,
 };
+
+/* v1158 DIAGNOSTIC: per-compute wall-clock timings for the last subtype-picker
+ * open, accumulated here and folded into `lastSubtypePickerDiag` by the longtask
+ * observer. Reset when a picker opens (categoryId changes). */
+const subtypeTimings: string[] = [];
+async function timed<T>(label: string, fn: () => Promise<T>): Promise<T> {
+    const t0 = typeof performance !== "undefined" ? performance.now() : 0;
+    try {
+        return await fn();
+    } finally {
+        const ms =
+            typeof performance !== "undefined"
+                ? Math.round(performance.now() - t0)
+                : 0;
+        subtypeTimings.push(`${label}=${ms}ms`);
+    }
+}
 
 /**
  * The prefetch family a subtype's reference count can be read from, or
@@ -362,6 +380,50 @@ export function useSubtypeAvailability(
     const min = (categoryId && MIN_INSTANCES[categoryId]) || 0;
     const key = values.join(",");
 
+    // v1158 DIAGNOSTIC: the user reports the subtype-picker drawers
+    // (matching/measuring/tentacle "subpages") lag on OPEN. Install a longtask
+    // observer over the first ~1.8 s after this category's picker mounts — the
+    // longtask API only reports main-thread tasks ≥50 ms, so an empty list means
+    // there's NO JS block (the lag is layout/paint/drawer animation or
+    // perception) and a non-empty list localises the block magnitude. Paired
+    // with the per-compute wall-clock timings (`recordSubtypeTiming` below), so
+    // the readout attributes the block. Read back in the debug panel.
+    useEffect(() => {
+        if (!categoryId) return;
+        subtypeTimings.length = 0;
+        if (typeof PerformanceObserver === "undefined") return;
+        const t0 =
+            typeof performance !== "undefined" ? performance.now() : 0;
+        const tasks: number[] = [];
+        let obs: PerformanceObserver | null = null;
+        try {
+            obs = new PerformanceObserver((list) => {
+                for (const e of list.getEntries())
+                    tasks.push(Math.round(e.duration));
+            });
+            obs.observe({ entryTypes: ["longtask"] });
+        } catch {
+            /* longtask unsupported (Firefox / Safari) */
+        }
+        const timer = window.setTimeout(() => {
+            obs?.disconnect();
+            const total = tasks.reduce((a, b) => a + b, 0);
+            const span =
+                typeof performance !== "undefined"
+                    ? Math.round(performance.now() - t0)
+                    : 0;
+            const line = `open ${categoryId}: block=[${tasks.join(",")}] sum=${total}ms/${span}ms | ${subtypeTimings.join(" ") || "no computes"}`;
+            lastSubtypePickerDiag.set(line);
+            // eslint-disable-next-line no-console
+            console.log(`[subtypeavail] ${line}`);
+        }, 1800);
+        return () => {
+            obs?.disconnect();
+            window.clearTimeout(timer);
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [categoryId]);
+
     useEffect(() => {
         if (!min) return;
         let cancelled = false;
@@ -371,8 +433,10 @@ export function useSubtypeAvailability(
             if (f && countInPlayArea(f) === null) cold.add(f);
         }
         if (cold.size === 0) return;
-        Promise.all(
-            Array.from(cold).map((f) => prefetchCategory(f).catch(() => {})),
+        timed(`warm(${cold.size})`, () =>
+            Promise.all(
+                Array.from(cold).map((f) => prefetchCategory(f).catch(() => {})),
+            ),
         ).then(() => {
             if (!cancelled) setTick((t) => t + 1);
         });
@@ -405,12 +469,14 @@ export function useSubtypeAvailability(
         if (levels.size === 0) return;
         let cancelled = false;
         levels.forEach((l) => adminSpanPending.add(`${sig}:${l}`));
-        Promise.all(
-            Array.from(levels).map(async (l) => {
-                const span = await computeAdminSpan(l);
-                adminSpanPending.delete(`${sig}:${l}`);
-                if (span != null) adminSpanCache.set(`${sig}:${l}`, span);
-            }),
+        timed(`admin(${levels.size})`, () =>
+            Promise.all(
+                Array.from(levels).map(async (l) => {
+                    const span = await computeAdminSpan(l);
+                    adminSpanPending.delete(`${sig}:${l}`);
+                    if (span != null) adminSpanCache.set(`${sig}:${l}`, span);
+                }),
+            ),
         ).then(() => {
             if (!cancelled) setTick((t) => t + 1);
         });
@@ -430,7 +496,7 @@ export function useSubtypeAvailability(
         if (coastPresentCache.has(sig) || coastPresentPending === sig) return;
         let cancelled = false;
         coastPresentPending = sig;
-        computeCoastPresent().then((present) => {
+        timed("coast", computeCoastPresent).then((present) => {
             if (coastPresentPending === sig) coastPresentPending = null;
             if (present != null) coastPresentCache.set(sig, present);
             if (!cancelled) setTick((t) => t + 1);
@@ -466,7 +532,7 @@ export function useSubtypeAvailability(
                 : BORDER1_GATED.has(v)
                   ? computeBorder1Present
                   : computeBorder0Present;
-            compute().then((present) => {
+            timed(`line:${v}`, compute).then((present) => {
                 linePresentPending.delete(ckey);
                 if (present != null) linePresentCache.set(ckey, present);
                 if (!cancelled) setTick((t) => t + 1);
