@@ -9,6 +9,7 @@ import { dissolveWater } from "@/lib/geometry/client";
 import { pmtilesUrl } from "@/lib/protomapsStyle";
 import { getActivePackReader } from "@/lib/tilePack";
 import {
+    fetchBasemapLayerNamedPoints,
     fetchBasemapLayerPolys,
     fetchLayerNamedPointsFromPM,
     fetchLayerPolysFromPM,
@@ -802,6 +803,18 @@ export async function probeNamedWaterLabels(
                 "physical_point",
                 { targetZoom: 14, maxTiles: 300 },
             );
+        } else {
+            // No matching in-memory pack — read from the master archive over the
+            // network (the same fallback the water read uses).
+            const url = pmtilesUrl.get();
+            if (url) {
+                pts = await fetchBasemapLayerNamedPoints(
+                    url,
+                    bbox,
+                    "physical_point",
+                    { targetZoom: 14, maxTiles: 300 },
+                );
+            }
         }
         if (pts) {
             const kinds = new Map<string, number>();
@@ -829,7 +842,10 @@ export async function probeNamedWaterLabels(
     } catch (e) {
         result = `physical_point: err ${String(e).slice(0, 40)}`;
     }
-    namedProbe = { key, result };
+    // Only cache a REAL read (total=…); a failure/unavailable should retry.
+    if (result.startsWith("physical_point: total")) {
+        namedProbe = { key, result };
+    }
     return result;
 }
 

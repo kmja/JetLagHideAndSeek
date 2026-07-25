@@ -477,6 +477,17 @@ build stamp. Current: `v1069`. Use `git log` for the per-version detail;
 - **NEXT: a SINGLE station producer shared by seeker + hider** (shipped in
   v1115 below).
 
+**v1155 — physical_point probe: master-URL fallback + reliable display.** v1154's
+probe read `physical_point: unavailable` — a probe BUG, not a finding: it only
+tried the in-memory pack, but the water there came from the master-archive URL
+fallback (no matching pack loaded), which the probe lacked. Added
+`fetchBasemapLayerNamedPoints(url,…)` and a master-URL fallback to
+`probeNamedWaterLabels` (same fallback the water read uses), and stopped caching a
+failed probe so it retries. Also fixed the DISPLAY: the async probe result now
+writes the FULL CLIP line when it resolves (~1 s later) instead of relying on a
+"next compute" that may never fire once the water is captured. (Pool exclusion
+from v1154 confirmed working: `water=367`, pools/fountains/basins gone.)
+
 **v1154 — exclude pools/fountains/basins + probe the Protomaps LABEL layer for
 water names.** The `named=0` readout confirmed the basemap `water` POLYGONS carry
 no names — yet the map clearly labels lakes/reservoirs (the JKO Reservoir

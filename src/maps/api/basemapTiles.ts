@@ -164,6 +164,18 @@ export async function fetchLayerNamedPointsFromPM(
     }
 }
 
+/** URL variant of {@link fetchLayerNamedPointsFromPM} — reads from the master
+ *  archive over the network when no in-memory pack is loaded. */
+export async function fetchBasemapLayerNamedPoints(
+    url: string,
+    bbox: [number, number, number, number],
+    sourceLayer: string,
+    opts?: { targetZoom?: number; minZoom?: number; maxTiles?: number },
+): Promise<NamedPoint[] | null> {
+    if (!url) return null;
+    return fetchLayerNamedPointsFromPM(getPM(url), bbox, sourceLayer, opts);
+}
+
 /**
  * Fetch the polygons of a basemap source-layer covering `bbox`, decoded from the
  * pmtiles at `url`. Picks the highest zoom in [`minZoom`, `targetZoom`] whose

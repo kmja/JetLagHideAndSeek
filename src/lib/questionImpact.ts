@@ -51,10 +51,6 @@ import {
     probeNamedWaterLabels,
 } from "@/maps/api/basemapWater";
 import { lastBodyOfWaterDiag } from "@/lib/debugState";
-
-// v1154 DIAGNOSTIC: the physical_point name-probe result, populated async and
-// shown on the CLIP line on the next compute.
-let lastNamedProbe = "";
 import { seaLevelRegion } from "@/maps/api/elevation";
 import { matchingDraftRegion } from "@/maps/questions/matching";
 import { measuringDraftBuffer } from "@/maps/questions/measuring";
@@ -673,14 +669,15 @@ export function useQuestionImpact(
                         } catch {
                             /* ignore */
                         }
-                        // Fire the async probe; its result shows on the next
-                        // compute (memoised, so it's cheap after the first).
+                        const clipLine = `CLIP ocean-in: buf=${inb ? "Y" : "N"} playArea=${inpa ? "Y" : "N"} yes=${inyes ? "Y" : "N"} | playArea=${paKm2}km² yes=${yesKm2}km²${kindInfo}`;
+                        lastBodyOfWaterDiag.set(clipLine);
+                        // v1155: the probe is async (~1 s tile read); write the
+                        // FULL line when it resolves (not "next compute", which may
+                        // never happen once the water is captured). Not guarded on
+                        // `cancelled` — it's a read-only diagnostic.
                         void probeNamedWaterLabels(paBbox).then((probe) => {
-                            if (!cancelled) lastNamedProbe = probe;
+                            lastBodyOfWaterDiag.set(`${clipLine} || ${probe}`);
                         });
-                        lastBodyOfWaterDiag.set(
-                            `CLIP ocean-in: buf=${inb ? "Y" : "N"} playArea=${inpa ? "Y" : "N"} yes=${inyes ? "Y" : "N"} | playArea=${paKm2}km² yes=${yesKm2}km²${kindInfo}${lastNamedProbe ? ` || ${lastNamedProbe}` : ""}`,
-                        );
                     } catch {
                         /* ignore */
                     }
