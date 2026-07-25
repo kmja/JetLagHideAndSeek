@@ -432,26 +432,44 @@ bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
 build stamp. Current: `v1069`. Use `git log` for the per-version detail;
 
-**v1159 — subtype-picker lag ROOT-CAUSE FIXED: cache the play-area union.** The
-v1158 diagnostic nailed it: `open matching: block=[2139] sum=2139ms/1806ms | no
-computes` — a single ~2.1 s main-thread block, and NOT from any gating compute
-(they early-returned on cached spans). The block was in the effect GUARDS:
-`playAreaPolygon()` (`subtypeAvailability.ts`) does a `turf.union` over the whole
-play-area multipolygon, and on NYC + adjacents (several detailed county
-boundaries) that union is ~1 s EACH. It was called UN-cached as the guard of the
-admin-span AND coast effects (+ inside `computeAdminSpan`/`computeBorderPresent`),
-so opening a matching/measuring picker ran it 2× → ~2 s, on EVERY open. Two
-fixes: (1) **memoise the union by the `polyGeoJSON` atom's object reference**
-(`playAreaPolyCache`) — the atom ref is stable until the play area changes, so
-the union now runs at most once per area and every consumer reuses it; (2)
-**make the effect guards cheap** — a new `hasPlayAreaPolygon()` existence check
-replaces `if (!playAreaPolygon())` in the three gating effects, so a warm
-repeat-open (spans already cached) does ZERO unions and opens instantly; the
-union only runs when a compute genuinely needs the geometry (once, then cached).
-The `playAreaUnion(N)=Xms` timing stays in the debug readout to confirm the fix.
-Photo/radar/thermometer were never affected (no `MIN_INSTANCES` gate). (The
-v1158 longtask-observer + per-compute-timing instrumentation is kept — it's how
-this was found and how the fix is verified.)
+**v1160 — subtype-picker lag REAL fix (`countInPlayArea` cache) + revert the
+v1157 loading veil.**
+- **The 2.8 s block was `countInPlayArea`, not the union.** The v1159 union
+  cache didn't fix it — the next readout was `open matching: block=[2849] no
+  computes` on a REPEAT open (admin cached, no `playAreaUnion` timing). The
+  block runs on EVERY open regardless of caches: `countInPlayArea(family)`
+  (`playAreaPrefetch.ts`) iterates EVERY cached feature with a point-in-polygon
+  test, and the availability MEMO calls it once per countable POI family
+  (matching has ~15) on every render — uncached, ~2.8 s on NYC + adjacents. It
+  never showed as a "compute" because it's in the memo, not a `timed()` call.
+  Three fixes: (1) **ref-cache `countInPlayArea`** by (cached-features ref,
+  `polyGeoJSON` ref) so a repeat open is instant; (2) new
+  **`countAtLeastInPlayArea(family, min)`** the memo uses instead — early-exits
+  the loop once `min` (1–2) is reached (a handful of iterations for a dense
+  metro), so even the FIRST open is cheap, and it's cached too; it returns the
+  true count only when below `min` (which the disabled-tile reason text needs);
+  (3) the warming loop's cold-check is now `getCachedCategory === null` (cheap)
+  instead of `countInPlayArea === null` (which ran a full count just to detect
+  null). The v1159 union cache + cheap guards are kept (still a real win).
+- **Reverted the v1157 full-body configure veil** — it made body-of-water WORSE
+  (a slow-overlay type): it hid the question card behind a placeholder for up to
+  the 12 s tile timeout, then lifted before the overlay landed anyway (staged).
+  Back to progressive reveal — the question card + nearest-reference pill render
+  immediately and the map shows its OWN veil until tiles + overlay are ready.
+- **Water-names probe result: z10 is the source zoom.** The v1157 probe read
+  `water-names z10:140/n115(East Meadow Brook|Cedar Creek) z11:82/n50 z12:32/n13`
+  — z10 has the best name coverage (82%, incl. small creeks). That's the zoom to
+  read named bodies from when the named-water filter is built.
+
+**v1159 — subtype-picker lag ROOT-CAUSE (partial): cache the play-area union.**
+The v1158 diagnostic showed `open matching: block=[2139] no computes` — a
+~2.1 s main-thread block NOT from a gating compute. `playAreaPolygon()`
+(`subtypeAvailability.ts`) does a `turf.union` over the play-area multipolygon
+(~1 s on NYC + adjacents), called UN-cached as the guard of the admin-span AND
+coast effects. Fixes: **memoise the union** by the `polyGeoJSON` atom reference
+(`playAreaPolyCache`) + a cheap **`hasPlayAreaPolygon()`** existence check for
+the effect guards (so a warm repeat-open does ZERO unions). This was real but
+NOT the whole story — the dominant cost was `countInPlayArea` (fixed in v1160).
 
 **v1158 — subtype-picker lag DIAGNOSTIC (measure, don't guess).** The user
 clarified the "lag" is opening the matching/measuring/tentacle subtype-picker

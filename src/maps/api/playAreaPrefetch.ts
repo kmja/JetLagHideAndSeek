@@ -1156,15 +1156,79 @@ export function nearestFromCache(
  * picker to grey out reference types with too few instances to make a
  * meaningful question (e.g. a single aquarium, or no airports).
  */
+// v1159: MEMOISE the play-area count by (cached-features ref, polyGeoJSON ref).
+// This iterates EVERY cached feature with a point-in-polygon test, and the
+// subtype-availability memo calls it once per countable POI family (matching has
+// ~15) on EVERY render/open — uncached, that was a ~2.8 s main-thread block per
+// subtype-picker open on NYC + adjacents (the measured `block=[2849] no
+// computes`: it runs in the memo, not a timed compute). Both inputs are stable
+// object refs (the cache array until the family re-fetches, the atom value until
+// the play area changes), so ref-equality caching makes it run at most once per
+// (family, features, area).
+const countCache = new Map<
+    FamilyKey,
+    { features: unknown; poly: unknown; count: number }
+>();
+
 export function countInPlayArea(family: FamilyKey): number | null {
     const features = getCachedCategory(family);
     if (features === null) return null;
     const poly = polyGeoJSON.get();
-    if (!poly) return features.length;
-    let n = 0;
-    for (const f of features) {
-        if (pointInPlayArea(poly, f.lng, f.lat)) n++;
+    const cached = countCache.get(family);
+    if (cached && cached.features === features && cached.poly === poly) {
+        return cached.count;
     }
+    let n: number;
+    if (!poly) {
+        n = features.length;
+    } else {
+        n = 0;
+        for (const f of features) {
+            if (pointInPlayArea(poly, f.lng, f.lat)) n++;
+        }
+    }
+    countCache.set(family, { features, poly, count: n });
+    return n;
+}
+
+// v1159: fast availability probe — is there AT LEAST `min` of this family inside
+// the play area? Early-exits the point-in-polygon loop as soon as `min` is hit
+// (usually a handful of iterations for a dense metro), so even the FIRST
+// subtype-picker open is cheap; caching (by features+poly+min) makes repeats
+// instant. Returns the true count when it's below `min` (the loop runs to
+// completion — that's the count the disabled-tile reason text needs), and
+// exactly `min` once reached (the exact value above min is never displayed). The
+// availability gate only asks `>= min`, so capping is correct.
+const countAtLeastCache = new Map<
+    string,
+    { features: unknown; poly: unknown; count: number }
+>();
+
+export function countAtLeastInPlayArea(
+    family: FamilyKey,
+    min: number,
+): number | null {
+    const features = getCachedCategory(family);
+    if (features === null) return null;
+    const poly = polyGeoJSON.get();
+    const key = `${family}:${min}`;
+    const cached = countAtLeastCache.get(key);
+    if (cached && cached.features === features && cached.poly === poly) {
+        return cached.count;
+    }
+    let n: number;
+    if (!poly) {
+        n = Math.min(features.length, min);
+    } else {
+        n = 0;
+        for (const f of features) {
+            if (pointInPlayArea(poly, f.lng, f.lat)) {
+                n++;
+                if (n >= min) break;
+            }
+        }
+    }
+    countAtLeastCache.set(key, { features, poly, count: n });
     return n;
 }
 

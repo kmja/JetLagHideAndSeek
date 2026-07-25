@@ -17,8 +17,9 @@ import {
 } from "@/maps/api/overpass";
 import {
     buildHsrQuery,
-    countInPlayArea,
+    countAtLeastInPlayArea,
     type FamilyKey,
+    getCachedCategory,
     prefetchCategory,
 } from "@/maps/api/playAreaPrefetch";
 import { CacheType } from "@/maps/api/types";
@@ -484,7 +485,10 @@ export function useSubtypeAvailability(
         const cold = new Set<FamilyKey>();
         for (const v of values) {
             const f = countableFamily(v);
-            if (f && countInPlayArea(f) === null) cold.add(f);
+            // v1159: `getCachedCategory === null` is the cold check — cheap,
+            // vs. `countInPlayArea` which used to run the FULL point-in-polygon
+            // count here just to detect null.
+            if (f && getCachedCategory(f) === null) cold.add(f);
         }
         if (cold.size === 0) return;
         timed(`warm(${cold.size})`, () =>
@@ -649,7 +653,10 @@ export function useSubtypeAvailability(
                 continue;
             }
             const fam = countableFamily(v);
-            const count = fam ? countInPlayArea(fam) : null;
+            // v1159: early-exit probe (caps at `min`, cached) instead of a full
+            // count — the gate only needs `>= min`, and the disabled-tile reason
+            // uses the true sub-`min` count (which the loop still computes).
+            const count = fam ? countAtLeastInPlayArea(fam, min) : null;
             out[v] = {
                 available: count === null ? true : count >= min,
                 count,
