@@ -432,6 +432,34 @@ bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
 build stamp. Current: `v1069`. Use `git log` for the per-version detail;
 
+**v1157 — configure-dialog unified loading veil restored + water-name zoom probe.**
+- **The configure question dialog reveals ALL its info at once again**
+  (`AddQuestionDialog`). v773 had removed the full-body veil for "progressive
+  reveal", so the map painted first and the nearest-reference pill + impact
+  overlay popped in over it in stages (the reported "map revealed before
+  everything is loaded, multiple stages loading in", also the perceived "lag" on
+  matching/measuring/tentacle). The `pickerReady`/`revealAnyway`/`loadingLabels`
+  machinery (built in v611/v747/v1013 but left dead after v773 — only `pickerReady`
+  gated Send) is re-wired: one `ConfigureLoadingVeil` covers the whole configure
+  body until the picker signals ready (reference lookup settled + impact overlay
+  computed + tiles painted — `pickerReady` already tracks all three, since the
+  card holds the picker unmounted until the reference settles and the picker's own
+  veil waits on impact+tiles), showing the labelled steps ("Getting your
+  location…", "Finding your nearest reference…", "Calculating question impact…",
+  "Loading map…") as spinner rows. The content still MOUNTS underneath so the
+  picker can load; `revealAnyway` (15 s backstop) prevents a deadlock. Only for
+  picker-using types (radar/matching/measuring/tentacle); thermometer/photo bypass.
+- **Named-water finding + next probe.** The v1156 layer inventory answered "which
+  layer has water names": the `water` POLYGON layer itself — `water:448/n388
+  (Wallkill River|Rockaway River)` at **z9**, but `named=0` by z13 (our read
+  zoom). So Protomaps keeps water names only at low zooms. To source named bodies
+  (rulebook: NAMED bodies, pools already excluded v1154) we need the highest zoom
+  that still carries names with usable geometry — `probeNamedWaterLabels`
+  (`basemapWater.ts`) now probes the `water` layer's name count at z10/z11/z12
+  (`probeLayerNamesAcrossZooms`, `basemapTiles.ts`, 2×2 central tile sample per
+  zoom) and folds `water-names z10:C/nN … z11:… z12:…` onto the `[bow]` CLIP
+  diagnostic. Once the crossover zoom is known, named-filtering reads names there.
+
 **v1114 — build-fix + UI batch.**
 - **CI build unbroken (the v1113 deploy failed).** `tests/operators.test.ts >
   voronoi diagram` was NON-deterministic (`turf.randomPoint` with no seed, over

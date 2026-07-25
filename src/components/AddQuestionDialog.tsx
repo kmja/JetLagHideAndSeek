@@ -321,6 +321,40 @@ const CategoryTile = ({
     );
 };
 
+/**
+ * v1157: the unified configure-dialog loading veil. Covers the whole
+ * configure body until the picker signals ready, showing the labelled
+ * pending steps (from InlineLocationPicker via ConfigureDialogContext:
+ * "Getting your location…", "Finding your nearest reference…",
+ * "Calculating question impact…", "Loading map…") as spinner rows over a
+ * placeholder, so the dialog reveals all its info in one beat instead of
+ * the map appearing first and the reference/impact popping in afterward.
+ * Falls back to a single "Preparing question…" row before the picker has
+ * reported any step.
+ */
+const ConfigureLoadingVeil = ({ labels }: { labels: string[] }) => {
+    const rows = labels.length ? labels : ["Preparing question…"];
+    return (
+        <div className="absolute inset-0 z-10 flex flex-col gap-3 bg-[hsl(var(--sidebar-background))] px-6 py-4">
+            {/* Map placeholder — same rounded frame the picker settles into. */}
+            <div className="flex items-center justify-center rounded-md border border-border bg-secondary/40 h-44">
+                <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+            </div>
+            <div className="space-y-2">
+                {rows.map((label) => (
+                    <div
+                        key={label}
+                        className="flex items-center gap-2 text-sm text-muted-foreground"
+                    >
+                        <Loader2 className="w-4 h-4 animate-spin shrink-0" />
+                        <span>{label}</span>
+                    </div>
+                ))}
+            </div>
+        </div>
+    );
+};
+
 export const AddQuestionDialog = ({
     children,
     respondToSignal = false,
@@ -1473,16 +1507,22 @@ export const AddQuestionDialog = ({
                         </div>
 
                         <div className="flex-1 overflow-y-auto px-6 py-4 min-h-0 relative">
-                            {/* v773: progressive reveal — NO full-body veil.
-                                The question card (category header + config
-                                controls) renders immediately; each async
-                                section shows its OWN loader instead (the map
-                                picker's MapTilesVeil, the nearest-reference
-                                pill's spinner), so the dialog takes shape in
-                                place rather than sitting behind one big
-                                skeleton. The Send button still waits on
-                                `pickerReady` (below), so nothing can be sent
-                                before the location + map are ready. */}
+                            {/* v1157: ONE unified veil over the whole configure
+                                body until the picker signals ready (reference
+                                resolved + impact overlay computed + tiles
+                                painted), so the dialog reveals ALL its info at
+                                once. v773 had removed it for "progressive
+                                reveal", but that showed the map first and then
+                                the nearest-reference pill + impact overlay
+                                popped in over it in stages (the reported
+                                "map revealed before everything is loaded,
+                                multiple stages loading in"). The content still
+                                MOUNTS underneath (so the picker can load + fire
+                                onPickerReady); the veil just covers it with the
+                                labelled loader rows meanwhile. Only for
+                                picker-using types; `revealAnyway` (15 s
+                                backstop) prevents a deadlock if a compute
+                                stalls / GPS is denied. */}
                             <div>
                             {pendingQuestion &&
                                 (() => {
@@ -1547,6 +1587,12 @@ export const AddQuestionDialog = ({
                                     }
                                 })()}
                             </div>
+                            {pendingUsesPicker &&
+                                !(pickerReady || revealAnyway) && (
+                                    <ConfigureLoadingVeil
+                                        labels={loadingLabels}
+                                    />
+                                )}
                         </div>
 
                         <DialogFooter className="px-6 py-4 shrink-0 gap-2 sm:gap-2 sm:justify-end">

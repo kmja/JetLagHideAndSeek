@@ -165,6 +165,85 @@ export async function fetchLayerNamedPointsFromPM(
 }
 
 /**
+ * v1157 DIAGNOSTIC: probe how many features of a source-layer carry a NAME at
+ * each of several zooms, over a small central tile sample of `bbox`. The `water`
+ * polygon layer has names at z9 (388/448) but none at z13 — this finds the
+ * highest zoom that still carries water names (so we can source named bodies
+ * from it). Reads only a few central tiles per zoom (name-presence, not full
+ * coverage). Returns "z10:C/nN(a|b) z11:… z12:…".
+ */
+export async function probeLayerNamesAcrossZooms(
+    pm: PMTiles,
+    bbox: [number, number, number, number],
+    sourceLayer: string,
+    zooms: number[],
+): Promise<string> {
+    const [minLng, minLat, maxLng, maxLat] = bbox;
+    const cLng = (minLng + maxLng) / 2;
+    const cLat = (minLat + maxLat) / 2;
+    const parts: string[] = [];
+    for (const z of zooms) {
+        const x0 = tileXOf(cLng, z);
+        const y0 = tileYOf(cLat, z);
+        // 2×2 central sample — enough to see whether names are present at all.
+        const tiles: Array<[number, number]> = [
+            [x0, y0],
+            [x0 + 1, y0],
+            [x0, y0 + 1],
+            [x0 + 1, y0 + 1],
+        ];
+        let count = 0;
+        let named = 0;
+        const samples: string[] = [];
+        await Promise.all(
+            tiles.map(async ([x, y]) => {
+                try {
+                    const resp = await pm.getZxy(z, x, y);
+                    if (!resp || !resp.data) return;
+                    const vt = new VectorTile(
+                        new Protobuf(new Uint8Array(resp.data)),
+                    );
+                    const layer = vt.layers[sourceLayer];
+                    if (!layer) return;
+                    for (let i = 0; i < layer.length; i++) {
+                        count++;
+                        try {
+                            const nm = (
+                                layer.feature(i).properties as { name?: string }
+                            ).name;
+                            if (typeof nm === "string" && nm.trim()) {
+                                named++;
+                                if (samples.length < 2) samples.push(nm.trim());
+                            }
+                        } catch {
+                            /* skip */
+                        }
+                    }
+                } catch {
+                    /* skip tile */
+                }
+            }),
+        );
+        parts.push(
+            `z${z}:${count}/n${named}${samples.length ? `(${samples.join("|")})` : ""}`,
+        );
+    }
+    return parts.join(" ");
+}
+
+/** URL variant of {@link probeLayerNamesAcrossZooms} — reads from the master
+ *  archive over the network when no in-memory pack is loaded. */
+export async function probeLayerNamesAcrossZoomsUrl(
+    url: string,
+    bbox: [number, number, number, number],
+    sourceLayer: string,
+    zooms: number[],
+): Promise<string> {
+    if (!url) return "no-url";
+    return probeLayerNamesAcrossZooms(getPM(url), bbox, sourceLayer, zooms);
+}
+
+/**
  * v1156 DIAGNOSTIC: enumerate EVERY layer in the tiles over `bbox` and report,
  * per layer, how many features it has and how many carry a NAME (+ samples). The
  * `physical_point` guess was empty, but the map clearly labels water bodies, so

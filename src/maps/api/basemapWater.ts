@@ -9,10 +9,10 @@ import { dissolveWater } from "@/lib/geometry/client";
 import { pmtilesUrl } from "@/lib/protomapsStyle";
 import { getActivePackReader } from "@/lib/tilePack";
 import {
-    fetchBasemapInventory,
-    fetchBasemapInventoryFromPM,
     fetchBasemapLayerPolys,
     fetchLayerPolysFromPM,
+    probeLayerNamesAcrossZooms,
+    probeLayerNamesAcrossZoomsUrl,
 } from "@/maps/api/basemapTiles";
 import { playAreaSignature } from "@/maps/geo-utils/playAreaIndex";
 
@@ -776,12 +776,11 @@ export function basemapCoastLines(
 }
 
 /**
- * v1154 DIAGNOSTIC: probe the Protomaps LABEL layers for water-body NAMES. The
- * `water` polygon layer carries none (`named=0`), but the map clearly labels
- * lakes/reservoirs — so the names live in a separate layer (`physical_point`
- * for water-body labels, `physical_line` for rivers). This reads `physical_point`
- * and reports how many named labels it finds + their kinds, to confirm we can
- * source names there. Memoised per play area; result cached as a string.
+ * v1157 DIAGNOSTIC: the layer inventory (v1156) showed water NAMES live in the
+ * `water` POLYGON layer itself — present at z9 (388/448 named: "Wallkill River",
+ * "Rockaway River") but gone by z13 (named=0). To source named bodies we need
+ * the highest zoom that still carries names with usable geometry, so this probes
+ * the `water` layer's name count at z10/z11/z12. Memoised per play area.
  */
 let namedProbe: { key: string; result: string } | null = null;
 export async function probeNamedWaterLabels(
@@ -789,34 +788,36 @@ export async function probeNamedWaterLabels(
 ): Promise<string> {
     const key = playAreaKey();
     if (namedProbe?.key === key) return namedProbe.result;
-    let result = "inv: unavailable";
+    let result = "water-names: unavailable";
     try {
         const pack = getActivePackReader();
         const packOsm = mapGeoLocation.get()?.properties?.osm_id;
         const usePack =
             pack && (packOsm == null || pack.osmId === packOsm) ? pack : null;
-        // v1156: enumerate EVERY layer + named-feature counts, so we find which
-        // layer carries the water-body names (physical_point was empty).
-        let inv: string | null = null;
+        let line: string | null = null;
         if (usePack) {
-            inv = await fetchBasemapInventoryFromPM(usePack.pmtiles, bbox, {
-                targetZoom: 14,
-                maxTiles: 12,
-            });
+            line = await probeLayerNamesAcrossZooms(
+                usePack.pmtiles,
+                bbox,
+                "water",
+                [10, 11, 12],
+            );
         } else {
             const url = pmtilesUrl.get();
             if (url)
-                inv = await fetchBasemapInventory(url, bbox, {
-                    targetZoom: 14,
-                    maxTiles: 12,
-                });
+                line = await probeLayerNamesAcrossZoomsUrl(
+                    url,
+                    bbox,
+                    "water",
+                    [10, 11, 12],
+                );
         }
-        if (inv) result = inv;
+        if (line) result = `water-names ${line}`;
     } catch (e) {
-        result = `inv: err ${String(e).slice(0, 40)}`;
+        result = `water-names: err ${String(e).slice(0, 40)}`;
     }
-    // Only cache a REAL read; a failure/unavailable should retry.
-    if (result.startsWith("z")) {
+    // Only cache a REAL read (has a "z"-prefixed zoom entry); retry a failure.
+    if (result.includes("z10:")) {
         namedProbe = { key, result };
     }
     return result;
