@@ -126,11 +126,56 @@ function adminOsmLevel(value: string): number | null {
     return adminTierToOsmLevel(iso, tier);
 }
 
+// v1158: MEMOISE the unioned play-area polygon by the `polyGeoJSON` atom's
+// object reference. This function was called as an UN-cached guard in the
+// admin-span AND coast effects (+ inside computeAdminSpan / computeBorderPresent)
+// and its `turf.union` over a multi-area play area (NYC + adjacents = several
+// detailed county boundaries) is ~1 s EACH — so opening a matching/measuring
+// subtype picker ran the union 2-4× and blocked the main thread ~2 s (the
+// measured `block=[2139] no computes`: the union runs BEFORE the timed computes,
+// which then early-return on a cached span, so it never showed as a "compute").
+// The union result only changes when `polyGeoJSON` changes (a stable atom ref),
+// so ref-equality caching makes it run at most once per play-area change and
+// every guard/consumer reuses it.
+let playAreaPolyCache: {
+    src: unknown;
+    poly: Feature<Polygon | MultiPolygon> | null;
+} | null = null;
+
 function playAreaPolygon(): Feature<Polygon | MultiPolygon> | null {
     const src = polyGeoJSON.get() as
         | Feature
         | GeoJSON.FeatureCollection
         | null;
+    if (playAreaPolyCache && playAreaPolyCache.src === src) {
+        return playAreaPolyCache.poly;
+    }
+    const poly = computePlayAreaPolygon(src);
+    playAreaPolyCache = { src, poly };
+    return poly;
+}
+
+/** Cheap "is there a play-area polygon at all" check for effect GUARDS — avoids
+ *  triggering the expensive `turf.union` in `playAreaPolygon()` just to decide
+ *  whether to bail (the effects then early-return on a cached span / no gated
+ *  values without ever needing the unioned geometry). */
+function hasPlayAreaPolygon(): boolean {
+    const src = polyGeoJSON.get() as
+        | Feature
+        | GeoJSON.FeatureCollection
+        | null;
+    if (!src) return false;
+    const isPoly = (g: GeoJSON.Geometry | null | undefined) =>
+        !!g && (g.type === "Polygon" || g.type === "MultiPolygon");
+    if (src.type === "Feature") return isPoly(src.geometry);
+    if (src.type === "FeatureCollection")
+        return src.features.some((f) => isPoly(f.geometry));
+    return false;
+}
+
+function computePlayAreaPolygon(
+    src: Feature | GeoJSON.FeatureCollection | null,
+): Feature<Polygon | MultiPolygon> | null {
     if (!src) return null;
     if (src.type === "Feature") {
         const g = src.geometry;
@@ -147,6 +192,9 @@ function playAreaPolygon(): Feature<Polygon | MultiPolygon> | null {
         );
         if (polys.length === 0) return null;
         if (polys.length === 1) return polys[0];
+        // v1158: time the (now once-per-area) union so the debug readout
+        // confirms the cache killed the repeated ~1 s cost.
+        const t0 = typeof performance !== "undefined" ? performance.now() : 0;
         try {
             return (
                 (turf.union(
@@ -155,6 +203,12 @@ function playAreaPolygon(): Feature<Polygon | MultiPolygon> | null {
             );
         } catch {
             return polys[0];
+        } finally {
+            const ms =
+                typeof performance !== "undefined"
+                    ? Math.round(performance.now() - t0)
+                    : 0;
+            if (ms >= 5) subtypeTimings.push(`playAreaUnion(${polys.length})=${ms}ms`);
         }
     }
     return null;
@@ -451,7 +505,7 @@ export function useSubtypeAvailability(
     // questions that can't narrow the map are disabled. Re-runs when the
     // subtype set or the boundary changes.
     useEffect(() => {
-        if (!playAreaPolygon()) return;
+        if (!hasPlayAreaPolygon()) return;
         const sig = areaSignature();
         const levels = new Set<number>();
         for (const v of values) {
@@ -491,7 +545,7 @@ export function useSubtypeAvailability(
     // safe null=unknown). Inland → both disabled.
     useEffect(() => {
         if (!values.some((v) => COAST_GATED.has(v))) return;
-        if (!playAreaPolygon()) return;
+        if (!hasPlayAreaPolygon()) return;
         const sig = areaSignature();
         if (coastPresentCache.has(sig) || coastPresentPending === sig) return;
         let cancelled = false;
@@ -518,7 +572,7 @@ export function useSubtypeAvailability(
                 BORDER1_GATED.has(v),
         );
         if (gated.length === 0) return;
-        if (!playAreaPolygon()) return;
+        if (!hasPlayAreaPolygon()) return;
         const sig = areaSignature();
         let cancelled = false;
         for (const v of gated) {

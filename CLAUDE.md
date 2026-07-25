@@ -432,6 +432,27 @@ bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
 build stamp. Current: `v1069`. Use `git log` for the per-version detail;
 
+**v1159 — subtype-picker lag ROOT-CAUSE FIXED: cache the play-area union.** The
+v1158 diagnostic nailed it: `open matching: block=[2139] sum=2139ms/1806ms | no
+computes` — a single ~2.1 s main-thread block, and NOT from any gating compute
+(they early-returned on cached spans). The block was in the effect GUARDS:
+`playAreaPolygon()` (`subtypeAvailability.ts`) does a `turf.union` over the whole
+play-area multipolygon, and on NYC + adjacents (several detailed county
+boundaries) that union is ~1 s EACH. It was called UN-cached as the guard of the
+admin-span AND coast effects (+ inside `computeAdminSpan`/`computeBorderPresent`),
+so opening a matching/measuring picker ran it 2× → ~2 s, on EVERY open. Two
+fixes: (1) **memoise the union by the `polyGeoJSON` atom's object reference**
+(`playAreaPolyCache`) — the atom ref is stable until the play area changes, so
+the union now runs at most once per area and every consumer reuses it; (2)
+**make the effect guards cheap** — a new `hasPlayAreaPolygon()` existence check
+replaces `if (!playAreaPolygon())` in the three gating effects, so a warm
+repeat-open (spans already cached) does ZERO unions and opens instantly; the
+union only runs when a compute genuinely needs the geometry (once, then cached).
+The `playAreaUnion(N)=Xms` timing stays in the debug readout to confirm the fix.
+Photo/radar/thermometer were never affected (no `MIN_INSTANCES` gate). (The
+v1158 longtask-observer + per-compute-timing instrumentation is kept — it's how
+this was found and how the fix is verified.)
+
 **v1158 — subtype-picker lag DIAGNOSTIC (measure, don't guess).** The user
 clarified the "lag" is opening the matching/measuring/tentacle subtype-picker
 DRAWERS (the "subpages of questions"), NOT the configure dialog. Those three are
