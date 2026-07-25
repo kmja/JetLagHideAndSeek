@@ -71,6 +71,99 @@ async function readTileLayer(
     }
 }
 
+export interface NamedPoint {
+    name: string;
+    kind: string;
+    lng: number;
+    lat: number;
+}
+
+/** Read the NAMED point features of a source-layer from one tile (e.g. the
+ *  `physical_point` label layer — lake/reservoir/bay names). */
+async function readTileNamedPoints(
+    pm: PMTiles,
+    z: number,
+    x: number,
+    y: number,
+    sourceLayer: string,
+): Promise<NamedPoint[]> {
+    try {
+        const resp = await pm.getZxy(z, x, y);
+        if (!resp || !resp.data) return [];
+        const vt = new VectorTile(new Protobuf(new Uint8Array(resp.data)));
+        const layer = vt.layers[sourceLayer];
+        if (!layer) return [];
+        const out: NamedPoint[] = [];
+        for (let i = 0; i < layer.length; i++) {
+            try {
+                const gj = layer.feature(i).toGeoJSON(x, y, z) as Feature;
+                const g = gj.geometry;
+                if (!g || g.type !== "Point") continue;
+                const props = (gj.properties ?? {}) as {
+                    name?: string;
+                    kind?: string;
+                };
+                const name =
+                    typeof props.name === "string" ? props.name.trim() : "";
+                if (!name) continue;
+                const c = g.coordinates as [number, number];
+                out.push({
+                    name,
+                    kind: (props.kind ?? "").trim(),
+                    lng: c[0],
+                    lat: c[1],
+                });
+            } catch {
+                continue;
+            }
+        }
+        return out;
+    } catch {
+        return [];
+    }
+}
+
+/** Fetch NAMED point features (name + kind + lng/lat) of a source-layer over a
+ *  bbox — used to read the Protomaps `physical_point` water-body labels, which
+ *  is where water NAMES live (the `water` polygon layer carries none). */
+export async function fetchLayerNamedPointsFromPM(
+    pm: PMTiles,
+    bbox: [number, number, number, number],
+    sourceLayer: string,
+    opts?: { targetZoom?: number; minZoom?: number; maxTiles?: number },
+): Promise<NamedPoint[] | null> {
+    try {
+        const header = await pm.getHeader();
+        const archiveMax = Number.isFinite(header?.maxZoom)
+            ? (header.maxZoom as number)
+            : 15;
+        const [minLng, minLat, maxLng, maxLat] = bbox;
+        const targetZoom = Math.min(opts?.targetZoom ?? 14, archiveMax);
+        const minZoom = opts?.minZoom ?? 10;
+        const maxTiles = opts?.maxTiles ?? 400;
+        let z = targetZoom;
+        for (; z > minZoom; z--) {
+            const xa = tileXOf(minLng, z);
+            const xb = tileXOf(maxLng, z);
+            const ya = tileYOf(maxLat, z);
+            const yb = tileYOf(minLat, z);
+            if ((xb - xa + 1) * (yb - ya + 1) <= maxTiles) break;
+        }
+        const xa = tileXOf(minLng, z);
+        const xb = tileXOf(maxLng, z);
+        const ya = tileYOf(maxLat, z);
+        const yb = tileYOf(minLat, z);
+        const jobs: Promise<NamedPoint[]>[] = [];
+        for (let x = xa; x <= xb; x++)
+            for (let y = ya; y <= yb; y++)
+                jobs.push(readTileNamedPoints(pm, z, x, y, sourceLayer));
+        const feats = (await Promise.all(jobs)).flat();
+        return feats;
+    } catch {
+        return null;
+    }
+}
+
 /**
  * Fetch the polygons of a basemap source-layer covering `bbox`, decoded from the
  * pmtiles at `url`. Picks the highest zoom in [`minZoom`, `targetZoom`] whose

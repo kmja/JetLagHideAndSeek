@@ -48,8 +48,13 @@ import {
     basemapWaterKindSummary,
     basemapWaterVersion,
     biggestOceanInteriorPoint,
+    probeNamedWaterLabels,
 } from "@/maps/api/basemapWater";
 import { lastBodyOfWaterDiag } from "@/lib/debugState";
+
+// v1154 DIAGNOSTIC: the physical_point name-probe result, populated async and
+// shown on the CLIP line on the next compute.
+let lastNamedProbe = "";
 import { seaLevelRegion } from "@/maps/api/elevation";
 import { matchingDraftRegion } from "@/maps/questions/matching";
 import { measuringDraftBuffer } from "@/maps/questions/measuring";
@@ -651,24 +656,30 @@ export function useQuestionImpact(
                         const yesKm2 = yes
                             ? Math.round(turf.area(yes) / 1e6)
                             : 0;
-                        // v1153: fold the NAMED-water readout into the CLIP line
-                        // (which overwrites the bow line), so the phone actually
-                        // shows whether the basemap water carries names.
+                        // v1153/v1154: fold the NAMED-water readout + the
+                        // physical_point label probe into the CLIP line (which
+                        // overwrites the bow line), so the phone shows both whether
+                        // the water POLYGONS carry names (they don't) and whether
+                        // the physical_point LABEL layer has water names.
+                        const paBbox = turf.bbox(playArea) as [
+                            number,
+                            number,
+                            number,
+                            number,
+                        ];
                         let kindInfo = "";
                         try {
-                            kindInfo = ` | ${basemapWaterKindSummary(
-                                turf.bbox(playArea) as [
-                                    number,
-                                    number,
-                                    number,
-                                    number,
-                                ],
-                            )}`;
+                            kindInfo = ` | ${basemapWaterKindSummary(paBbox)}`;
                         } catch {
                             /* ignore */
                         }
+                        // Fire the async probe; its result shows on the next
+                        // compute (memoised, so it's cheap after the first).
+                        void probeNamedWaterLabels(paBbox).then((probe) => {
+                            if (!cancelled) lastNamedProbe = probe;
+                        });
                         lastBodyOfWaterDiag.set(
-                            `CLIP ocean-in: buf=${inb ? "Y" : "N"} playArea=${inpa ? "Y" : "N"} yes=${inyes ? "Y" : "N"} | playArea=${paKm2}km² yes=${yesKm2}km²${kindInfo}`,
+                            `CLIP ocean-in: buf=${inb ? "Y" : "N"} playArea=${inpa ? "Y" : "N"} yes=${inyes ? "Y" : "N"} | playArea=${paKm2}km² yes=${yesKm2}km²${kindInfo}${lastNamedProbe ? ` || ${lastNamedProbe}` : ""}`,
                         );
                     } catch {
                         /* ignore */

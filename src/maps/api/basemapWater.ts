@@ -10,6 +10,7 @@ import { pmtilesUrl } from "@/lib/protomapsStyle";
 import { getActivePackReader } from "@/lib/tilePack";
 import {
     fetchBasemapLayerPolys,
+    fetchLayerNamedPointsFromPM,
     fetchLayerPolysFromPM,
 } from "@/maps/api/basemapTiles";
 import { playAreaSignature } from "@/maps/geo-utils/playAreaIndex";
@@ -397,15 +398,27 @@ function capAwait(run: Promise<void>): Promise<void> {
  * (no map has loaded the area). Returned features are plain water polygons; the
  * caller buffers them by the seeker's nearest-water distance.
  */
+/** v1154: kinds the rulebook does NOT count as a "body of water" — pools
+ *  (excluded by name), fountains, and detention/retention basins. Filtered out
+ *  everywhere the basemap water is consumed. */
+function isExcludedWaterKind(p: Feature): boolean {
+    const kind = ((p.properties as { kind?: string } | null)?.kind ?? "")
+        .trim()
+        .toLowerCase();
+    return /^(swimming_pool|pool|fountain|basin)$/.test(kind);
+}
+
 export function getBasemapWaterPolys(
     bbox?: [number, number, number, number],
 ): Feature<Polygon | MultiPolygon>[] | null {
     const entry = cache.get(playAreaKey());
     if (!entry || entry.polys.length === 0) return null;
-    if (!bbox) return entry.polys;
+    const usable = entry.polys.filter((p) => !isExcludedWaterKind(p));
+    if (usable.length === 0) return null;
+    if (!bbox) return usable;
     const frame = turf.bboxPolygon(bbox);
     const kept: Feature<Polygon | MultiPolygon>[] = [];
-    for (const p of entry.polys) {
+    for (const p of usable) {
         try {
             if (turf.booleanIntersects(p, frame)) kept.push(p);
         } catch {
@@ -759,6 +772,65 @@ export function basemapCoastLines(
     } catch {
         return null;
     }
+}
+
+/**
+ * v1154 DIAGNOSTIC: probe the Protomaps LABEL layers for water-body NAMES. The
+ * `water` polygon layer carries none (`named=0`), but the map clearly labels
+ * lakes/reservoirs — so the names live in a separate layer (`physical_point`
+ * for water-body labels, `physical_line` for rivers). This reads `physical_point`
+ * and reports how many named labels it finds + their kinds, to confirm we can
+ * source names there. Memoised per play area; result cached as a string.
+ */
+let namedProbe: { key: string; result: string } | null = null;
+export async function probeNamedWaterLabels(
+    bbox: [number, number, number, number],
+): Promise<string> {
+    const key = playAreaKey();
+    if (namedProbe?.key === key) return namedProbe.result;
+    let result = "physical_point: unavailable";
+    try {
+        const pack = getActivePackReader();
+        const packOsm = mapGeoLocation.get()?.properties?.osm_id;
+        const usePack =
+            pack && (packOsm == null || pack.osmId === packOsm) ? pack : null;
+        let pts: Awaited<ReturnType<typeof fetchLayerNamedPointsFromPM>> = null;
+        if (usePack) {
+            pts = await fetchLayerNamedPointsFromPM(
+                usePack.pmtiles,
+                bbox,
+                "physical_point",
+                { targetZoom: 14, maxTiles: 300 },
+            );
+        }
+        if (pts) {
+            const kinds = new Map<string, number>();
+            const samples: string[] = [];
+            for (const p of pts) {
+                kinds.set(p.kind || "?", (kinds.get(p.kind || "?") ?? 0) + 1);
+            }
+            // water-ish kinds we'd match to polygons
+            const waterKinds =
+                /^(lake|reservoir|bay|sea|ocean|strait|water|pond|river|stream|lagoon|dock|bight|sound|harbour|harbor)$/;
+            let waterNamed = 0;
+            for (const p of pts) {
+                if (waterKinds.test((p.kind || "").toLowerCase())) {
+                    waterNamed++;
+                    if (samples.length < 4) samples.push(`${p.name}(${p.kind})`);
+                }
+            }
+            const hist = [...kinds.entries()]
+                .sort((a, b) => b[1] - a[1])
+                .slice(0, 8)
+                .map(([k, n]) => `${k}:${n}`)
+                .join(" ");
+            result = `physical_point: total=${pts.length} water=${waterNamed} [${hist}]${samples.length ? ` eg(${samples.join(",")})` : ""}`;
+        }
+    } catch (e) {
+        result = `physical_point: err ${String(e).slice(0, 40)}`;
+    }
+    namedProbe = { key, result };
+    return result;
 }
 
 /** True once any basemap water has been captured for the current play area. */

@@ -477,6 +477,23 @@ build stamp. Current: `v1069`. Use `git log` for the per-version detail;
 - **NEXT: a SINGLE station producer shared by seeker + hider** (shipped in
   v1115 below).
 
+**v1154 — exclude pools/fountains/basins + probe the Protomaps LABEL layer for
+water names.** The `named=0` readout confirmed the basemap `water` POLYGONS carry
+no names — yet the map clearly labels lakes/reservoirs (the JKO Reservoir
+screenshot), so Protomaps keeps water-body names in a separate LABEL layer
+(`physical_point` for lakes/reservoirs/bays, `physical_line` for rivers), which is
+what we were missing. Two changes: (1) **rulebook pool exclusion** —
+`getBasemapWaterPolys` now drops `swimming_pool`/`pool`/`fountain`/`basin` kinds
+(the read was counting 52 pools + 6 fountains + 15 basins as "water"; the rulebook
+excludes pools, and fountains/basins aren't bodies of water). (2) **name-source
+probe** — new `fetchLayerNamedPointsFromPM` (`basemapTiles.ts`) reads a layer's
+NAMED point features, and `probeNamedWaterLabels` (`basemapWater.ts`) reads
+`physical_point` for the play area and reports how many named water-kind labels it
+finds + samples, folded onto the CLIP diagnostic line (`physical_point: total=N
+water=M [kinds] eg(…)`). If it shows the water names (JKO Reservoir etc.), the fix
+is to match those label points to the water polygons (single-source, no OSM); if
+not, we source names from OSM. Diagnostic + pool-exclusion build.
+
 **v1153 — the `named=` readout is on the CLIP line now (the bow line was
 overwritten).** v1152 added `named=N` to the `bow:` kind-summary line, but the
 `questionImpact.ts` CLIP diagnostic runs AFTER the buffer and OVERWRITES
