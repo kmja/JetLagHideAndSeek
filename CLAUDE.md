@@ -477,6 +477,16 @@ build stamp. Current: `v1069`. Use `git log` for the per-version detail;
 - **NEXT: a SINGLE station producer shared by seeker + hider** (shipped in
   v1115 below).
 
+**v1156 — full LAYER-INVENTORY probe (which layer has the water names?).**
+v1155's `physical_point: total=0` ruled that layer out, but the map clearly
+labels lakes/reservoirs, so the names are in SOME layer. `fetchBasemapInventoryFromPM`
+(`basemapTiles.ts`) now enumerates EVERY layer in the play-area tiles and reports
+`layer:count/nNamed(samples)` per layer (e.g. `water:150/n0 places:40/n38(Manhattan)
+physical_line:20/n12(East River)`), so the `[bow]` diagnostic shows exactly which
+layer carries "Jacqueline Kennedy Onassis Reservoir" — then we match those label
+features to the water polygons (label-inside-polygon), keeping it single-source
+Protomaps as the user wants. Diagnostic build.
+
 **v1155 — physical_point probe: master-URL fallback + reliable display.** v1154's
 probe read `physical_point: unavailable` — a probe BUG, not a finding: it only
 tried the in-memory pack, but the water there came from the master-archive URL

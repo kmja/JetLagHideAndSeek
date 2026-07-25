@@ -9,9 +9,9 @@ import { dissolveWater } from "@/lib/geometry/client";
 import { pmtilesUrl } from "@/lib/protomapsStyle";
 import { getActivePackReader } from "@/lib/tilePack";
 import {
-    fetchBasemapLayerNamedPoints,
+    fetchBasemapInventory,
+    fetchBasemapInventoryFromPM,
     fetchBasemapLayerPolys,
-    fetchLayerNamedPointsFromPM,
     fetchLayerPolysFromPM,
 } from "@/maps/api/basemapTiles";
 import { playAreaSignature } from "@/maps/geo-utils/playAreaIndex";
@@ -789,61 +789,34 @@ export async function probeNamedWaterLabels(
 ): Promise<string> {
     const key = playAreaKey();
     if (namedProbe?.key === key) return namedProbe.result;
-    let result = "physical_point: unavailable";
+    let result = "inv: unavailable";
     try {
         const pack = getActivePackReader();
         const packOsm = mapGeoLocation.get()?.properties?.osm_id;
         const usePack =
             pack && (packOsm == null || pack.osmId === packOsm) ? pack : null;
-        let pts: Awaited<ReturnType<typeof fetchLayerNamedPointsFromPM>> = null;
+        // v1156: enumerate EVERY layer + named-feature counts, so we find which
+        // layer carries the water-body names (physical_point was empty).
+        let inv: string | null = null;
         if (usePack) {
-            pts = await fetchLayerNamedPointsFromPM(
-                usePack.pmtiles,
-                bbox,
-                "physical_point",
-                { targetZoom: 14, maxTiles: 300 },
-            );
+            inv = await fetchBasemapInventoryFromPM(usePack.pmtiles, bbox, {
+                targetZoom: 14,
+                maxTiles: 12,
+            });
         } else {
-            // No matching in-memory pack — read from the master archive over the
-            // network (the same fallback the water read uses).
             const url = pmtilesUrl.get();
-            if (url) {
-                pts = await fetchBasemapLayerNamedPoints(
-                    url,
-                    bbox,
-                    "physical_point",
-                    { targetZoom: 14, maxTiles: 300 },
-                );
-            }
+            if (url)
+                inv = await fetchBasemapInventory(url, bbox, {
+                    targetZoom: 14,
+                    maxTiles: 12,
+                });
         }
-        if (pts) {
-            const kinds = new Map<string, number>();
-            const samples: string[] = [];
-            for (const p of pts) {
-                kinds.set(p.kind || "?", (kinds.get(p.kind || "?") ?? 0) + 1);
-            }
-            // water-ish kinds we'd match to polygons
-            const waterKinds =
-                /^(lake|reservoir|bay|sea|ocean|strait|water|pond|river|stream|lagoon|dock|bight|sound|harbour|harbor)$/;
-            let waterNamed = 0;
-            for (const p of pts) {
-                if (waterKinds.test((p.kind || "").toLowerCase())) {
-                    waterNamed++;
-                    if (samples.length < 4) samples.push(`${p.name}(${p.kind})`);
-                }
-            }
-            const hist = [...kinds.entries()]
-                .sort((a, b) => b[1] - a[1])
-                .slice(0, 8)
-                .map(([k, n]) => `${k}:${n}`)
-                .join(" ");
-            result = `physical_point: total=${pts.length} water=${waterNamed} [${hist}]${samples.length ? ` eg(${samples.join(",")})` : ""}`;
-        }
+        if (inv) result = inv;
     } catch (e) {
-        result = `physical_point: err ${String(e).slice(0, 40)}`;
+        result = `inv: err ${String(e).slice(0, 40)}`;
     }
-    // Only cache a REAL read (total=…); a failure/unavailable should retry.
-    if (result.startsWith("physical_point: total")) {
+    // Only cache a REAL read; a failure/unavailable should retry.
+    if (result.startsWith("z")) {
         namedProbe = { key, result };
     }
     return result;

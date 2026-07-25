@@ -164,6 +164,104 @@ export async function fetchLayerNamedPointsFromPM(
     }
 }
 
+/**
+ * v1156 DIAGNOSTIC: enumerate EVERY layer in the tiles over `bbox` and report,
+ * per layer, how many features it has and how many carry a NAME (+ samples). The
+ * `physical_point` guess was empty, but the map clearly labels water bodies, so
+ * the names are in SOME layer — this finds which one. Returns a compact string.
+ */
+export async function fetchBasemapInventoryFromPM(
+    pm: PMTiles,
+    bbox: [number, number, number, number],
+    opts?: { targetZoom?: number; maxTiles?: number },
+): Promise<string | null> {
+    try {
+        const header = await pm.getHeader();
+        const archiveMax = Number.isFinite(header?.maxZoom)
+            ? (header.maxZoom as number)
+            : 15;
+        const [minLng, minLat, maxLng, maxLat] = bbox;
+        const targetZoom = Math.min(opts?.targetZoom ?? 14, archiveMax);
+        const maxTiles = opts?.maxTiles ?? 12;
+        let z = targetZoom;
+        for (; z > 8; z--) {
+            const xa = tileXOf(minLng, z);
+            const xb = tileXOf(maxLng, z);
+            const ya = tileYOf(maxLat, z);
+            const yb = tileYOf(minLat, z);
+            if ((xb - xa + 1) * (yb - ya + 1) <= maxTiles) break;
+        }
+        const xa = tileXOf(minLng, z);
+        const xb = tileXOf(maxLng, z);
+        const ya = tileYOf(maxLat, z);
+        const yb = tileYOf(minLat, z);
+        const inv = new Map<
+            string,
+            { count: number; named: number; samples: string[] }
+        >();
+        const tiles: Array<[number, number]> = [];
+        for (let x = xa; x <= xb && tiles.length < maxTiles; x++)
+            for (let y = ya; y <= yb && tiles.length < maxTiles; y++)
+                tiles.push([x, y]);
+        await Promise.all(
+            tiles.map(async ([x, y]) => {
+                const resp = await pm.getZxy(z, x, y);
+                if (!resp || !resp.data) return;
+                const vt = new VectorTile(
+                    new Protobuf(new Uint8Array(resp.data)),
+                );
+                for (const layerName of Object.keys(vt.layers)) {
+                    const layer = vt.layers[layerName];
+                    let rec = inv.get(layerName);
+                    if (!rec) {
+                        rec = { count: 0, named: 0, samples: [] };
+                        inv.set(layerName, rec);
+                    }
+                    for (let i = 0; i < layer.length; i++) {
+                        rec.count++;
+                        try {
+                            const f = layer.feature(i);
+                            const props = f.properties as {
+                                name?: string;
+                            };
+                            const nm =
+                                typeof props.name === "string"
+                                    ? props.name.trim()
+                                    : "";
+                            if (nm) {
+                                rec.named++;
+                                if (rec.samples.length < 2)
+                                    rec.samples.push(nm);
+                            }
+                        } catch {
+                            /* skip */
+                        }
+                    }
+                }
+            }),
+        );
+        const parts = [...inv.entries()]
+            .sort((a, b) => b[1].named - a[1].named)
+            .map(
+                ([name, r]) =>
+                    `${name}:${r.count}/n${r.named}${r.samples.length ? `(${r.samples.join("|")})` : ""}`,
+            );
+        return `z${z} ${parts.join(" ")}`;
+    } catch (e) {
+        return `inv-err ${String(e).slice(0, 40)}`;
+    }
+}
+
+/** URL variant. */
+export async function fetchBasemapInventory(
+    url: string,
+    bbox: [number, number, number, number],
+    opts?: { targetZoom?: number; maxTiles?: number },
+): Promise<string | null> {
+    if (!url) return null;
+    return fetchBasemapInventoryFromPM(getPM(url), bbox, opts);
+}
+
 /** URL variant of {@link fetchLayerNamedPointsFromPM} — reads from the master
  *  archive over the network when no in-memory pack is loaded. */
 export async function fetchBasemapLayerNamedPoints(
