@@ -477,6 +477,18 @@ build stamp. Current: `v1069`. Use `git log` for the per-version detail;
 - **NEXT: a SINGLE station producer shared by seeker + hider** (shipped in
   v1115 below).
 
+**v1148 — body-of-water: the BUFFER is correct, the CLIP is the suspect.** v1147's
+corrected (in-bbox) ocean point reported `dBig=3057km²` (ocean survived dissolve)
+and `ocean-in-result=Y` — so the chunked buffer DOES include the ocean. The whole
+"chunking drops the ocean" theory was wrong. The overlay is computed as
+`turf.intersect(buffer, playArea)` (`questionImpact.ts`), and `playArea` comes
+from the LAND-CLIPPED play-area boundary (`mapGeoJSON`/`polyGeoJSON` — the ocean
+is carved out), so the correct ocean-inclusive buffer gets clipped down to land.
+v1148 adds a `CLIP` diagnostic to the `[bow]` panel line — for body-of-water it
+reports `ocean-in: buf=Y/N playArea=Y/N yes=Y/N | playArea=Nkm² yes=Nkm²` — to
+confirm whether the play-area clip is removing the ocean and how much land the
+displayed "closer" region actually covers. Diagnostic build.
+
 **v1147 — body-of-water diagnostic round 3: fix the ocean test-point + report
 post-dissolve biggest member.** v1146 reported `ocean@40.580,-73.301-in-result=N`
 — but that point is EAST of the NYC play-area bbox (open Atlantic), because

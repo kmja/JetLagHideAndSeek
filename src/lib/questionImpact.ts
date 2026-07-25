@@ -44,7 +44,11 @@ import {
     questionFinishedMapData,
 } from "@/lib/context";
 import { LOCATION_FIRST_TAG } from "@/maps/api";
-import { basemapWaterVersion } from "@/maps/api/basemapWater";
+import {
+    basemapWaterVersion,
+    biggestOceanInteriorPoint,
+} from "@/maps/api/basemapWater";
+import { lastBodyOfWaterDiag } from "@/lib/debugState";
 import { seaLevelRegion } from "@/maps/api/elevation";
 import { matchingDraftRegion } from "@/maps/questions/matching";
 import { measuringDraftBuffer } from "@/maps/questions/measuring";
@@ -608,6 +612,50 @@ export function useQuestionImpact(
                     ) as Feature<Polygon | MultiPolygon> | null;
                 } catch {
                     /* keep null */
+                }
+                // v1148 DIAGNOSTIC: for body-of-water, does the play-area CLIP
+                // remove the ocean? Report ocean-in-buffer / ocean-in-playArea /
+                // ocean-in-yes + areas, so the phone shows whether the correct
+                // buffer is being carved down to land by the clip.
+                if (family.kind === "water") {
+                    try {
+                        const op = biggestOceanInteriorPoint(
+                            turf.bbox(playArea) as [
+                                number,
+                                number,
+                                number,
+                                number,
+                            ],
+                        );
+                        const inb = op
+                            ? turf.booleanPointInPolygon(
+                                  turf.point(op),
+                                  buffer as any,
+                              )
+                            : null;
+                        const inpa = op
+                            ? turf.booleanPointInPolygon(
+                                  turf.point(op),
+                                  playArea as any,
+                              )
+                            : null;
+                        const inyes =
+                            op && yes
+                                ? turf.booleanPointInPolygon(
+                                      turf.point(op),
+                                      yes as any,
+                                  )
+                                : false;
+                        const paKm2 = Math.round(turf.area(playArea) / 1e6);
+                        const yesKm2 = yes
+                            ? Math.round(turf.area(yes) / 1e6)
+                            : 0;
+                        lastBodyOfWaterDiag.set(
+                            `CLIP ocean-in: buf=${inb ? "Y" : "N"} playArea=${inpa ? "Y" : "N"} yes=${inyes ? "Y" : "N"} | playArea=${paKm2}km² yes=${yesKm2}km²`,
+                        );
+                    } catch {
+                        /* ignore */
+                    }
                 }
                 setMeasuring({ key: type, lat, lng, yes, no });
             })
