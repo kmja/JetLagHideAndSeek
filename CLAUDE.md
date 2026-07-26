@@ -432,6 +432,23 @@ bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
 build stamp. Current: `v1069`. Use `git log` for the per-version detail;
 
+**v1163 — named-water: the tile PACK strips water names → read names from the
+master URL as a fallback.** The v1162 on-device readout was `named=95 (own=0
+sea=95 z10tag=0) z12in=755 z10named=0` — the z12 read returned 755 polygons but
+ZERO with names, and the z10 name reference was also 0, so every inland body
+(which needs own-name or z10-overlap) was dropped and only sea-kind polygons
+survived (the reported "every inland body dropped"). Root cause: the loaded tile
+PACK's `water` tiles carry `kind` (so `sea=95` worked) but NOT `name` — while the
+v1161 probe that found names had read the master URL. `ensureNamedWaterForArea`
+now reads the pack FIRST and, when it yields geometry but no names (`own +
+z10named == 0`), RE-READS z12+z10 from the master URL (which carries the names)
+and uses that. The `[bow]` diag gains `src=pack|url` so the phone confirms which
+source supplied the names. Still fully guarded (no names from either → falls back
+to all-water). NOTE: the URL z12 read is heavier (network range requests); it's
+bounded by the 4.5 s cap and self-heals via the version bump, and only runs when
+the pack lacks names — the proper long-term fix is rebuilding packs WITH water
+names so the offline pack suffices.
+
 **v1162 — body-of-water now filters to NAMED bodies (rulebook) via a spatial
 name-tag join.** The rulebook counts only NAMED bodies of water (pools already
 excluded v1154), but the basemap `water` layer carries names only at LOW zooms

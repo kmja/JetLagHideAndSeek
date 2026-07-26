@@ -460,36 +460,103 @@ function featureHasName(f: Feature): boolean {
     return typeof nm === "string" && nm.trim().length > 0;
 }
 
-/** Read the `water` layer at a SPECIFIC zoom (pack first, else master URL). */
+/** Read the `water` layer at a SPECIFIC zoom, from the PACK or (forceUrl) the
+ *  master archive. Returns features WITH properties (name/kind). */
 async function readWaterAtZoom(
     bbox: [number, number, number, number],
     zoom: number,
     maxTiles: number,
+    forceUrl: boolean,
 ): Promise<Feature<Polygon | MultiPolygon>[] | null> {
-    const pack = getActivePackReader();
-    const packOsm = mapGeoLocation.get()?.properties?.osm_id;
-    const usePack =
-        pack && (packOsm == null || pack.osmId === packOsm) ? pack : null;
-    if (usePack) {
-        return fetchLayerPolysFromPM(usePack.pmtiles, bbox, WATER_LAYER, {
-            targetZoom: zoom,
-            minZoom: zoom,
-            maxTiles,
-        });
+    const opts = { targetZoom: zoom, minZoom: zoom, maxTiles };
+    if (!forceUrl) {
+        const pack = getActivePackReader();
+        const packOsm = mapGeoLocation.get()?.properties?.osm_id;
+        const usePack =
+            pack && (packOsm == null || pack.osmId === packOsm) ? pack : null;
+        if (usePack) {
+            return fetchLayerPolysFromPM(
+                usePack.pmtiles,
+                bbox,
+                WATER_LAYER,
+                opts,
+            );
+        }
     }
     const url = pmtilesUrl.get();
     if (!url) return null;
-    return fetchBasemapLayerPolys(url, bbox, WATER_LAYER, {
-        targetZoom: zoom,
-        minZoom: zoom,
-        maxTiles,
-    });
+    return fetchBasemapLayerPolys(url, bbox, WATER_LAYER, opts);
+}
+
+interface NamedTagResult {
+    polys: Feature<Polygon | MultiPolygon>[];
+    own: number;
+    sea: number;
+    z10tag: number;
+    z12in: number;
+    z10named: number;
+}
+
+/** Read z12 (geometry base) + z10 (name reference) from one source and run the
+ *  spatial name-tag join. */
+async function computeNamedFromSource(
+    bbox: [number, number, number, number],
+    forceUrl: boolean,
+): Promise<NamedTagResult | null> {
+    const [z12, z10] = await Promise.all([
+        readWaterAtZoom(bbox, 12, 160, forceUrl),
+        readWaterAtZoom(bbox, 10, 40, forceUrl),
+    ]);
+    if (!z12 || z12.length === 0) return null;
+
+    const z10Named = (z10 ?? []).filter(
+        (f) => featureHasName(f) && !isExcludedWaterKind(f),
+    );
+    const z10NamedFC: GeoJSON.FeatureCollection<Polygon | MultiPolygon> = {
+        type: "FeatureCollection",
+        features: z10Named,
+    };
+
+    let own = 0;
+    let z10tag = 0;
+    let sea = 0;
+    const polys: Feature<Polygon | MultiPolygon>[] = [];
+    for (const p of z12) {
+        if (isExcludedWaterKind(p)) continue;
+        if (featureHasName(p)) {
+            own++;
+            polys.push(p);
+            continue;
+        }
+        // The SEA/ocean/bay is inherently a named body of water; keep sea-kind
+        // polygons even when a fragment lacks a name (v702/v1147).
+        const kind = (p.properties as { kind?: string } | null)?.kind ?? "";
+        if (/^(ocean|sea|bay|strait|channel)$/.test(kind)) {
+            sea++;
+            polys.push(p);
+            continue;
+        }
+        if (z10Named.length === 0) continue;
+        try {
+            const rp = turf.pointOnFeature(p);
+            const c = rp.geometry.coordinates as [number, number];
+            if (pointInPlayArea(z10NamedFC, c[0], c[1])) {
+                z10tag++;
+                polys.push(p);
+            }
+        } catch {
+            /* skip a malformed polygon */
+        }
+    }
+    return { polys, own, sea, z10tag, z12in: z12.length, z10named: z10Named.length };
 }
 
 /**
  * Populate the NAMED-water set for the current play area (the spatial name-tag
- * join described above). Memoised per play area; bounded-await like
- * `ensureBasemapWaterForArea`. Silent no-op on any failure (caller falls back).
+ * join described above). Reads the PACK first; if it yields NO names (the tile
+ * pack's water tiles carry `kind` but not `name`, so `own` + `z10named` are 0),
+ * RE-READS from the master URL, which carries the names. Memoised per play area;
+ * bounded-await like `ensureBasemapWaterForArea`. Silent no-op on any failure.
  */
 export function ensureNamedWaterForArea(
     bbox: [number, number, number, number],
@@ -499,66 +566,30 @@ export function ensureNamedWaterForArea(
     let run = namedEnsured.get(key);
     if (run) return capAwait(run);
     run = (async () => {
-        // z12 = geometry base (finest zoom that still carries small-body names);
-        // z10 = large-body name reference. z12 over a metro is ~30-120 tiles,
-        // z10 ~4-30 — together LIGHTER than the current z13 all-water read.
-        const [z12, z10] = await Promise.all([
-            readWaterAtZoom(bbox, 12, 160),
-            readWaterAtZoom(bbox, 10, 40),
-        ]);
-        if (!z12 || z12.length === 0) return; // no geometry → leave unset
-
-        // z10 named reference (exclude pools), as ONE indexed FeatureCollection.
-        const z10Named = (z10 ?? []).filter(
-            (f) => featureHasName(f) && !isExcludedWaterKind(f),
-        );
-        const z10NamedFC: GeoJSON.FeatureCollection<Polygon | MultiPolygon> = {
-            type: "FeatureCollection",
-            features: z10Named,
-        };
-
-        let ownNamed = 0;
-        let refTagged = 0;
-        let seaKept = 0;
-        const named: Feature<Polygon | MultiPolygon>[] = [];
-        for (const p of z12) {
-            if (isExcludedWaterKind(p)) continue;
-            if (featureHasName(p)) {
-                ownNamed++;
-                named.push(p);
-                continue;
+        let src = "pack";
+        let res = await computeNamedFromSource(bbox, false);
+        // If the pack gave geometry but NO names (own + z10named == 0), the pack
+        // strips water names — re-read from the master URL, which has them.
+        if (res && res.own === 0 && res.z10named === 0) {
+            const viaUrl = await computeNamedFromSource(bbox, true);
+            if (viaUrl && viaUrl.own + viaUrl.z10named > 0) {
+                res = viaUrl;
+                src = "url";
             }
-            // The SEA/ocean/bay is inherently a named body of water (the
-            // Atlantic, the harbour); keep sea-kind polygons even when a
-            // particular fragment lacks a name tag, so a seeker in the bay
-            // never reads "further from water" (the v702/v1147 class of bug).
-            const kind = (p.properties as { kind?: string } | null)?.kind ?? "";
-            if (/^(ocean|sea|bay|strait|channel)$/.test(kind)) {
-                seaKept++;
-                named.push(p);
-                continue;
-            }
-            if (z10Named.length === 0) continue;
-            // Representative point of p inside any z10 named body?
-            try {
-                const rp = turf.pointOnFeature(p);
-                const c = rp.geometry.coordinates as [number, number];
-                if (pointInPlayArea(z10NamedFC, c[0], c[1])) {
-                    refTagged++;
-                    named.push(p);
-                }
-            } catch {
-                /* skip a malformed polygon */
-            }
+        } else if (!res) {
+            // No pack geometry at all — try the URL outright.
+            res = await computeNamedFromSource(bbox, true);
+            src = "url";
         }
-        const diag = `named=${named.length} (own=${ownNamed} sea=${seaKept} z10tag=${refTagged}) z12in=${z12.length} z10named=${z10Named.length}`;
-        namedCache.set(key, { polys: named, diag });
+        if (!res) return; // no geometry from either source → leave unset
+
+        const diag = `src=${src} named=${res.polys.length} (own=${res.own} sea=${res.sea} z10tag=${res.z10tag}) z12in=${res.z12in} z10named=${res.z10named}`;
+        namedCache.set(key, { polys: res.polys, diag });
         // eslint-disable-next-line no-console
         console.log(`[named-water] ${diag}`);
         // Bump so a body-of-water elimination that fell back to all-water while
-        // this was still reading (past the 4.5 s cap) re-runs and picks up the
-        // named set (the measuring effect depends on `basemapWaterVersion`).
-        if (named.length > 0)
+        // this was still reading re-runs and picks up the named set.
+        if (res.polys.length > 0)
             basemapWaterVersion.set(basemapWaterVersion.get() + 1);
     })();
     namedEnsured.set(key, run);
