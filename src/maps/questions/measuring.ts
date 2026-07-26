@@ -45,9 +45,7 @@ import {
     biggestOceanInteriorPoint,
     getDissolvedBasemapSea,
     getDissolvedBasemapWater,
-    getDissolvedNamedWater,
     hasBasemapWater,
-    namedWaterDiag,
 } from "@/maps/api/basemapWater";
 import { lastBodyOfWaterDiag } from "@/lib/debugState";
 import { majorCityPoints } from "@/maps/data/majorCities";
@@ -625,22 +623,10 @@ export const determineMeasuringBoundary = async (
             // dissolve failed, then to the cold OSM path if nothing was captured.
             // eslint-disable-next-line no-console
             console.log("[bow] determineMeasuringBoundary body-of-water ENTER");
-            // v1162: rulebook — count only NAMED bodies of water (pools already
-            // excluded). Try the spatial name-tag join FIRST (named z12 geometry
-            // tagged by own-name OR overlap with a z10 named body); it returns
-            // null when the named set is empty/unavailable, in which case we fall
-            // back to the ALL-water set (the pre-v1162 behaviour) so it's never
-            // worse than before.
-            const namedWater = await getDissolvedNamedWater(bbox4(bBox));
-            if (namedWater && namedWater.length > 0) {
-                // eslint-disable-next-line no-console
-                console.log(`[bow] namedWater=${namedWater.length}`);
-                return namedWater;
-            }
             const dissolvedWater = await getDissolvedBasemapWater(bbox4(bBox));
             // eslint-disable-next-line no-console
             console.log(
-                `[bow] namedWater=null → allWater=${dissolvedWater ? dissolvedWater.length : "null"}`,
+                `[bow] dissolvedWater=${dissolvedWater ? dissolvedWater.length : "null"}`,
             );
             if (dissolvedWater && dissolvedWater.length > 0) {
                 return dissolvedWater;
