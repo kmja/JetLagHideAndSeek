@@ -432,6 +432,31 @@ bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
 build stamp. Current: `v1069`. Use `git log` for the per-version detail;
 
+**v1162 — body-of-water now filters to NAMED bodies (rulebook) via a spatial
+name-tag join.** The rulebook counts only NAMED bodies of water (pools already
+excluded v1154), but the basemap `water` layer carries names only at LOW zooms
+(gone by z13) and the v1161 name-set probe proved NO single zoom is complete:
+z10 has the large bodies but MISSES ~26 small named creeks that only appear at
+z12 (`new:26`), while z12 fragments/loses ~110 large bodies z10 keeps
+(`z10-only=110`). So `ensureNamedWaterForArea` (`basemapWater.ts`) does a spatial
+name-tag JOIN: geometry base = **z12** (finest zoom that still carries small-body
+names), large-body name reference = **z10** named polygons; a z12 polygon is
+NAMED iff it has its OWN name (catches z12's small creeks) OR it's a sea-kind
+polygon (ocean/sea/bay/strait/channel — the sea is inherently a named body, kept
+even when a fragment lacks a name tag, so a seeker in the bay never reads
+"further from water" — the v702/v1147 class) OR its representative point falls
+inside a z10 named body (catches large bodies whose z12 fragments are unnamed).
+Pools/fountains/basins excluded on both sides. `getDissolvedNamedWater` feeds the
+body-of-water elimination (`measuring.ts`) and the nearest-water LABEL
+(`nearestBasemapWater` prefers the named set), so overlay + label agree. FULLY
+GUARDED: a null/empty named set (read failed / nothing named) falls back to the
+pre-v1162 ALL-water behaviour, so it's never worse. The z12+z10 read (~34 tiles
+for NYC) is LIGHTER than the old z13 all-water read. A slow named read (past the
+4.5 s cap) bumps `basemapWaterVersion` when it lands so the elimination re-runs
+and picks it up. Diagnostic on the `[bow]` line: `named=N (own=X sea=Y z10tag=Z)
+z12in=… z10named=…` — verify on-device. (The dead zoom-probe functions are kept
+one more cycle for tuning, then stripped.)
+
 **v1161 — water-name probe rebuilt as a NAME-SET comparison (the v1157 count
 probe couldn't answer the real question).** The v1157 probe read a fixed 2×2
 central tile sample per zoom, but a z10 tile covers ~16× a z12 tile's area — so

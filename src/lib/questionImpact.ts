@@ -48,7 +48,7 @@ import {
     basemapWaterKindSummary,
     basemapWaterVersion,
     biggestOceanInteriorPoint,
-    probeNamedWaterLabels,
+    namedWaterDiag,
 } from "@/maps/api/basemapWater";
 import { lastBodyOfWaterDiag } from "@/lib/debugState";
 import { seaLevelRegion } from "@/maps/api/elevation";
@@ -652,11 +652,10 @@ export function useQuestionImpact(
                         const yesKm2 = yes
                             ? Math.round(turf.area(yes) / 1e6)
                             : 0;
-                        // v1153/v1154: fold the NAMED-water readout + the
-                        // physical_point label probe into the CLIP line (which
-                        // overwrites the bow line), so the phone shows both whether
-                        // the water POLYGONS carry names (they don't) and whether
-                        // the physical_point LABEL layer has water names.
+                        // v1162: fold the NAMED-water tag result (`named=N
+                        // (own=X z10tag=Y) …`, from the spatial name-tag join)
+                        // into the CLIP line so the phone shows how many bodies
+                        // the named filter kept vs. the raw water set.
                         const paBbox = turf.bbox(playArea) as [
                             number,
                             number,
@@ -669,15 +668,9 @@ export function useQuestionImpact(
                         } catch {
                             /* ignore */
                         }
-                        const clipLine = `CLIP ocean-in: buf=${inb ? "Y" : "N"} playArea=${inpa ? "Y" : "N"} yes=${inyes ? "Y" : "N"} | playArea=${paKm2}km² yes=${yesKm2}km²${kindInfo}`;
+                        const nd = namedWaterDiag();
+                        const clipLine = `CLIP ocean-in: buf=${inb ? "Y" : "N"} playArea=${inpa ? "Y" : "N"} yes=${inyes ? "Y" : "N"} | playArea=${paKm2}km² yes=${yesKm2}km²${kindInfo}${nd ? ` || ${nd}` : ""}`;
                         lastBodyOfWaterDiag.set(clipLine);
-                        // v1155: the probe is async (~1 s tile read); write the
-                        // FULL line when it resolves (not "next compute", which may
-                        // never happen once the water is captured). Not guarded on
-                        // `cancelled` — it's a read-only diagnostic.
-                        void probeNamedWaterLabels(paBbox).then((probe) => {
-                            lastBodyOfWaterDiag.set(`${clipLine} || ${probe}`);
-                        });
                     } catch {
                         /* ignore */
                     }
