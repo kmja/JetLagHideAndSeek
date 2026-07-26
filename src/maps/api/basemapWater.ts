@@ -4,7 +4,11 @@ import type { MapGeoJSONFeature, Map as MaplibreMap } from "maplibre-gl";
 import { atom } from "nanostores";
 import type { MapRef } from "react-map-gl/maplibre";
 
-import { mapGeoLocation, polyGeoJSON } from "@/lib/context";
+import {
+    additionalMapGeoLocations,
+    mapGeoLocation,
+    polyGeoJSON,
+} from "@/lib/context";
 import { dissolveWater } from "@/lib/geometry/client";
 import { pmtilesUrl } from "@/lib/protomapsStyle";
 import { getActivePackReader } from "@/lib/tilePack";
@@ -251,8 +255,20 @@ export function ensureBasemapWaterForArea(
         // in it. Falls back to the master URL only when no pack is loaded.
         const pack = getActivePackReader();
         const packOsm = mapGeoLocation.get()?.properties?.osm_id;
+        // v1167: the client only loads the PRIMARY play area's tile pack — an
+        // ADDED ADJACENT area is NOT covered by it. Reading a multi-area play
+        // area's water from the primary-only pack silently MISSES the adjacent's
+        // water (it then reads "further from water" and the overlay doesn't cover
+        // the adjacent — the reported large-play-area bug). So when there are
+        // adjacents, read from the master archive URL, which covers the whole
+        // combined bbox. Single-area keeps the fast offline pack.
+        const hasAdjacents = additionalMapGeoLocations.get().length > 0;
         const usePack =
-            pack && (packOsm == null || pack.osmId === packOsm) ? pack : null;
+            !hasAdjacents &&
+            pack &&
+            (packOsm == null || pack.osmId === packOsm)
+                ? pack
+                : null;
         // v1137: ADAPTIVE zoom — the tile reader picks the HIGHEST zoom whose
         // tile count fits `maxTiles`, so this reads z12 where the play area is
         // light enough to afford it (a smaller city → finer water, catching the

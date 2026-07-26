@@ -432,6 +432,21 @@ bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
 build stamp. Current: `v1069`. Use `git log` for the per-version detail;
 
+**v1167 — body-of-water covers the WHOLE multi-area play area (adjacent's water
+was missing).** On a play area with an ADDED ADJACENT (NYC + Long Island), the
+body-of-water overlay covered only the primary — the adjacent read "further from
+water" and never filled in. Root cause: the client only loads the PRIMARY play
+area's tile PACK (a documented limitation — an added adjacent isn't in it), and
+`ensureBasemapWaterForArea` read the whole combined bbox from that primary-only
+pack, silently MISSING the adjacent's water; then `entry.headless=true` disabled
+the display-capture fallback, so it never filled in. Fix: when
+`additionalMapGeoLocations` is non-empty, read water from the master archive URL
+(covers the whole combined bbox) instead of the pack — single-area still uses the
+fast offline pack. Same cache feeds coastline + same-landmass, so they're fixed
+too. (The URL read is bounded by `waterTileBudget` + the 4.5 s cap; a slow read
+completes in the background and bumps `basemapWaterVersion` so the overlay
+recomputes complete, and v1166's veil waits for it.)
+
 **v1166 — configure map keeps its loading animation until tiles AND overlay are
 ready.** The configure-question dialog's `InlineLocationPicker` already gated its
 `MapTilesVeil` on `referenceReady && impactReady`, but the flat 12 s
