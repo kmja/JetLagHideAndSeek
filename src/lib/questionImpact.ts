@@ -44,13 +44,7 @@ import {
     questionFinishedMapData,
 } from "@/lib/context";
 import { LOCATION_FIRST_TAG } from "@/maps/api";
-import {
-    basemapWaterKindSummary,
-    basemapWaterVersion,
-    biggestOceanInteriorPoint,
-    probeNamedWaterLabels,
-} from "@/maps/api/basemapWater";
-import { lastBodyOfWaterDiag } from "@/lib/debugState";
+import { basemapWaterVersion } from "@/maps/api/basemapWater";
 import { seaLevelRegion } from "@/maps/api/elevation";
 import { matchingDraftRegion } from "@/maps/questions/matching";
 import { measuringDraftBuffer } from "@/maps/questions/measuring";
@@ -614,73 +608,6 @@ export function useQuestionImpact(
                     ) as Feature<Polygon | MultiPolygon> | null;
                 } catch {
                     /* keep null */
-                }
-                // v1148 DIAGNOSTIC: for body-of-water, does the play-area CLIP
-                // remove the ocean? Report ocean-in-buffer / ocean-in-playArea /
-                // ocean-in-yes + areas, so the phone shows whether the correct
-                // buffer is being carved down to land by the clip.
-                if (family.kind === "water") {
-                    try {
-                        const op = biggestOceanInteriorPoint(
-                            turf.bbox(playArea) as [
-                                number,
-                                number,
-                                number,
-                                number,
-                            ],
-                        );
-                        const inb = op
-                            ? turf.booleanPointInPolygon(
-                                  turf.point(op),
-                                  buffer as any,
-                              )
-                            : null;
-                        const inpa = op
-                            ? turf.booleanPointInPolygon(
-                                  turf.point(op),
-                                  playArea as any,
-                              )
-                            : null;
-                        const inyes =
-                            op && yes
-                                ? turf.booleanPointInPolygon(
-                                      turf.point(op),
-                                      yes as any,
-                                  )
-                                : false;
-                        const paKm2 = Math.round(turf.area(playArea) / 1e6);
-                        const yesKm2 = yes
-                            ? Math.round(turf.area(yes) / 1e6)
-                            : 0;
-                        // v1153/v1154: fold the NAMED-water readout + the
-                        // physical_point label probe into the CLIP line (which
-                        // overwrites the bow line), so the phone shows both whether
-                        // the water POLYGONS carry names (they don't) and whether
-                        // the physical_point LABEL layer has water names.
-                        const paBbox = turf.bbox(playArea) as [
-                            number,
-                            number,
-                            number,
-                            number,
-                        ];
-                        let kindInfo = "";
-                        try {
-                            kindInfo = ` | ${basemapWaterKindSummary(paBbox)}`;
-                        } catch {
-                            /* ignore */
-                        }
-                        const clipLine = `CLIP ocean-in: buf=${inb ? "Y" : "N"} playArea=${inpa ? "Y" : "N"} yes=${inyes ? "Y" : "N"} | playArea=${paKm2}km² yes=${yesKm2}km²${kindInfo}`;
-                        lastBodyOfWaterDiag.set(clipLine);
-                        // v1155: the probe is async (~1 s tile read); write the
-                        // FULL line when it resolves (not "next compute", which may
-                        // never happen once the water is captured). Not guarded on
-                        // `cancelled` — it's a read-only diagnostic.
-                        void probeNamedWaterLabels(paBbox).then((probe) => {
-                            lastBodyOfWaterDiag.set(`${clipLine} || ${probe}`);
-                        });
-                    } catch {
-                        /* ignore */
-                    }
                 }
                 setMeasuring({ key: type, lat, lng, yes, no });
             })

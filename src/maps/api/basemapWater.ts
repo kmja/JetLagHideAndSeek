@@ -11,8 +11,6 @@ import { getActivePackReader } from "@/lib/tilePack";
 import {
     fetchBasemapLayerPolys,
     fetchLayerPolysFromPM,
-    probeLayerNamesAcrossZooms,
-    probeLayerNamesAcrossZoomsUrl,
 } from "@/maps/api/basemapTiles";
 import { playAreaSignature } from "@/maps/geo-utils/playAreaIndex";
 
@@ -773,58 +771,6 @@ export function basemapCoastLines(
     } catch {
         return null;
     }
-}
-
-/**
- * v1160 DIAGNOSTIC: water NAMES live in the `water` POLYGON layer, present at low
- * zooms but gone by z13. The v1157 count probe (fixed 2×2 tile sample) could NOT
- * tell us which zoom to source names from, because each zoom's sample covered a
- * different-sized area — the counts weren't comparable, and different sample
- * names per zoom hinted (correctly) that generalization surfaces DIFFERENT bodies
- * per zoom, not a clean superset. This probes the actual name SETS over the SAME
- * central sub-bbox at z10/z11/z12 and reports the overlap (`∈z10` / `new` /
- * `z10-only`), which decisively answers "is a lower zoom a superset of the higher
- * ones' names, or does it miss small bodies?". Memoised per play area.
- */
-let namedProbe: { key: string; result: string } | null = null;
-export async function probeNamedWaterLabels(
-    bbox: [number, number, number, number],
-): Promise<string> {
-    const key = playAreaKey();
-    if (namedProbe?.key === key) return namedProbe.result;
-    let result = "water-names: unavailable";
-    try {
-        const pack = getActivePackReader();
-        const packOsm = mapGeoLocation.get()?.properties?.osm_id;
-        const usePack =
-            pack && (packOsm == null || pack.osmId === packOsm) ? pack : null;
-        let line: string | null = null;
-        if (usePack) {
-            line = await probeLayerNamesAcrossZooms(
-                usePack.pmtiles,
-                bbox,
-                "water",
-                [10, 11, 12],
-            );
-        } else {
-            const url = pmtilesUrl.get();
-            if (url)
-                line = await probeLayerNamesAcrossZoomsUrl(
-                    url,
-                    bbox,
-                    "water",
-                    [10, 11, 12],
-                );
-        }
-        if (line) result = `water-names ${line}`;
-    } catch (e) {
-        result = `water-names: err ${String(e).slice(0, 40)}`;
-    }
-    // Only cache a REAL read (has a "z10=" set entry); retry a failure.
-    if (result.includes("z10=")) {
-        namedProbe = { key, result };
-    }
-    return result;
 }
 
 /** True once any basemap water has been captured for the current play area. */

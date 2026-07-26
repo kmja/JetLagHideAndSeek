@@ -442,9 +442,16 @@ rulebook nicety. `getDissolvedBasemapWater` (all water) feeds the elimination
 directly; `getDissolvedNamedWater`/`ensureNamedWaterForArea`/the `named` water
 mode are gone. (If ever revisited, the real prerequisite is rebuilding tile packs
 WITH water names so the offline pack suffices — an operator/prewarm change, not
-app code.) The v1157–v1161 water-name PROBE scaffolding
-(`probeNamedWaterLabels`/`probeLayerNamesAcrossZooms`) is left in place but
-inert; strip in a cleanup pass.
+app code.) **v1165 stripped the now-dead water-name PROBE scaffolding**:
+`probeNamedWaterLabels` (`basemapWater.ts`), the zoom/inventory/label-point
+readers in `basemapTiles.ts` (`probeLayerNamesAcrossZooms(Url)`,
+`fetchBasemapInventory(FromPM)`, `fetchLayerNamedPointsFromPM`,
+`fetchBasemapLayerNamedPoints`, `readTileNamedPoints`, `NamedPoint`), and the
+`[bow]` CLIP diagnostic block in `questionImpact.ts` (the extra per-configure
+tile read). The elimination's own `[bow]` operational logging in `measuring.ts`
+(`reportWaterQuestion*`, `basemapWaterKindSummary`, `biggestOceanInteriorPoint`,
+`lastBodyOfWaterDiag`) is intentionally kept — it's harmless side-effect logging
+for the still-active body-of-water elimination.
 
 **v1161 — water-name probe rebuilt as a NAME-SET comparison (the v1157 count
 probe couldn't answer the real question).** The v1157 probe read a fixed 2×2
