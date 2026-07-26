@@ -35,8 +35,18 @@ export function useMapTilesReady(opts: {
     dataReady: boolean;
     /** Changes when the map must re-wait for a fresh settle. */
     resetKey?: unknown;
-    /** Force-reveal after this long even if never idle. Default 12 s. */
+    /** Force-reveal after this long if the TILES never paint (stall / slow
+     *  CDN / the Firefox range-abort bug). Default 12 s. Only applies while
+     *  waiting for tiles — once tiles paint, `overlayTimeoutMs` governs the
+     *  wait for the caller's data so a slow overlay isn't cut off early. */
     revealTimeoutMs?: number;
+    /** Absolute backstop once tiles ARE painted but `dataReady` is still false
+     *  (e.g. a slow body-of-water impact buffer). The veil keeps its loading
+     *  animation until the overlay lands OR this elapses. Defaults to
+     *  `revealTimeoutMs` (i.e. unchanged behaviour) — a caller with a genuinely
+     *  slow overlay (the configure picker) passes a larger value so the map
+     *  reveals WITH its overlay instead of being cut off. */
+    overlayTimeoutMs?: number;
     /**
      * Start already revealed — no veil at all. For the case where the
      * caller knows the map's data is in cache (e.g. a play-area boundary
@@ -53,6 +63,10 @@ export function useMapTilesReady(opts: {
         revealTimeoutMs = 12_000,
         initialRevealed = false,
     } = opts;
+    // Default the overlay backstop to the tile timeout — existing consumers
+    // (main map, play-area preview) then behave exactly as before; only a
+    // caller that opts into a larger value waits longer for a slow overlay.
+    const overlayTimeoutMs = opts.overlayTimeoutMs ?? revealTimeoutMs;
 
     const [styleLoaded, setStyleLoaded] = useState(false);
     const [idle, setIdle] = useState(false);
@@ -70,14 +84,28 @@ export function useMapTilesReady(opts: {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [resetKey]);
 
-    // Safety reveal timer — re-armed whenever we go back to waiting.
+    const tilesReady = styleLoaded && idle;
+
+    // Tile-stall safety: reveal if the TILES never paint within revealTimeoutMs
+    // (slow CDN / a serving hiccup / the Firefox range-abort bug). Only armed
+    // while still waiting for tiles — once they paint, the overlay backstop
+    // below governs the wait, so a slow OVERLAY isn't cut off at 12 s.
     useEffect(() => {
-        if (revealed) return;
+        if (revealed || tilesReady) return;
         const t = window.setTimeout(() => setTimedOut(true), revealTimeoutMs);
         return () => window.clearTimeout(t);
-    }, [revealed, resetKey, revealTimeoutMs]);
+    }, [revealed, tilesReady, resetKey, revealTimeoutMs]);
 
-    const tilesReady = styleLoaded && idle;
+    // Overlay backstop: tiles are painted but the caller's data (impact
+    // overlay, reference) is still computing — KEEP the veil's loading
+    // animation so the map reveals WITH its overlay (a slow body-of-water
+    // buffer can take many seconds). An absolute cap still reveals eventually
+    // if the overlay never resolves.
+    useEffect(() => {
+        if (revealed || !tilesReady || dataReady) return;
+        const t = window.setTimeout(() => setTimedOut(true), overlayTimeoutMs);
+        return () => window.clearTimeout(t);
+    }, [revealed, tilesReady, dataReady, overlayTimeoutMs]);
 
     // Latch revealed once everything's in (or we timed out waiting).
     useEffect(() => {

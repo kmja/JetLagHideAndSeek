@@ -812,6 +812,11 @@ export function InlineLocationPicker({
     const { showVeil, timedOut, onLoad, onIdle } = useMapTilesReady({
         dataReady: referenceReady && impactReady,
         resetKey: `${referencePoint?.lat ?? ""},${referencePoint?.lng ?? ""},${impactMode ?? ""}`,
+        // Keep the map's loading animation running until the OVERLAY is drawn,
+        // not just the tiles — a slow impact buffer (body-of-water) can take
+        // many seconds and the map should reveal WITH its overlay, like every
+        // other question. Tiles that genuinely stall still reveal at 12 s.
+        overlayTimeoutMs: 45_000,
     });
 
     // v371: emit combined readiness to AddQuestionDialog via Context so

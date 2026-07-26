@@ -432,6 +432,21 @@ bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
 build stamp. Current: `v1069`. Use `git log` for the per-version detail;
 
+**v1166 — configure map keeps its loading animation until tiles AND overlay are
+ready.** The configure-question dialog's `InlineLocationPicker` already gated its
+`MapTilesVeil` on `referenceReady && impactReady`, but the flat 12 s
+`revealTimeoutMs` in `useMapTilesReady` force-revealed regardless — so a slow
+impact overlay (body-of-water's buffer) got cut off and the map showed WITHOUT
+its overlay, then it popped in seconds later (the reported staged/early reveal).
+The timeout is now SPLIT: the 12 s tile-stall safety only applies while the
+TILES haven't painted; once they paint but `dataReady` is still false (overlay
+computing), a separate `overlayTimeoutMs` governs the wait. It defaults to
+`revealTimeoutMs` (so the main map + play-area preview are UNCHANGED), and the
+configure picker opts into **45 s** so the loading animation runs until the
+overlay is drawn — the map reveals WITH its overlay, like every other question.
+The overlay effects always settle well before 45 s (it's just a stuck-compute
+safety net).
+
 **v1164 — REVERTED the named-water filtering (v1162/v1163) — not worth it.**
 body-of-water counts ALL water again (pools/fountains/basins still excluded,
 v1154), the simple behaviour that worked. The named-body filter (spatial z12+z10
