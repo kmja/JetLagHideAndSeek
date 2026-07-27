@@ -51,11 +51,41 @@ import { TILE_PACK_BASE } from "@/maps/api/constants";
  * (Chrome, non-standard) additionally lowers the budget to 60% of the remaining
  * heap headroom (belt-and-braces on exactly the platform where memory is
  * tightest; the floor still wins so it can't strangle the primary). When NEITHER
- * signal is available (Firefox/Safari), fall back to the flat 350 MB default.
+ * signal is available: on iOS (Safari — where the model/RAM is unknowable) use a
+ * screen-class estimate (`iosPackBudgetBytes`); otherwise fall back to the flat
+ * 350 MB default.
  */
 const PACK_BUDGET_MIN_BYTES = 150 * 1024 * 1024;
 const PACK_BUDGET_MAX_BYTES = 700 * 1024 * 1024;
 const PACK_BUDGET_FALLBACK_BYTES = 350 * 1024 * 1024;
+
+/**
+ * v1170: an iOS-specific pack budget. On iOS the specific iPhone model — and
+ * thus its RAM — is DELIBERATELY UNKNOWABLE: the Safari UA is generic ("iPhone",
+ * no model), `WEBGL_debug_renderer_info` returns a masked "Apple GPU", and
+ * `navigator.deviceMemory` isn't implemented. So we can't look up the model's
+ * RAM. What we CAN do:
+ *   - The real constraint on iOS isn't device RAM anyway — it's WebKit's
+ *     aggressive per-tab memory killer, which is tight and roughly
+ *     model-independent, so iOS wants a conservative ceiling regardless.
+ *   - Screen size (CSS points, portrait width) is a coarse device-CLASS proxy
+ *     (SE/mini < standard 6.1" < Plus/Max), which loosely tracks the RAM tier.
+ * We bucket on that class and keep the top modest. Applies to every iOS browser
+ * (Chrome/Firefox on iOS are WebKit too, same tab limits + same "iPhone" UA).
+ * Returns null when not iOS, so the caller falls through to the flat default.
+ */
+function iosPackBudgetBytes(): number | null {
+    if (typeof navigator === "undefined" || typeof screen === "undefined")
+        return null;
+    if (!/iPhone|iPod/.test(navigator.userAgent || "")) return null;
+    const MB = 1024 * 1024;
+    // Portrait width in CSS points (orientation-independent). NOT the model —
+    // just small / standard / large device classes.
+    const minSide = Math.min(screen.width, screen.height);
+    if (minSide <= 375) return 200 * MB; // SE / mini / X-class (~2–3 GB)
+    if (minSide <= 414) return 320 * MB; // standard 6.1" (~4–6 GB)
+    return 440 * MB; // Plus / Max (~6–8 GB)
+}
 
 function packMemoryBudgetBytes(): number {
     const MB = 1024 * 1024;
@@ -83,7 +113,13 @@ function packMemoryBudgetBytes(): number {
             ? Math.max(0, perfMem.jsHeapSizeLimit - perfMem.usedJSHeapSize)
             : null;
 
-    if (mem == null && heapHeadroom == null) return PACK_BUDGET_FALLBACK_BYTES;
+    if (mem == null && heapHeadroom == null) {
+        // v1170: Safari exposes NEITHER signal, but a Safari phone is an iPhone,
+        // so use an iOS-specific estimate before the flat fallback.
+        const ios = iosPackBudgetBytes();
+        if (ios != null) return ios;
+        return PACK_BUDGET_FALLBACK_BYTES;
+    }
 
     let budget = mem != null ? mem * 80 * MB : PACK_BUDGET_FALLBACK_BYTES;
     if (heapHeadroom != null) budget = Math.min(budget, heapHeadroom * 0.6);

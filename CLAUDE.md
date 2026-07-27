@@ -432,6 +432,20 @@ bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
 build stamp. Current: `v1069`. Use `git log` for the per-version detail;
 
+**v1170 — iOS pack budget from screen class (Safari exposes no memory signal).**
+Safari implements neither `deviceMemory` nor `performance.memory`, so v1169 fell
+straight to the flat 350 MB there — but a Safari phone is an iPhone, and the model
+(hence RAM) is DELIBERATELY UNKNOWABLE on iOS (generic UA, masked "Apple GPU" from
+`WEBGL_debug_renderer_info`, no `deviceMemory`). Rather than pretend to detect the
+model, `iosPackBudgetBytes()` (`tilePack.ts`) buckets on the coarse SCREEN CLASS
+(portrait width in CSS points, orientation-independent): ≤375 pt (SE/mini/X-class,
+~2–3 GB) → 200 MB; ≤414 pt (standard 6.1", ~4–6 GB) → 320 MB; larger (Plus/Max,
+~6–8 GB) → 440 MB. Kept conservative because the real iOS constraint is WebKit's
+aggressive per-tab memory killer (tight, ~model-independent), not device RAM.
+Applies to every iOS browser (Chrome/Firefox on iOS are WebKit too, same "iPhone"
+UA + tab limits). Non-iOS with no memory signal (Firefox/Safari on desktop) still
+uses the flat 350 MB fallback.
+
 **v1169 — device-informed tile-pack memory budget (replaces the flat 350 MB).**
 The adjacent-pack budget (v1168) was a hard-coded 350 MB. `packMemoryBudgetBytes()`
 (`tilePack.ts`) now derives it from the device: primarily `navigator.deviceMemory`
