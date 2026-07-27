@@ -288,6 +288,14 @@ export const LOCATION_FIRST_TAG: {
  *  full Overpass bracket filter (quoted style). */
 const API_LOCATION_FILTER_OVERRIDE: Partial<Record<APILocations, string>> = {
     consulate: '["diplomatic"~"^consulate"]',
+    // v1171 (rulebook audit): "Mountain — anything correctly classified as a
+    // mountain by your mapping app." OSM tags volcanic summits `natural=volcano`,
+    // NOT `natural=peak`, so a bare `["natural"="peak"]` MISSES every volcano
+    // (Mt. Fuji, Vesuvius, Rainier, …) — landmarks every map app calls a
+    // mountain, and exactly the marquee Large games (Japan). Match both. (Still
+    // includes small hills, the opposite over-count, but there's no cleaner OSM
+    // tag; missing a landmark is worse than counting a hill.)
+    peak: '["natural"~"^(peak|volcano)$"]',
 };
 
 /** The Overpass tag-filter for an API location — the override above, else
@@ -334,6 +342,10 @@ export function apiLocationMatches(
 ): boolean {
     if (loc === "consulate") {
         return /^consulate/.test(tags["diplomatic"] ?? "");
+    }
+    if (loc === "peak") {
+        // v1171: match volcanoes too — see API_LOCATION_FILTER_OVERRIDE.
+        return /^(peak|volcano)$/.test(tags["natural"] ?? "");
     }
     if (loc === "golf_course" && isExcludedGolfFeature(tags)) return false;
     return tags[LOCATION_FIRST_TAG[loc]] === loc;

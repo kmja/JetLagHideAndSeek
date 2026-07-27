@@ -432,6 +432,26 @@ bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
 build stamp. Current: `v1069`. Use `git log` for the per-version detail;
 
+**v1171 — Mountain question matches VOLCANOES (rulebook audit gap).** The
+`peak` reference filter was `["natural"="peak"]` everywhere, but OSM tags
+volcanic summits `natural=volcano`, NOT `natural=peak` — so Mt. Fuji, Vesuvius,
+Rainier, etc. were invisible to the Mountain matching/measuring question even
+though every map app classifies them as mountains (worst in the marquee Large
+games like Japan). Now `["natural"~"^(peak|volcano)$"]`, added as a `peak`
+override in `API_LOCATION_FILTER_OVERRIDE` (`constants.ts`) so the ONE producer
+`apiLocationFilter` feeds every consumer; `apiLocationMatches` gained the
+matching `/^(peak|volcano)$/` client-side test (reference cache partition,
+availability counts, impact overlay), and the overpass.ts live `around:` tentacle
+fallback now builds its filter via `apiLocationFilter` (was a raw
+`["${LOCATION_FIRST_TAG[loc]}"="${loc}"]`) so it picks up the override too. Worker
+`REFERENCE_FAMILY_FILTERS` + the laptop mirror kept byte-identical; `/api/reference-filters`
+serves the worker set so the laptop auto-syncs. **This changes the combined-refs
+query string → new R2 key → all cities' `refs` entries orphan and re-warm** (same
+one-producer cache-key coupling as the v686 consulate change) — a starred city's
+Mountain question falls to the live poly query (which now includes volcanoes) +
+re-warms until the cron/laptop catches up. (Still includes small hills — the
+opposite over-count — but there's no cleaner OSM tag; missing a landmark is worse.)
+
 **v1170 — iOS pack budget from screen class (Safari exposes no memory signal).**
 Safari implements neither `deviceMemory` nor `performance.memory`, so v1169 fell
 straight to the flat 350 MB there — but a Safari phone is an iPhone, and the model

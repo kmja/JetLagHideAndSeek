@@ -4481,7 +4481,7 @@ const REFERENCE_FAMILY_FILTERS: { family: string; filter: string }[] = [
     { family: "api:library", filter: '["amenity"="library"]' },
     { family: "api:museum", filter: '["tourism"="museum"]' },
     { family: "api:park", filter: '["leisure"="park"]' },
-    { family: "api:peak", filter: '["natural"="peak"]' },
+    { family: "api:peak", filter: '["natural"~"^(peak|volcano)$"]' },
     { family: "api:theme_park", filter: '["tourism"="theme_park"]' },
     { family: "api:zoo", filter: '["tourism"="zoo"]' },
     // NOTE: `body-of-water` (`["natural"="water"]["name"]`) is

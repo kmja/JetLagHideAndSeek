@@ -544,7 +544,7 @@ let REFERENCE_FAMILY_FILTERS = [
     { filter: '["amenity"="library"]' },
     { filter: '["tourism"="museum"]' },
     { filter: '["leisure"="park"]' },
-    { filter: '["natural"="peak"]' },
+    { filter: '["natural"~"^(peak|volcano)$"]' },
     { filter: '["tourism"="theme_park"]' },
     { filter: '["tourism"="zoo"]' },
     { filter: '["brand:wikidata"="Q259340"]' },
