@@ -38,10 +38,60 @@ import { lastPreloadDiag } from "@/lib/debugState";
 import { playAreaRelationIdsAll } from "@/lib/playAreaRelations";
 import { TILE_PACK_BASE } from "@/maps/api/constants";
 
-/** v1168: cap the total in-memory bytes of loaded packs. The primary always
- *  loads (it's required); adjacent packs fill up to this budget, then the rest
- *  master/URL-fall-back — so a huge metro + many adjacents can't OOM a phone. */
-const PACK_MEMORY_BUDGET_BYTES = 350 * 1024 * 1024;
+/**
+ * v1168/v1169: cap the total in-memory bytes of loaded packs. The primary
+ * always loads (it's required); adjacent packs fill up to this budget, then the
+ * rest master/URL-fall-back — so a huge metro + many adjacents can't OOM a phone.
+ *
+ * v1169: the cap is DEVICE-INFORMED rather than a flat 350 MB. The best portable
+ * signal is `navigator.deviceMemory` (device RAM in GiB, coarse 0.25..8, capped
+ * at 8; Chrome/Edge/Android only) — a 2 GB phone should hold far fewer packs than
+ * an 8 GB one. We allocate ~80 MB of budget per GB of device RAM, clamped to a
+ * sane band [150 MB, 700 MB]. Where present, `performance.memory.jsHeapSizeLimit`
+ * (Chrome, non-standard) additionally lowers the budget to 60% of the remaining
+ * heap headroom (belt-and-braces on exactly the platform where memory is
+ * tightest; the floor still wins so it can't strangle the primary). When NEITHER
+ * signal is available (Firefox/Safari), fall back to the flat 350 MB default.
+ */
+const PACK_BUDGET_MIN_BYTES = 150 * 1024 * 1024;
+const PACK_BUDGET_MAX_BYTES = 700 * 1024 * 1024;
+const PACK_BUDGET_FALLBACK_BYTES = 350 * 1024 * 1024;
+
+function packMemoryBudgetBytes(): number {
+    const MB = 1024 * 1024;
+    const mem =
+        typeof navigator !== "undefined" &&
+        typeof (navigator as { deviceMemory?: number }).deviceMemory ===
+            "number"
+            ? (navigator as { deviceMemory?: number }).deviceMemory!
+            : null;
+    const perfMem =
+        typeof performance !== "undefined"
+            ? (
+                  performance as {
+                      memory?: {
+                          jsHeapSizeLimit?: number;
+                          usedJSHeapSize?: number;
+                      };
+                  }
+              ).memory
+            : undefined;
+    const heapHeadroom =
+        perfMem &&
+        typeof perfMem.jsHeapSizeLimit === "number" &&
+        typeof perfMem.usedJSHeapSize === "number"
+            ? Math.max(0, perfMem.jsHeapSizeLimit - perfMem.usedJSHeapSize)
+            : null;
+
+    if (mem == null && heapHeadroom == null) return PACK_BUDGET_FALLBACK_BYTES;
+
+    let budget = mem != null ? mem * 80 * MB : PACK_BUDGET_FALLBACK_BYTES;
+    if (heapHeadroom != null) budget = Math.min(budget, heapHeadroom * 0.6);
+    return Math.max(
+        PACK_BUDGET_MIN_BYTES,
+        Math.min(PACK_BUDGET_MAX_BYTES, budget),
+    );
+}
 
 /** Custom MapLibre protocol scheme. Style source URLs of the form
  *  `jlhsmerge://<masterUrl>` resolve through `mergeTileHandler`. */
@@ -312,6 +362,7 @@ export async function loadTilePackForPlayArea(opts?: {
 
         const loaded: ActivePack[] = [primary.pack];
         let totalBytes = primary.bytes ?? 0;
+        const budgetBytes = packMemoryBudgetBytes();
 
         // v1168: also load each ADDED ADJACENT area's pack (they're prewarmed
         // per v726/v727), within the memory budget, so a multi-area play area
@@ -320,7 +371,7 @@ export async function loadTilePackForPlayArea(opts?: {
         // back for display and the water read falls to the URL when packs don't
         // cover every area (so completeness is preserved either way).
         for (const id of wantIds.slice(1)) {
-            if (totalBytes >= PACK_MEMORY_BUDGET_BYTES) break;
+            if (totalBytes >= budgetBytes) break;
             if (opts?.signal?.aborted) break;
             const adj = await downloadPack(id, undefined, opts?.signal);
             if (adj.status === "loaded" && adj.pack) {

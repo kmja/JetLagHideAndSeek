@@ -432,6 +432,17 @@ bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
 build stamp. Current: `v1069`. Use `git log` for the per-version detail;
 
+**v1169 — device-informed tile-pack memory budget (replaces the flat 350 MB).**
+The adjacent-pack budget (v1168) was a hard-coded 350 MB. `packMemoryBudgetBytes()`
+(`tilePack.ts`) now derives it from the device: primarily `navigator.deviceMemory`
+(device RAM in GiB, coarse 0.25..8, Chrome/Edge/Android) at ~80 MB of budget per
+GB, clamped to [150 MB, 700 MB] — so a 2 GB phone gets ~160 MB while an 8 GB device
+gets ~640 MB. Where present, `performance.memory.jsHeapSizeLimit` (Chrome,
+non-standard) additionally lowers it to 60% of the remaining heap headroom (the
+150 MB floor still wins, so it can't starve the required primary). Firefox/Safari
+expose neither → the flat 350 MB fallback. The primary pack always loads regardless
+(it's required); the budget only governs how many adjacent packs stack on top.
+
 **v1168 — ADJACENT tile packs are loaded + read (multi-area body-of-water served
 offline from packs, not the master URL).** v1167 fixed the missing adjacent water
 by reading the master archive URL over the network whenever there were added
