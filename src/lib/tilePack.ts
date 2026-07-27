@@ -35,7 +35,13 @@ import { PMTiles, type RangeResponse, type Source } from "pmtiles";
 
 import { mapGeoLocation } from "@/lib/context";
 import { lastPreloadDiag } from "@/lib/debugState";
+import { playAreaRelationIdsAll } from "@/lib/playAreaRelations";
 import { TILE_PACK_BASE } from "@/maps/api/constants";
+
+/** v1168: cap the total in-memory bytes of loaded packs. The primary always
+ *  loads (it's required); adjacent packs fill up to this budget, then the rest
+ *  master/URL-fall-back — so a huge metro + many adjacents can't OOM a phone. */
+const PACK_MEMORY_BUDGET_BYTES = 350 * 1024 * 1024;
 
 /** Custom MapLibre protocol scheme. Style source URLs of the form
  *  `jlhsmerge://<masterUrl>` resolve through `mergeTileHandler`. */
@@ -61,22 +67,30 @@ interface ActivePack {
 
 let masterPMTiles: PMTiles | null = null;
 let masterUrl: string | null = null;
-let activePack: ActivePack | null = null;
+// v1168: a LIST of loaded packs — the PRIMARY play area's pack (index 0) plus
+// each ADDED ADJACENT area's pack. The merge protocol + the headless readers
+// check all of them, so a multi-area play area is served offline from packs
+// instead of range-reading the master URL (v1167). Bounded by a memory budget
+// in `loadTilePackForPlayArea` so a huge metro + adjacents can't OOM a phone.
+let activePacks: ActivePack[] = [];
 
 /**
- * The in-memory PMTiles handle for the currently-loaded city pack (offline),
- * or null when none is loaded. Lets headless readers (e.g. the body-of-water
- * `water`-layer read) pull vector geometry straight from the PRELOADED pack for
- * the current play area instead of range-reading the master archive over the
- * network (v1074). Returns the zoom range so the caller can stay in-bounds.
+ * The in-memory PMTiles handles for the currently-loaded city packs (offline) —
+ * the primary play area's pack plus any loaded adjacent-area packs. Empty when
+ * none is loaded. Lets headless readers (e.g. the body-of-water `water`-layer
+ * read) pull vector geometry straight from the PRELOADED packs for the whole
+ * (possibly multi-area) play area instead of range-reading the master archive
+ * over the network (v1074/v1168). Each entry carries its zoom range so the
+ * caller can stay in-bounds.
  */
-export function getActivePackReader(): {
-    osmId: number;
-    pmtiles: PMTiles;
-    minZoom: number;
-    maxZoom: number;
-} | null {
-    return activePack;
+export function getActivePackReaders(): ActivePack[] {
+    return activePacks;
+}
+
+/** The PRIMARY play area's pack (list head), or null. Back-compat for
+ *  single-pack callers. */
+export function getActivePackReader(): ActivePack | null {
+    return activePacks[0] ?? null;
 }
 
 /** Lazily (re)build the master PMTiles handle for a given master URL.
@@ -149,11 +163,12 @@ export function registerMergeProtocol(): void {
         const y = Number(tileMatch[4]);
         const master = ensureMaster(mUrl);
 
-        // Pack-first. getZxy returns undefined (no throw) for
-        // out-of-zoom / out-of-bbox tiles, so a city pack naturally
-        // declines anything it doesn't hold and we fall through.
-        const pack = activePack;
-        if (pack && z >= pack.minZoom && z <= pack.maxZoom) {
+        // Pack-first, across EVERY loaded pack (primary + adjacents). getZxy
+        // returns undefined (no throw) for out-of-zoom / out-of-bbox tiles, so
+        // a pack naturally declines anything it doesn't hold and we try the
+        // next pack, then fall through to master.
+        for (const pack of activePacks) {
+            if (z < pack.minZoom || z > pack.maxZoom) continue;
             try {
                 const r = await pack.pmtiles.getZxy(
                     z,
@@ -170,7 +185,7 @@ export function registerMergeProtocol(): void {
                 }
             } catch (e) {
                 if ((e as Error)?.name === "AbortError") throw e;
-                // Any other pack error: fall through to master so a
+                // Any other pack error: try the next pack / master so a
                 // corrupt/partial pack can never blank a tile.
             }
         }
@@ -264,47 +279,61 @@ export async function loadTilePackForPlayArea(opts?: {
     onProgress?: (loaded: number, total: number | null) => void;
     signal?: AbortSignal;
 }): Promise<TilePackLoadResult> {
-    const loc = mapGeoLocation.get();
-    const osmIdRaw = (loc?.properties as { osm_id?: number | string })?.osm_id;
-    const osmType = (loc?.properties as { osm_type?: string })?.osm_type;
-    // Packs are keyed on OSM relation ids; custom-drawn polygons and
-    // node/way play areas can't have one.
-    if (osmIdRaw === undefined || osmIdRaw === null || osmType !== "R") {
-        return { status: "skipped" };
-    }
-    const osmId = Number(osmIdRaw);
-    if (!Number.isFinite(osmId)) return { status: "skipped" };
+    // Every play-area relation id — the primary (index 0) plus each added
+    // adjacent area. Custom-drawn / node/way play areas yield [] (no pack).
+    const wantIds = playAreaRelationIdsAll();
+    if (wantIds.length === 0) return { status: "skipped" };
+    const primaryId = wantIds[0];
 
-    // Already active for this exact play area — nothing to do.
-    if (activePack && activePack.osmId === osmId) {
-        return { status: "loaded", osmId, bytes: 0 };
+    // Already active for this exact play-area set — nothing to do.
+    if (
+        activePacks.length > 0 &&
+        activePacks.length === wantIds.length &&
+        wantIds.every((id) => activePacks.some((p) => p.osmId === id))
+    ) {
+        return { status: "loaded", osmId: primaryId, bytes: 0 };
     }
 
-    const url = tilePackUrl(osmId);
     try {
-        const dl = await downloadPackRanged(url, opts?.onProgress, opts?.signal);
-        if (!dl.ok) {
-            if (dl.status === 404) {
-                // No pack for this city. Make sure we're not holding a
-                // stale pack from a previous play area.
-                clearTilePack();
-                return { status: "absent" };
-            }
+        // The PRIMARY pack is required — a 404 there means no pack for this
+        // city (caller falls back to the range walk).
+        const primary = await downloadPack(
+            primaryId,
+            opts?.onProgress,
+            opts?.signal,
+        );
+        if (primary.status === "absent") {
+            clearTilePack();
+            return { status: "absent" };
+        }
+        if (primary.status !== "loaded" || !primary.pack) {
             return { status: "error" };
         }
-        const buf = dl.buffer;
-        const pmtiles = new PMTiles(new BufferSource(buf, url));
-        const h = await pmtiles.getHeader();
-        // Swap in the new pack, then flip the atom so the style
-        // rebuilds with the pack already available to the protocol.
-        activePack = {
-            osmId,
-            pmtiles,
-            minZoom: h.minZoom,
-            maxZoom: h.maxZoom,
-        };
-        activeTilePackId.set(osmId);
-        return { status: "loaded", osmId, bytes: buf.byteLength };
+
+        const loaded: ActivePack[] = [primary.pack];
+        let totalBytes = primary.bytes ?? 0;
+
+        // v1168: also load each ADDED ADJACENT area's pack (they're prewarmed
+        // per v726/v727), within the memory budget, so a multi-area play area
+        // renders + reads its data offline from packs. A missing (404) / failed
+        // / over-budget adjacent is skipped — the merge protocol master-falls-
+        // back for display and the water read falls to the URL when packs don't
+        // cover every area (so completeness is preserved either way).
+        for (const id of wantIds.slice(1)) {
+            if (totalBytes >= PACK_MEMORY_BUDGET_BYTES) break;
+            if (opts?.signal?.aborted) break;
+            const adj = await downloadPack(id, undefined, opts?.signal);
+            if (adj.status === "loaded" && adj.pack) {
+                loaded.push(adj.pack);
+                totalBytes += adj.bytes ?? 0;
+            }
+        }
+
+        // Swap in the new pack set, then flip the atom so the style rebuilds
+        // with the packs already available to the protocol.
+        activePacks = loaded;
+        activeTilePackId.set(primaryId);
+        return { status: "loaded", osmId: primaryId, bytes: totalBytes };
     } catch (e) {
         if ((e as Error)?.name === "AbortError") return { status: "skipped" };
         console.warn("[tilePack] load failed:", e);
@@ -312,11 +341,32 @@ export async function loadTilePackForPlayArea(opts?: {
     }
 }
 
-/** Drop the active pack (frees the in-memory archive) and revert the
+/** Download + parse ONE pack (no global state change). */
+async function downloadPack(
+    osmId: number,
+    onProgress: ((loaded: number, total: number | null) => void) | undefined,
+    signal: AbortSignal | undefined,
+): Promise<{ status: "loaded" | "absent" | "error"; pack?: ActivePack; bytes?: number }> {
+    const url = tilePackUrl(osmId);
+    const dl = await downloadPackRanged(url, onProgress, signal);
+    if (!dl.ok) {
+        return { status: dl.status === 404 ? "absent" : "error" };
+    }
+    const buf = dl.buffer;
+    const pmtiles = new PMTiles(new BufferSource(buf, url));
+    const h = await pmtiles.getHeader();
+    return {
+        status: "loaded",
+        pack: { osmId, pmtiles, minZoom: h.minZoom, maxZoom: h.maxZoom },
+        bytes: buf.byteLength,
+    };
+}
+
+/** Drop all active packs (frees the in-memory archives) and revert the
  *  style to the plain master source on the next rebuild. Safe to call
  *  when no pack is active. */
 export function clearTilePack(): void {
-    activePack = null;
+    activePacks = [];
     if (activeTilePackId.get() !== null) {
         activeTilePackId.set(null);
     }

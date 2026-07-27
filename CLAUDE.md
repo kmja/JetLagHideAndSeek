@@ -432,6 +432,26 @@ bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
 build stamp. Current: `v1069`. Use `git log` for the per-version detail;
 
+**v1168 — ADJACENT tile packs are loaded + read (multi-area body-of-water served
+offline from packs, not the master URL).** v1167 fixed the missing adjacent water
+by reading the master archive URL over the network whenever there were added
+adjacents — but we already PREWARM each adjacent's tile pack (v726/v727), so
+range-reading the master was a wasteful regression on a slow link. Now the tile
+loader loads them: `activePack` (a single pack) became `activePacks: ActivePack[]`
+(`tilePack.ts`) — `loadTilePackForPlayArea` loads the PRIMARY pack (index 0,
+required; 404 → absent → range-walk fallback) plus each added-adjacent area's pack
+(via `playAreaRelationIdsAll()`), bounded by `PACK_MEMORY_BUDGET_BYTES` (350 MB) so
+a huge metro + adjacents can't OOM a phone; a 404/failed/over-budget adjacent is
+skipped. The merge protocol + `getActivePackReaders()` check EVERY loaded pack, so
+the whole multi-area play area renders offline. `ensureBasemapWaterForArea`
+(`basemapWater.ts`) now reads the `water` layer from EVERY loaded pack (concat)
+when the loaded packs cover every play-area relation id (`packsCoverAll`), and only
+falls back to the master URL when a relation's pack isn't loaded yet (cold
+adjacent) — so a fully-preloaded multi-area game gets its body-of-water (+ coastline
++ same-landmass, same cache) offline from packs. `clearTilePack` empties the list.
+(The v1167 `additionalMapGeoLocations`-drives-URL logic is replaced by the
+`packsCoverAll` check.)
+
 **v1167 — body-of-water covers the WHOLE multi-area play area (adjacent's water
 was missing).** On a play area with an ADDED ADJACENT (NYC + Long Island), the
 body-of-water overlay covered only the primary — the adjacent read "further from

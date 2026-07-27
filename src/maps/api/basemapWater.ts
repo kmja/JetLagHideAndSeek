@@ -4,14 +4,11 @@ import type { MapGeoJSONFeature, Map as MaplibreMap } from "maplibre-gl";
 import { atom } from "nanostores";
 import type { MapRef } from "react-map-gl/maplibre";
 
-import {
-    additionalMapGeoLocations,
-    mapGeoLocation,
-    polyGeoJSON,
-} from "@/lib/context";
+import { mapGeoLocation, polyGeoJSON } from "@/lib/context";
 import { dissolveWater } from "@/lib/geometry/client";
 import { pmtilesUrl } from "@/lib/protomapsStyle";
-import { getActivePackReader } from "@/lib/tilePack";
+import { playAreaRelationIdsAll } from "@/lib/playAreaRelations";
+import { getActivePackReaders } from "@/lib/tilePack";
 import {
     fetchBasemapLayerPolys,
     fetchLayerPolysFromPM,
@@ -246,49 +243,47 @@ export function ensureBasemapWaterForArea(
         // a far lighter downstream buffer, which is what over-loaded and timed
         // the overlay out). Water needs no fine detail — we simplify + buffer by
         // kilometres anyway.
-        // v1074: read the `water` layer from the PRELOADED city pack (in-memory,
-        // offline, this play area) when it's loaded — NOT the master archive
-        // over the network. The master read is a fresh range-fetch that on a
-        // cellular link is slow / fails (it timed out under the 4.5 s cap →
-        // empty water → the cold LIVE-Overpass fallback the user saw, even
-        // though the pack is preloaded). The pack covers z0..15, so z11 water is
-        // in it. Falls back to the master URL only when no pack is loaded.
-        const pack = getActivePackReader();
-        const packOsm = mapGeoLocation.get()?.properties?.osm_id;
-        // v1167: the client only loads the PRIMARY play area's tile pack — an
-        // ADDED ADJACENT area is NOT covered by it. Reading a multi-area play
-        // area's water from the primary-only pack silently MISSES the adjacent's
-        // water (it then reads "further from water" and the overlay doesn't cover
-        // the adjacent — the reported large-play-area bug). So when there are
-        // adjacents, read from the master archive URL, which covers the whole
-        // combined bbox. Single-area keeps the fast offline pack.
-        const hasAdjacents = additionalMapGeoLocations.get().length > 0;
-        const usePack =
-            !hasAdjacents &&
-            pack &&
-            (packOsm == null || pack.osmId === packOsm)
-                ? pack
-                : null;
+        // v1074/v1168: read the `water` layer from the PRELOADED city packs
+        // (in-memory, offline) when they cover the WHOLE play area — NOT the
+        // master archive over the network. The master read is a fresh
+        // range-fetch that on a cellular link is slow / fails (it timed out
+        // under the 4.5 s cap → empty water → the cold LIVE-Overpass fallback,
+        // even though packs are preloaded). Each pack covers z0..15.
+        //
+        // v1167 read the master URL whenever there were ADDED ADJACENTS,
+        // because only the PRIMARY pack used to be loaded. v1168 loads adjacent
+        // packs too (`getActivePackReaders`), so read from EVERY pack when they
+        // cover every play-area relation id — the whole multi-area play area is
+        // served offline. If a relation's pack isn't loaded yet (cold adjacent),
+        // fall back to the master URL, which covers the whole combined bbox.
+        const packs = getActivePackReaders();
+        const relIds = playAreaRelationIdsAll();
+        const packIds = new Set(packs.map((p) => p.osmId));
+        const packsCoverAll =
+            relIds.length > 0 &&
+            packs.length > 0 &&
+            relIds.every((id) => packIds.has(id));
         // v1137: ADAPTIVE zoom — the tile reader picks the HIGHEST zoom whose
-        // tile count fits `maxTiles`, so this reads z12 where the play area is
-        // light enough to afford it (a smaller city → finer water, catching the
-        // medium park lakes z11 generalizes away) but AUTO-STEPS DOWN to z11 for
-        // a dense metro (NYC + adjacents), whose z12 polygon set is what HUNG the
-        // dissolve+buffer (v1136). The `maxTiles:30` budget is deliberately
-        // conservative: a modest bbox fits z12 (~≤30 tiles), an NYC-scale bbox
-        // exceeds it → z11. So it's "the most detail the app can reliably handle
-        // for THIS area", with no hang-risk regression for the dense case. z13 is
-        // NOT reachable (targetZoom caps at 12) — it definitively hangs even for
-        // a single metro. The per-poly clean (truncate+simplify) keeps whatever
-        // zoom is chosen tractable. (Getting z12+ detail for a dense metro would
-        // need a seeker-local high-zoom read, not a whole-area one — a possible
-        // future enhancement.)
+        // tile count fits `maxTiles`; the per-poly clean keeps whatever zoom is
+        // chosen tractable.
         const maxTiles = waterTileBudget(bbox);
-        const feats = usePack
-            ? await fetchLayerPolysFromPM(usePack.pmtiles, bbox, "water", {
-                  targetZoom: Math.min(13, usePack.maxZoom),
-                  maxTiles,
-              })
+        const feats = packsCoverAll
+            ? (
+                  await Promise.all(
+                      packs.map((p) =>
+                          fetchLayerPolysFromPM(p.pmtiles, bbox, "water", {
+                              targetZoom: Math.min(13, p.maxZoom),
+                              maxTiles,
+                          }).catch(() => null),
+                      ),
+                  )
+              ).reduce<Feature<Polygon | MultiPolygon>[] | null>(
+                  (acc, cur) => {
+                      if (!cur) return acc;
+                      return acc ? acc.concat(cur) : cur.slice();
+                  },
+                  null,
+              )
             : await (async () => {
                   const url = pmtilesUrl.get();
                   if (!url) return null;
