@@ -656,6 +656,41 @@ export function InlineLocationPicker({
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [radiusMeters, safeLat, safeLng]);
 
+    // Tentacle: FRAME the whole reach circle around the seeker (not a fixed
+    // zoom 13, which showed only the centre and read as "centred on the play
+    // area"). The reach is fixed per question (2 / 25 km) but the pin follows
+    // GPS, so refit whenever the seeker position or radius settles. Deduped on
+    // rounded coords (~111 m) so GPS jitter doesn't yank the camera; a real
+    // move / the first fix reframes.
+    const lastTentacleFitRef = useRef<string>("");
+    useEffect(() => {
+        if (impactMode !== "tentacles") return;
+        if (!tentacleRadiusKm || tentacleRadiusKm <= 0) return;
+        if (!Number.isFinite(safeLat) || !Number.isFinite(safeLng)) return;
+        const key = `${safeLat.toFixed(3)},${safeLng.toFixed(3)},${tentacleRadiusKm}`;
+        if (lastTentacleFitRef.current === key) return;
+        lastTentacleFitRef.current = key;
+        const map = mapRef.current?.getMap();
+        if (!map) return;
+        try {
+            const circle = turfCircle([safeLng, safeLat], tentacleRadiusKm, {
+                steps: 64,
+                units: "kilometers",
+            });
+            const [minX, minY, maxX, maxY] = turfBbox(circle);
+            map.fitBounds(
+                [
+                    [minX, minY],
+                    [maxX, maxY],
+                ],
+                { padding: 32, duration: 400 },
+            );
+        } catch {
+            /* map may not be ready */
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [impactMode, tentacleRadiusKm, safeLat, safeLng]);
+
     // v370: invert `$maskData` (the in-scope WORKING polygon — play area
     // minus eliminations) into the dark cover the layer actually wants
     // to draw. Without this, the fill paints ON the play area itself
@@ -969,7 +1004,11 @@ export function InlineLocationPicker({
                     initialViewState={{
                         longitude: safeLng,
                         latitude: safeLat,
-                        zoom: radiusMeters ? zoomForRadius(radiusMeters) : 13,
+                        zoom: radiusMeters
+                            ? zoomForRadius(radiusMeters)
+                            : impactMode === "tentacles" && tentacleRadiusKm
+                              ? zoomForRadius(tentacleRadiusKm * 1000)
+                              : 13,
                     }}
                     style={{ width: "100%", height: "100%" }}
                     attributionControl={false}
@@ -1563,20 +1602,25 @@ export function InlineLocationPicker({
     );
 }
 
-/** v823: a repeating range of SHADES of the tentacle category purple —
- *  same hue/saturation, only the lightness varies — cycled across the
- *  Voronoi cells. (Was a spread of different HUES, 240–300, which read as
- *  different colours rather than one family.) The light-purple cell borders
- *  (`impact-reach-cells-line`) keep adjacent cells legible even when two
- *  happen to land on similar shades. Hue 266 ≈ the tentacle category
- *  color (#b09cd5). */
+/** v823 / v1173: a repeating range of SHADES of the tentacle category purple —
+ *  one hue family (266 ≈ the tentacle color #b09cd5) but a WIDE spread of
+ *  BOTH lightness (32→82%) and saturation (34→90%), cycled across the Voronoi
+ *  cells so adjacent slices read as clearly distinct. (v823 kept saturation
+ *  nearly flat at ~47% and lightness in a narrow 44–69% band, so neighbouring
+ *  cells looked almost the same purple.) The entries are ordered to alternate
+ *  dark/light + high/low saturation, so CONSECUTIVE cells (which a Voronoi
+ *  often assigns to neighbours) contrast most. The light-purple cell borders
+ *  (`impact-reach-cells-line`) still separate any two that land on similar
+ *  shades. */
 const PURPLE_CELL_SHADES = [
-    "hsl(266, 50%, 44%)",
-    "hsl(266, 48%, 54%)",
-    "hsl(266, 46%, 64%)",
-    "hsl(266, 50%, 49%)",
-    "hsl(266, 47%, 59%)",
-    "hsl(266, 45%, 69%)",
+    "hsl(266, 82%, 33%)",
+    "hsl(266, 42%, 78%)",
+    "hsl(266, 62%, 52%)",
+    "hsl(266, 34%, 64%)",
+    "hsl(266, 90%, 44%)",
+    "hsl(266, 50%, 84%)",
+    "hsl(266, 72%, 60%)",
+    "hsl(266, 38%, 47%)",
 ];
 
 /** Bigger radii deserve a wider zoom so the whole circle fits. */

@@ -432,6 +432,21 @@ bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
 build stamp. Current: `v1069`. Use `git log` for the per-version detail;
 
+**v1173 — tentacle configure map frames the reach + wider slice colours.** Two
+`InlineLocationPicker` fixes for the tentacle configure dialog. (1) **The map now
+FRAMES the tentacle reach circle** instead of a fixed zoom 13 (which showed only
+the centre and read as "centred on the play area"). The initial zoom uses
+`zoomForRadius(tentacleRadiusKm * 1000)`, and a new tentacle fit effect
+(`fitBounds` over the reach circle around the GPS-locked seeker pin, deduped on
+~111 m rounded coords so GPS jitter doesn't yank the camera) reframes when the
+seeker position / radius settles — mirroring the radar `radiusMeters` framing.
+(2) **The Voronoi slice palette (`PURPLE_CELL_SHADES`) got a much WIDER spread of
+lightness (32→82%) AND saturation (34→90%)**, ordered to alternate dark/light +
+high/low saturation so consecutive cells contrast strongly — v823's band was
+near-flat saturation (~47%) + a narrow 44–69% lightness, so neighbouring slices
+looked almost identical. Still one hue family (266 ≈ #b09cd5); the light-purple
+cell borders still separate any two that land on similar shades.
+
 **v1172 — REVERTED v1171 (volcanoes) — it orphaned every city's refs.** Changing
 the `api:peak` filter changed the combined-refs query string → new R2 key → EVERY
 starred city's `refs` entry missed at once, and the client's warm-on-miss + live
