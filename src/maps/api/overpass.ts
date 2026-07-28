@@ -28,7 +28,7 @@ import {
     safeJsonFromCachedResponse,
 } from "./cache";
 import {
-    apiLocationFilter,
+    LOCATION_FIRST_TAG,
     OVERPASS_API,
     OVERPASS_API_FALLBACK,
     OVERPASS_API_QUATERNARY,
@@ -624,7 +624,7 @@ export const findTentacleLocations = async (
     // cache coverage). This is the only path that still touches Overpass.
     const query = `
 [out:json][timeout:25];
-nwr${apiLocationFilter(question.locationType)}(around:${radiusMeters}, ${question.lat}, ${question.lng});
+nwr["${LOCATION_FIRST_TAG[question.locationType]}"="${question.locationType}"](around:${radiusMeters}, ${question.lat}, ${question.lng});
 out center;
     `;
     const data = await getOverpassData(query, text);

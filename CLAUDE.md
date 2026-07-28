@@ -432,6 +432,21 @@ bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
 build stamp. Current: `v1069`. Use `git log` for the per-version detail;
 
+**v1172 — REVERTED v1171 (volcanoes) — it orphaned every city's refs.** Changing
+the `api:peak` filter changed the combined-refs query string → new R2 key → EVERY
+starred city's `refs` entry missed at once, and the client's warm-on-miss + live
+fallback couldn't repopulate fast enough (rate-limited), so "Question references"
+read "Not downloaded" everywhere and questions wouldn't load. Restored
+`["natural"="peak"]` in all four producers (`constants.ts` override removed +
+`apiLocationMatches` peak test removed, `overpass.ts` live fallback back to the raw
+`LOCATION_FIRST_TAG` bracket, worker `REFERENCE_FAMILY_FILTERS`, laptop mirror), so
+the cache key returns to the value all existing R2 entries are stored under — stars
++ refs work again immediately, no re-warm needed. The volcano gap (Mt. Fuji etc.
+tagged `natural=volcano`, missed by `natural=peak`) is REAL but can't ship as a live
+cache-key change without a full refs re-warm FIRST: to redo it, warm the new key on
+the curated set (cron/laptop `--force`) BEFORE flipping the client filter, so cities
+never simultaneously go cold.
+
 **v1171 — Mountain question matches VOLCANOES (rulebook audit gap).** The
 `peak` reference filter was `["natural"="peak"]` everywhere, but OSM tags
 volcanic summits `natural=volcano`, NOT `natural=peak` — so Mt. Fuji, Vesuvius,
