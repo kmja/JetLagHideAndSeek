@@ -1620,18 +1620,20 @@ export function InlineLocationPicker({
  *  nearly flat at ~47% and lightness in a narrow 44–69% band, so neighbouring
  *  cells looked almost the same purple.) The entries are ordered to alternate
  *  dark/light + high/low saturation, so CONSECUTIVE cells (which a Voronoi
- *  often assigns to neighbours) contrast most. The light-purple cell borders
- *  (`impact-reach-cells-line`) still separate any two that land on similar
- *  shades. */
+ *  often assigns to neighbours) contrast most. Saturation stays in a punchy
+ *  58→92% band (v1175 — the earlier 34% floor read grayish); the LIGHTNESS
+ *  spread (34→84%) does most of the distinguishing. The light-purple cell
+ *  borders (`impact-reach-cells-line`) still separate any two that land on
+ *  similar shades. */
 const PURPLE_CELL_SHADES = [
-    "hsl(266, 82%, 33%)",
-    "hsl(266, 42%, 78%)",
-    "hsl(266, 62%, 52%)",
-    "hsl(266, 34%, 64%)",
-    "hsl(266, 90%, 44%)",
-    "hsl(266, 50%, 84%)",
-    "hsl(266, 72%, 60%)",
-    "hsl(266, 38%, 47%)",
+    "hsl(266, 85%, 34%)",
+    "hsl(266, 60%, 78%)",
+    "hsl(266, 70%, 52%)",
+    "hsl(266, 58%, 66%)",
+    "hsl(266, 92%, 45%)",
+    "hsl(266, 64%, 84%)",
+    "hsl(266, 78%, 60%)",
+    "hsl(266, 68%, 44%)",
 ];
 
 /** Bigger radii deserve a wider zoom so the whole circle fits. */

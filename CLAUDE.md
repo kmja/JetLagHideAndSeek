@@ -432,6 +432,12 @@ bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
 build stamp. Current: `v1069`. Use `git log` for the per-version detail;
 
+**v1175 — tentacle slice saturation floor (no grayish cells).** v1173's wide
+palette dropped saturation as low as 34%, which read grayish. Raised the
+`PURPLE_CELL_SHADES` saturation into a punchy 58→92% band while keeping the wide
+34→84% LIGHTNESS spread (which does most of the neighbour-distinguishing) — so
+every slice stays a clear purple, just lighter/darker.
+
 **v1174 — tentacle framing fix (v1173 anchored on the wrong position).** v1173's
 tentacle fit built its circle from `safeLat/safeLng` (= `data.lat/lng`), but the
 picker's GPS seed updates the seeker position ASYNC — so `data.lat/lng` starts
