@@ -432,6 +432,19 @@ bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
 build stamp. Current: `v1069`. Use `git log` for the per-version detail;
 
+**v1174 — tentacle framing fix (v1173 anchored on the wrong position).** v1173's
+tentacle fit built its circle from `safeLat/safeLng` (= `data.lat/lng`), but the
+picker's GPS seed updates the seeker position ASYNC — so `data.lat/lng` starts
+stale (play-area centroid / a prior fix) while the reach circle + candidates draw
+around the LIVE GPS. Result: the map framed the stale location (a Delhi game
+loaded on Uttam Nagar West while the seeker was in central Delhi ~15 km away).
+Second bug: the effect set its dedup key BEFORE the `if (!map) return` guard, so a
+fix that settled before the map finished loading consumed the key and never
+reframed. Fix: the tentacle fit now fits to `impact.reachCircle` — the exact
+geometry the overlay draws, centered on the seeded position — keyed on the
+circle's bbox, gated on `mapReady` (so a pre-map fix still reframes once the map
+loads), and only marks the key consumed AFTER a successful `fitBounds`.
+
 **v1173 — tentacle configure map frames the reach + wider slice colours.** Two
 `InlineLocationPicker` fixes for the tentacle configure dialog. (1) **The map now
 FRAMES the tentacle reach circle** instead of a fixed zoom 13 (which showed only

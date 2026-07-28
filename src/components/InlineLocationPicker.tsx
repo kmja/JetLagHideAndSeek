@@ -656,28 +656,38 @@ export function InlineLocationPicker({
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [radiusMeters, safeLat, safeLng]);
 
-    // Tentacle: FRAME the whole reach circle around the seeker (not a fixed
-    // zoom 13, which showed only the centre and read as "centred on the play
-    // area"). The reach is fixed per question (2 / 25 km) but the pin follows
-    // GPS, so refit whenever the seeker position or radius settles. Deduped on
-    // rounded coords (~111 m) so GPS jitter doesn't yank the camera; a real
-    // move / the first fix reframes.
+    // Tentacle: FRAME the actual reach circle (not a fixed zoom 13, which
+    // showed only the centre and read as "centred on the play area"). We fit to
+    // `impact.reachCircle` — the SAME geometry the overlay draws — rather than
+    // rebuilding a circle from `safeLat/safeLng`: the picker's GPS seed updates
+    // the seeker position asynchronously, so `data.lat/lng` (→ safeLat/safeLng)
+    // starts at a STALE value (the play-area centroid / a prior fix) while the
+    // reach circle + candidates are drawn around the live GPS — so anchoring on
+    // safeLat framed the wrong place (the reported Delhi bug: map on Uttam Nagar
+    // West, seeker in central Delhi). `reachCircle` appears once impact computes
+    // with the seeded position, so keying on it naturally waits for the right
+    // moment. Deduped on the circle's bbox (so a recompute that yields the same
+    // circle doesn't re-animate); `mapReady` in the deps so a fix that settled
+    // before the map loaded still reframes once it's ready (the dedup key is
+    // only consumed AFTER a successful fit, so a not-ready map can retry).
     const lastTentacleFitRef = useRef<string>("");
     useEffect(() => {
         if (impactMode !== "tentacles") return;
-        if (!tentacleRadiusKm || tentacleRadiusKm <= 0) return;
-        if (!Number.isFinite(safeLat) || !Number.isFinite(safeLng)) return;
-        const key = `${safeLat.toFixed(3)},${safeLng.toFixed(3)},${tentacleRadiusKm}`;
-        if (lastTentacleFitRef.current === key) return;
-        lastTentacleFitRef.current = key;
+        const circle = impact?.reachCircle;
+        if (!circle) return;
         const map = mapRef.current?.getMap();
         if (!map) return;
+        let bb: [number, number, number, number];
         try {
-            const circle = turfCircle([safeLng, safeLat], tentacleRadiusKm, {
-                steps: 64,
-                units: "kilometers",
-            });
-            const [minX, minY, maxX, maxY] = turfBbox(circle);
+            bb = turfBbox(circle) as [number, number, number, number];
+        } catch {
+            return;
+        }
+        const [minX, minY, maxX, maxY] = bb;
+        if (![minX, minY, maxX, maxY].every((n) => Number.isFinite(n))) return;
+        const key = `${minX.toFixed(3)},${minY.toFixed(3)},${maxX.toFixed(3)},${maxY.toFixed(3)}`;
+        if (lastTentacleFitRef.current === key) return;
+        try {
             map.fitBounds(
                 [
                     [minX, minY],
@@ -685,11 +695,12 @@ export function InlineLocationPicker({
                 ],
                 { padding: 32, duration: 400 },
             );
+            lastTentacleFitRef.current = key;
         } catch {
-            /* map may not be ready */
+            /* leave the key unset so a later render retries */
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [impactMode, tentacleRadiusKm, safeLat, safeLng]);
+    }, [impactMode, impact?.reachCircle, mapReady]);
 
     // v370: invert `$maskData` (the in-scope WORKING polygon — play area
     // minus eliminations) into the dark cover the layer actually wants
