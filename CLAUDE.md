@@ -432,6 +432,18 @@ bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
 build stamp. Current: `v1069`. Use `git log` for the per-version detail;
 
+**v1176 — tentacle slices coloured by ADJACENCY (no similar shades touching).**
+The slices were `PURPLE_CELL_SHADES[i % n]` keyed on the candidate's LIST index,
+which is unrelated to a cell's spatial neighbours — so similar shades routinely
+landed side by side (v1173–v1175 widening the palette didn't fix it, since the
+assignment was the problem, not the palette). `assignCellColors`
+(`InlineLocationPicker`) now does a greedy graph colouring (Welsh–Powell, highest
+degree first): two cells are adjacent when their bboxes overlap AND their polygons
+intersect, and each cell picks the palette entry no neighbour uses that is most
+distinct (shadeDistance over L + 0.6·S, hue constant) from its neighbours. n is
+small (candidates in reach) so the O(n²) adjacency build is cheap. Touching cells
+now always differ.
+
 **v1175 — tentacle slice saturation floor (no grayish cells).** v1173's wide
 palette dropped saturation as low as 34%, which read grayish. Raised the
 `PURPLE_CELL_SHADES` saturation into a punchy 58→92% band while keeping the wide

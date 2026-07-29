@@ -941,13 +941,19 @@ export function InlineLocationPicker({
     const reachCellsFC = useMemo(() => {
         const cells = impact?.reachCells;
         if (!cells || cells.length === 0) return null;
+        // v1176: colour by spatial adjacency (greedy graph colouring) so no two
+        // touching cells share a shade — index-cycling put similar shades side
+        // by side because the list index is unrelated to the map position.
+        const fills = assignCellColors(
+            cells.map((rc) => rc.cell as GeoJSON.Feature),
+        );
         return {
             type: "FeatureCollection" as const,
             features: cells.map((rc, i) => ({
                 ...(rc.cell as GeoJSON.Feature),
                 properties: {
                     ...((rc.cell as GeoJSON.Feature).properties ?? {}),
-                    fill: PURPLE_CELL_SHADES[i % PURPLE_CELL_SHADES.length],
+                    fill: fills[i],
                     cellName: rc.name,
                 },
             })),
@@ -1635,6 +1641,109 @@ const PURPLE_CELL_SHADES = [
     "hsl(266, 78%, 60%)",
     "hsl(266, 68%, 44%)",
 ];
+
+/** (saturation, lightness) of each palette entry — hue is constant (266), so
+ *  the perceptual difference between two shades is driven by L (dominant) and
+ *  S. Parsed once for the adjacency-aware colourer below. */
+const PALETTE_SL = PURPLE_CELL_SHADES.map((c) => {
+    const m = /hsl\(\s*\d+\s*,\s*(\d+)%\s*,\s*(\d+)%/.exec(c);
+    return { s: m ? +m[1] : 60, l: m ? +m[2] : 55 };
+});
+
+/** Perceptual-ish distance between two palette entries (same hue). Lightness
+ *  dominates what the eye reads as "a different shade"; saturation counts less. */
+function shadeDistance(
+    a: { s: number; l: number },
+    b: { s: number; l: number },
+): number {
+    return Math.hypot(a.l - b.l, (a.s - b.s) * 0.6);
+}
+
+/**
+ * v1176: assign a palette colour to each Voronoi reach cell so ADJACENT cells
+ * never share a colour and, among the legal choices, get the most visually
+ * distinct one — a greedy graph colouring (Welsh–Powell order: colour the
+ * highest-degree cells first).
+ *
+ * The old `PURPLE_CELL_SHADES[i % n]` used the candidate's LIST index, which has
+ * no relation to a cell's spatial neighbours — so similar shades routinely
+ * landed side by side (the reported bug). Here two cells are "adjacent" when
+ * their bounding boxes overlap AND their polygons intersect (Voronoi neighbours
+ * share an edge; a spurious triple-point touch only over-separates, which is
+ * harmless). n is small (candidates within the reach), so the O(n²) adjacency
+ * build + the bbox pre-filter are cheap.
+ */
+function assignCellColors(cells: GeoJSON.Feature[]): string[] {
+    const n = cells.length;
+    if (n === 0) return [];
+    const P = PALETTE_SL.length;
+    const bboxes = cells.map((c) => {
+        try {
+            return turfBbox(c);
+        } catch {
+            return null;
+        }
+    });
+    const overlap = (
+        a: number[] | null,
+        b: number[] | null,
+    ): boolean =>
+        !!a &&
+        !!b &&
+        a[0] <= b[2] &&
+        b[0] <= a[2] &&
+        a[1] <= b[3] &&
+        b[1] <= a[3];
+    const adj: number[][] = Array.from({ length: n }, () => []);
+    for (let i = 0; i < n; i++) {
+        for (let j = i + 1; j < n; j++) {
+            if (!overlap(bboxes[i], bboxes[j])) continue;
+            let touch = false;
+            try {
+                touch = booleanIntersects(cells[i], cells[j]);
+            } catch {
+                touch = false;
+            }
+            if (touch) {
+                adj[i].push(j);
+                adj[j].push(i);
+            }
+        }
+    }
+    const order = Array.from({ length: n }, (_, i) => i).sort(
+        (a, b) => adj[b].length - adj[a].length,
+    );
+    const chosen: number[] = new Array(n).fill(-1);
+    for (const i of order) {
+        const neighColors = adj[i]
+            .map((j) => chosen[j])
+            .filter((c) => c >= 0);
+        if (neighColors.length === 0) {
+            // No coloured neighbour yet — spread by order so early cells vary.
+            chosen[i] = i % P;
+            continue;
+        }
+        const used = new Set(neighColors);
+        let best = 0;
+        let bestScore = -Infinity;
+        for (let p = 0; p < P; p++) {
+            let minD = Infinity;
+            for (const nc of neighColors) {
+                minD = Math.min(minD, shadeDistance(PALETTE_SL[p], PALETTE_SL[nc]));
+            }
+            // Heavily penalise a colour a neighbour already uses, so it's only
+            // reused when every palette entry is taken (degree ≥ palette size,
+            // rare); otherwise pick the free colour most distinct from neighbours.
+            const score = (used.has(p) ? -1000 : 0) + minD;
+            if (score > bestScore) {
+                bestScore = score;
+                best = p;
+            }
+        }
+        chosen[i] = best;
+    }
+    return chosen.map((c) => PURPLE_CELL_SHADES[c]);
+}
 
 /** Bigger radii deserve a wider zoom so the whole circle fits. */
 function zoomForRadius(radiusMeters: number): number {
