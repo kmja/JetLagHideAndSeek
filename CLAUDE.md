@@ -432,6 +432,14 @@ bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
 build stamp. Current: `v1069`. Use `git log` for the per-version detail;
 
+**v1180 — selected-zone highlight uses the brand red (matches the app's
+"selected" style).** The tapped-zone highlight (shared `SELECTED_ZONE_*_PAINT`,
+seeker `selected-zone-*` + hider `hider-selected-zone-*`) was a white ring +
+fill + dot; it now uses `PLAY_AREA_COLOR` (`hsl(5 69% 55%)` = `--primary`, the
+same brand red the selected-item tint/border use everywhere else) — a solid red
+ring + a translucent red fill (≈ `bg-primary/15`) + a red centre dot with a white
+stroke so it pops (`hidingZoneStyle.ts`).
+
 **v1179 — in-zone highlight = brighter same-colour, "Hide here" = primary button,
 taller default buttons.** Three tweaks to the v1177 work. (1) The "zones you're
 standing in" highlight no longer adds a gold colour — it uses the SAME

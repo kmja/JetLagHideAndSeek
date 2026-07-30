@@ -22,6 +22,7 @@
 import * as turf from "@turf/turf";
 
 import { fadePaint } from "@/lib/mapPaint";
+import { PLAY_AREA_COLOR } from "@/lib/playAreaStyle";
 
 /** Zoom-scaled candidate-station dot radius (shared by both maps). */
 const CANDIDATE_DOT_RADIUS = [
@@ -223,20 +224,27 @@ export function buildSelectedZoneFC(
     }
 }
 
-/** Selected-zone highlight paints — a prominent white ring + fill + dot. */
+/**
+ * Selected-zone highlight paints — v1180: the app's brand-red "selected" style
+ * (the same `--primary` / `PLAY_AREA_COLOR` used by the selected-item tint +
+ * border everywhere else), instead of white. A solid red ring + a translucent
+ * red fill (≈ `bg-primary/15`) + a red centre dot with a white stroke so it pops
+ * off the field. Shared by the seeker (`selected-zone-*`) + hider
+ * (`hider-selected-zone-*`) maps.
+ */
 export const SELECTED_ZONE_FILL_PAINT = {
-    "fill-color": "#ffffff",
-    "fill-opacity": 0.16,
+    "fill-color": PLAY_AREA_COLOR,
+    "fill-opacity": 0.18,
 } as const;
 
 export const SELECTED_ZONE_LINE_PAINT = {
-    "line-color": "#ffffff",
+    "line-color": PLAY_AREA_COLOR,
     "line-width": 3,
 } as const;
 
 export const SELECTED_ZONE_DOT_PAINT = {
     "circle-radius": 7,
-    "circle-color": "#ffffff",
-    "circle-stroke-color": "#1F2F3F",
+    "circle-color": PLAY_AREA_COLOR,
+    "circle-stroke-color": "#ffffff",
     "circle-stroke-width": 2.5,
 } as const;
