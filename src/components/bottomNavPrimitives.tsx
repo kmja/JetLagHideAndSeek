@@ -28,9 +28,10 @@ export const NAV_PRIMARY_CLASS = cn(
     "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
 );
 
-export const NAV_LABEL_CLASS = "text-[10px] font-poppins font-semibold";
+// v1183: bigger nav labels — the old 10px read cramped.
+export const NAV_LABEL_CLASS = "text-xs font-poppins font-semibold";
 export const NAV_PRIMARY_LABEL_CLASS =
-    "text-[10px] font-bold uppercase tracking-wider";
+    "text-xs font-bold uppercase tracking-wider";
 
 /**
  * The small count pill in a nav slot's top-right corner. Base geometry is

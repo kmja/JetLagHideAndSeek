@@ -432,6 +432,12 @@ bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
 build stamp. Current: `v1069`. Use `git log` for the per-version detail;
 
+**v1183 — revert lock-in dialog header font + bigger bottom-nav labels.** (1) The
+lock-in confirm dialog title is back to the standard `AlertDialogTitle` style
+(matching the "Configure question" dialog) — the v1178 `font-display` experiment
+was reverted (`AppConfirmHost`). (2) Bottom-nav slot labels bumped `text-[10px]`→
+`text-xs` (both `NAV_LABEL_CLASS` + `NAV_PRIMARY_LABEL_CLASS`, seeker + hider).
+
 **v1182 — station card: "Hide here" vs "Route & departures" are exclusive +
 in-zone highlight is a dashed outline only.** (1) `StationTransitCard` hides the
 "Route & departures" expander when the hider is standing INSIDE the tapped zone

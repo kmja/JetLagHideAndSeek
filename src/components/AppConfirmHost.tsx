@@ -49,11 +49,10 @@ export function AppConfirmHost() {
                 overlayClassName="z-[1295]"
             >
                 <AlertDialogHeader>
-                    {/* v1178: brand header font (M PLUS Rounded 1c) so the
-                        confirm title reads as a proper dialog header, matching
-                        the app's other branded dialogs (was the plain body
-                        font). */}
-                    <AlertDialogTitle className="font-display font-bold">
+                    {/* v1183: standard dialog-title style (matches the
+                        "Configure question" dialog etc.) — the v1178
+                        font-display experiment was reverted. */}
+                    <AlertDialogTitle>
                         {$pending?.title ?? ""}
                     </AlertDialogTitle>
                     {$pending?.previewZone && (
