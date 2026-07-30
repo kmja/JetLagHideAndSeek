@@ -432,6 +432,18 @@ bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
 build stamp. Current: `v1069`. Use `git log` for the per-version detail;
 
+**v1179 — in-zone highlight = brighter same-colour, "Hide here" = primary button,
+taller default buttons.** Three tweaks to the v1177 work. (1) The "zones you're
+standing in" highlight no longer adds a gold colour — it uses the SAME
+basemap-aware candidate-zone colour, just BRIGHTER (fill 0.32 + a soft ring), so
+the committable zones read as lit-up versions of the field. New
+`inZoneFillPaint`/`inZoneLinePaint` derive from the extracted `candidateZoneColor`
+(`hidingZoneStyle.ts`). (2) The timer nudge's "Hide here" is now a real primary
+`Button` (brand-red fill, white text) inside a neutral card, instead of a navy
+chip on a gold pill (`HiderZoneNudge`). (3) The standard `Button` default height
+is **44px** (`h-10`→`h-11`, the iOS/Android min touch target) with `lg` bumped to
+48px (`h-11`→`h-12`) — bigger, easier CTAs where there's room (`ui/button.tsx`).
+
 **v1178 — configure/preview dialog + lock-in dialog polish.** (1) The
 question-configure `DialogTitle` reads **"Preview question"** for every type
 EXCEPT radar + thermometer (which read "Configure question") — only those two

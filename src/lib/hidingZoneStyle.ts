@@ -54,11 +54,23 @@ export function mapLabelColors(darkBasemap: boolean): {
 }
 
 /**
- * The faint unioned-extent fill for the candidate-zone overlay.
- * - Light basemap: a NEUTRAL grey wash (the red tint read as too prominent).
- * - Dark theme: a brightening near-white wash that lights the circles up.
+ * The candidate-zone overlay's basemap-aware wash COLOUR (one source):
+ * - Light basemap: a NEUTRAL grey (the red tint read as too prominent).
+ * - Dark theme: a brightening near-white.
  * - Satellite (light theme + satellite on): a faint red tint.
  */
+export function candidateZoneColor(
+    darkBasemap: boolean,
+    theme: "light" | "dark",
+): string {
+    return !darkBasemap
+        ? "hsl(0, 0%, 42%)"
+        : theme === "dark"
+          ? "#f5e7e3"
+          : "hsl(2, 70%, 54%)";
+}
+
+/** The faint unioned-extent fill for the candidate-zone overlay. */
 export function candidateZoneFillPaint({
     darkBasemap,
     theme,
@@ -69,11 +81,7 @@ export function candidateZoneFillPaint({
     shown: boolean;
 }) {
     return fadePaint({
-        "fill-color": !darkBasemap
-            ? "hsl(0, 0%, 42%)"
-            : theme === "dark"
-              ? "#f5e7e3"
-              : "hsl(2, 70%, 54%)",
+        "fill-color": candidateZoneColor(darkBasemap, theme),
         "fill-opacity": shown
             ? !darkBasemap
                 ? 0.15
@@ -83,6 +91,39 @@ export function candidateZoneFillPaint({
             : 0,
         "fill-opacity-transition": { duration: FADE_MS },
     });
+}
+
+/**
+ * v1179: the "zones you're standing in" highlight — the SAME basemap-aware
+ * colour as the candidate zones, just a bit BRIGHTER (a heavier fill + a soft
+ * ring in the same colour), so the immediately-committable zones read as lit-up
+ * versions of the surrounding field rather than a new colour on the map.
+ */
+export function inZoneFillPaint({
+    darkBasemap,
+    theme,
+}: {
+    darkBasemap: boolean;
+    theme: "light" | "dark";
+}) {
+    return {
+        "fill-color": candidateZoneColor(darkBasemap, theme),
+        "fill-opacity": 0.32,
+    } as const;
+}
+
+export function inZoneLinePaint({
+    darkBasemap,
+    theme,
+}: {
+    darkBasemap: boolean;
+    theme: "light" | "dark";
+}) {
+    return {
+        "line-color": candidateZoneColor(darkBasemap, theme),
+        "line-width": 2,
+        "line-opacity": 0.65,
+    } as const;
 }
 
 /**

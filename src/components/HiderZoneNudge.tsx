@@ -1,6 +1,7 @@
 import { useStore } from "@nanostores/react";
 import { Footprints, Tent } from "lucide-react";
 
+import { Button } from "@/components/ui/button";
 import { useNow } from "@/hooks/useNow";
 import { hidingZone } from "@/lib/context";
 import { gameSize, hidingPeriodEndsAt } from "@/lib/gameSetup";
@@ -60,45 +61,50 @@ export function HiderZoneNudge() {
 
     const more = $inZones.length - 1;
     return (
-        <button
-            type="button"
-            onClick={() =>
-                void confirmAndCommitZone(
-                    {
-                        name: nearest.name,
-                        lat: nearest.lat,
-                        lng: nearest.lng,
-                        modes: nearest.modes,
-                    },
-                    radiusMeters,
-                )
-            }
+        <div
             className={cn(
-                "group flex items-center gap-2.5 rounded-lg pl-2.5 pr-3 py-2 shadow-md",
-                "bg-[#F2C63C] text-[#1F2F3F]",
-                "active:scale-[0.98] transition-transform",
-                "max-w-[min(82vw,21rem)]",
+                "flex items-center gap-2.5 rounded-lg pl-2.5 pr-2 py-2 shadow-md",
+                "bg-card/95 border border-border backdrop-blur-sm",
+                "max-w-[min(84vw,23rem)]",
             )}
-            aria-label={`Hide at ${nearest.name}`}
         >
             <span
-                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-[#1F2F3F]/12"
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-muted"
                 aria-hidden="true"
             >
-                <Tent className="h-4 w-4 text-[#1F2F3F]" strokeWidth={2.5} />
+                <Tent
+                    className="h-4 w-4 text-muted-foreground"
+                    strokeWidth={2.5}
+                />
             </span>
             <span className="min-w-0 flex-1 flex flex-col text-left leading-tight">
-                <span className="text-[9px] font-poppins font-bold uppercase tracking-[0.14em] text-[#1F2F3F]/65">
+                <span className="text-[9px] font-poppins font-bold uppercase tracking-[0.14em] text-muted-foreground">
                     You&apos;re in a hiding zone{more > 0 ? ` · +${more}` : ""}
                 </span>
-                <span className="truncate text-sm font-semibold">
+                <span className="truncate text-sm font-semibold text-foreground">
                     {nearest.name}
                 </span>
             </span>
-            <span className="shrink-0 rounded-md bg-[#1F2F3F] px-2 py-1 text-[10px] font-poppins font-bold uppercase tracking-wider text-white">
+            <Button
+                type="button"
+                size="sm"
+                onClick={() =>
+                    void confirmAndCommitZone(
+                        {
+                            name: nearest.name,
+                            lat: nearest.lat,
+                            lng: nearest.lng,
+                            modes: nearest.modes,
+                        },
+                        radiusMeters,
+                    )
+                }
+                className="shrink-0"
+                aria-label={`Hide at ${nearest.name}`}
+            >
                 Hide here
-            </span>
-        </button>
+            </Button>
+        </div>
     );
 }
 
