@@ -432,6 +432,19 @@ bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
 build stamp. Current: `v1069`. Use `git log` for the per-version detail;
 
+**v1181 — transit-line question finds lines with SPARSE stops (was stop-only
+proximity).** The `same-train-line` route picker's `findTransitRoutesNear`
+(`overpass.ts`) matched a route only if one of its STOP nodes was within 500 m of
+the seeker — so a rail line passing right through you but whose nearest stop is
+>500 m away (NJ Transit's Ampere stretch, the reported case) listed nothing. Now
+it tests distance to the route's LINE — the polyline through its stops in travel
+order (the prewarmed payload is stops-only since v1103, so the schematic straight
+segments between consecutive stops are the line geometry) via
+`turf.pointToLineDistance` (`pointNearRouteLine`, a strict superset of the old
+stop test) — and the default radius was bumped 500→800 m for extra flexibility.
+The live `around:` fallback already matched way geometry, so only the prewarmed
+scan needed the fix.
+
 **v1180 — selected-zone highlight uses the brand red (matches the app's
 "selected" style).** The tapped-zone highlight (shared `SELECTED_ZONE_*_PAINT`,
 seeker `selected-zone-*` + hider `hider-selected-zone-*`) was a white ring +

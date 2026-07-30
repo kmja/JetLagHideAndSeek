@@ -1100,6 +1100,45 @@ function routeStopCoords(
     return coords;
 }
 
+/**
+ * v1181: is the point within `radiusMeters` of the route's LINE — the polyline
+ * through its stops in travel order — not just its nearest STOP. A rail line
+ * with sparse stops (NJ Transit's Ampere stretch) passes right through the
+ * seeker while its nearest stop is >500 m away, so a stop-only proximity test
+ * missed the very line they were standing on (the reported bug). The prewarmed
+ * transit-routes payload is stops-only (v1103), so the schematic straight
+ * segments between consecutive stops are the best line geometry we have — a
+ * strict superset of the stop test (it also matches the stops themselves).
+ */
+function pointNearRouteLine(
+    lat: number,
+    lng: number,
+    coords: [number, number][],
+    radiusMeters: number,
+): boolean {
+    if (coords.length === 0) return false;
+    const pt = turf.point([lng, lat]);
+    if (coords.length === 1) {
+        return (
+            turf.distance(pt, turf.point(coords[0]), { units: "meters" }) <=
+            radiusMeters
+        );
+    }
+    try {
+        return (
+            turf.pointToLineDistance(pt, turf.lineString(coords), {
+                units: "meters",
+            }) <= radiusMeters
+        );
+    } catch {
+        return coords.some(
+            (c) =>
+                turf.distance(pt, turf.point(c), { units: "meters" }) <=
+                radiusMeters,
+        );
+    }
+}
+
 /** Build an id→node map from an Overpass element set (for stop lookup). */
 function nodeMapFrom(elements: any[]): Map<number, any> {
     const m = new Map<number, any>();
@@ -1133,7 +1172,9 @@ export const findTransitRoutesNear = async (
     lat: number,
     lng: number,
     modes: string[] = ["subway", "train", "light_rail", "tram", "monorail"],
-    radiusMeters = 500,
+    // v1181: 800 m (was 500) — a bit more flexible so a seeker on a line with
+    // sparse stops still lists it, combined with the line-distance test below.
+    radiusMeters = 800,
 ): Promise<TransitRouteSummary[]> => {
     const allowed = new Set(modes);
     // Prewarmed play-area set first — filter to allowed modes + near the point.
@@ -1151,15 +1192,8 @@ export const findTransitRoutesNear = async (
                 const summary = routeSummaryFromEl(el);
                 if (!summary || !allowed.has(summary.mode)) continue;
                 const coords = routeStopCoords(el, nodeById);
-                const isNear = coords.some(
-                    (c) =>
-                        turf.distance(
-                            turf.point([lng, lat]),
-                            turf.point(c),
-                            { units: "meters" },
-                        ) <= radiusMeters,
-                );
-                if (isNear) near.push(summary);
+                if (pointNearRouteLine(lat, lng, coords, radiusMeters))
+                    near.push(summary);
             }
         };
         scan(prewarmed.elements ?? []);
