@@ -418,7 +418,11 @@ export const QuestionCard = ({
                     }
                     className={cn(
                         forceExpanded
-                            ? "rounded-lg border border-sidebar-border bg-sidebar-accent shadow-none"
+                            ? // v1178: SHARP corners to match the question cards
+                              // everywhere else (the on-map / collapsed cards are
+                              // sharp, v588); the configure header card had picked
+                              // up rounded corners in v1083.
+                              "rounded-none border border-sidebar-border bg-sidebar-accent shadow-none"
                             : "rounded-none border-0 shadow-none bg-transparent",
                     )}
                 />

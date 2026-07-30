@@ -432,6 +432,21 @@ bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
 build stamp. Current: `v1069`. Use `git log` for the per-version detail;
 
+**v1178 — configure/preview dialog + lock-in dialog polish.** (1) The
+question-configure `DialogTitle` reads **"Preview question"** for every type
+EXCEPT radar + thermometer (which read "Configure question") — only those two
+expose adjustable parameters in the dialog; the rest are read-only previews you
+review + send (`AddQuestionDialog`). (2) The configure header card is **sharp-
+cornered again** (`rounded-none`) to match the on-map / collapsed question cards
+everywhere else — it had picked up `rounded-lg` in v1083 (`cards/base.tsx`). (3)
+The **gap between the map and the Send/Cancel buttons** was trimmed to match the
+gap above the map — the scroll body's bottom padding (`py-4`→`pt-4 pb-0`) and the
+footer's top padding (`py-4`→`pt-2 pb-4`) were the oversized contributors. (4) The
+**lock-in confirm dialog** uses the brand header font (`font-display`, M PLUS
+Rounded 1c) so its title reads as a proper dialog header (scoped to `AppConfirmHost`,
+so every appConfirm benefits), and (5) its description dropped the misleading "—
+the area the seekers hunt" clause (`hiderZoneCommit.ts`).
+
 **v1177 — hider "zones you're in" highlight + timer nudge, nav-colour + low-poly
 fixes.** Three hider-map changes. (1) **The zone-select overlay is back as a
 SUBTLE in-zone highlight + a compact nudge next to the timer** (replacing the big

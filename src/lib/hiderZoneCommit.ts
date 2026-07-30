@@ -42,7 +42,7 @@ export async function confirmAndCommitZone(
         title: station.name
             ? `Lock in ${station.name}?`
             : "Lock in your hiding zone?",
-        description: `"${zoneName}" and everywhere within its ${radiusLabel} radius becomes your hiding zone for the round — the area the seekers hunt. This cannot be undone.`,
+        description: `"${zoneName}" and everywhere within its ${radiusLabel} radius becomes your hiding zone for the round. This cannot be undone.`,
         confirmLabel: "Lock it in",
         cancelLabel: "Cancel",
         previewZone: { lat: station.lat, lng: station.lng, radiusMeters },

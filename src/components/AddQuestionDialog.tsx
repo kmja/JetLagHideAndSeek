@@ -1451,7 +1451,16 @@ export const AddQuestionDialog = ({
                         )}
                     >
                         <div className="px-6 pt-6 pb-3 shrink-0 flex items-center justify-between gap-2">
-                            <DialogTitle>Configure question</DialogTitle>
+                            {/* v1178: only radar + thermometer expose adjustable
+                                parameters in this dialog; every other type is a
+                                read-only preview of the question you're about to
+                                send, so the header says so. */}
+                            <DialogTitle>
+                                {pendingQuestion?.id === "radius" ||
+                                pendingQuestion?.id === "thermometer"
+                                    ? "Configure question"
+                                    : "Preview question"}
+                            </DialogTitle>
                             {pendingQuestion &&
                                 rulebookAnchorForCategory(pendingQuestion.id) && (
                                     <button
@@ -1472,7 +1481,7 @@ export const AddQuestionDialog = ({
                                 )}
                         </div>
 
-                        <div className="flex-1 overflow-y-auto px-6 py-4 min-h-0 relative">
+                        <div className="flex-1 overflow-y-auto px-6 pt-4 pb-0 min-h-0 relative">
                             {/* Progressive reveal: the question card (category
                                 header + config + nearest-reference pill) renders
                                 immediately; the map picker shows its OWN loading
@@ -1549,7 +1558,7 @@ export const AddQuestionDialog = ({
                             </div>
                         </div>
 
-                        <DialogFooter className="px-6 py-4 shrink-0 gap-2 sm:gap-2 sm:justify-end">
+                        <DialogFooter className="px-6 pt-2 pb-4 shrink-0 gap-2 sm:gap-2 sm:justify-end">
                             <Button variant="outline" onClick={handleCancel}>
                                 Cancel
                             </Button>
