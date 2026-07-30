@@ -432,6 +432,15 @@ bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
 build stamp. Current: `v1069`. Use `git log` for the per-version detail;
 
+**v1182 — station card: "Hide here" vs "Route & departures" are exclusive +
+in-zone highlight is a dashed outline only.** (1) `StationTransitCard` hides the
+"Route & departures" expander when the hider is standing INSIDE the tapped zone
+(`hiderInsideZone`) — you don't need a route to a zone you're already in; that
+case shows "Hide here" instead, so the two are mutually exclusive. (2) The
+"zones you're standing in" highlight (`hider-in-zone-*`) dropped its fill — it's
+now just a brighter DASHED ring in the same basemap-aware colour
+(`inZoneLinePaint`, `line-dasharray [3,2]`; `inZoneFillPaint` removed).
+
 **v1181 — transit-line question finds lines with SPARSE stops (was stop-only
 proximity).** The `same-train-line` route picker's `findTransitRoutesNear`
 (`overpass.ts`) matched a route only if one of its STOP nodes was within 500 m of

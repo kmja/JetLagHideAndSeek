@@ -64,7 +64,6 @@ import {
     candidateZoneLinePaint,
     CANDIDATE_ZONE_HIT_PAINT,
     CANDIDATE_ZONE_LABEL_LAYOUT,
-    inZoneFillPaint,
     inZoneLinePaint,
     SELECTED_ZONE_DOT_PAINT,
     SELECTED_ZONE_FILL_PAINT,
@@ -881,30 +880,22 @@ export function HiderBackgroundMap() {
                     )}
                 </FadeOverlay>
 
-                {/* v1177/v1179: SUBTLE highlight of the zones the hider is
-                    CURRENTLY STANDING IN (`hiderInZoneFC`, from
-                    `HiderInZoneWatcher`) — the immediately-committable subset of
-                    the candidate field. Uses the SAME basemap-aware colour as
-                    the candidate zones, just a bit BRIGHTER (heavier fill + a
-                    soft ring), so they read as lit-up versions of the field
-                    rather than a new colour. Above the reach overlay, below the
-                    tapped-selected highlight. No hit layer — the underlying
-                    `hider-reach-hit` already makes them tappable, and the
-                    timer's "Hide here" nudge commits the nearest one. */}
+                {/* v1177/v1182: highlight of the zones the hider is CURRENTLY
+                    STANDING IN (`hiderInZoneFC`, from `HiderInZoneWatcher`) —
+                    the immediately-committable subset of the candidate field. A
+                    brighter DASHED ring in the SAME basemap-aware colour as the
+                    candidate zones (no extra fill), so they read as lit-up
+                    versions of the field rather than a new colour. Above the
+                    reach overlay, below the tapped-selected highlight. No hit
+                    layer — the underlying `hider-reach-hit` already makes them
+                    tappable, and the timer's "Hide here" nudge commits the
+                    nearest one. */}
                 {$inZoneFC && $inZoneFC.features.length > 0 && (
                     <Source
                         id="hider-in-zone"
                         type="geojson"
                         data={$inZoneFC}
                     >
-                        <Layer
-                            id="hider-in-zone-fill"
-                            type="fill"
-                            paint={inZoneFillPaint({
-                                darkBasemap,
-                                theme: $theme,
-                            })}
-                        />
                         <Layer
                             id="hider-in-zone-line"
                             type="line"

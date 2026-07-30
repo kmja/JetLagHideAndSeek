@@ -551,27 +551,33 @@ export function StationTransitCard({
 
                         {/* Progressive disclosure — the route + departures
                             detail is behind this expander so the card opens
-                            compact (just the title + reachability). */}
-                        <button
-                            type="button"
-                            onClick={() => setExpanded((e) => !e)}
-                            aria-expanded={expanded}
-                            className="mt-3 flex w-full items-center justify-between rounded-lg border border-border/70 bg-sidebar-accent/40 px-3 py-2.5 text-left transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                        >
-                            <span className="text-sm font-semibold">
-                                {expanded
-                                    ? "Hide details"
-                                    : "Route & departures"}
-                            </span>
-                            <ChevronDown
-                                className={cn(
-                                    "h-4 w-4 text-muted-foreground transition-transform duration-200",
-                                    expanded && "rotate-180",
-                                )}
-                            />
-                        </button>
+                            compact (just the title + reachability). v1182:
+                            HIDDEN when the hider is already standing INSIDE this
+                            zone — you don't need a route to a zone you're in
+                            (that case shows "Hide here" instead; the two are
+                            mutually exclusive). */}
+                        {!hiderInsideZone && (
+                            <button
+                                type="button"
+                                onClick={() => setExpanded((e) => !e)}
+                                aria-expanded={expanded}
+                                className="mt-3 flex w-full items-center justify-between rounded-lg border border-border/70 bg-sidebar-accent/40 px-3 py-2.5 text-left transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                            >
+                                <span className="text-sm font-semibold">
+                                    {expanded
+                                        ? "Hide details"
+                                        : "Route & departures"}
+                                </span>
+                                <ChevronDown
+                                    className={cn(
+                                        "h-4 w-4 text-muted-foreground transition-transform duration-200",
+                                        expanded && "rotate-180",
+                                    )}
+                                />
+                            </button>
+                        )}
 
-                        {expanded && (
+                        {expanded && !hiderInsideZone && (
                             <div className="mt-3">
                                 {/* Tabs — Trip vs Departures. */}
                                 <div className="grid grid-cols-2 gap-1 rounded-lg bg-muted p-1">

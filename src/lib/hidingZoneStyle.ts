@@ -95,24 +95,11 @@ export function candidateZoneFillPaint({
 }
 
 /**
- * v1179: the "zones you're standing in" highlight — the SAME basemap-aware
- * colour as the candidate zones, just a bit BRIGHTER (a heavier fill + a soft
- * ring in the same colour), so the immediately-committable zones read as lit-up
- * versions of the surrounding field rather than a new colour on the map.
+ * v1179/v1182: the "zones you're standing in" highlight — a brighter DASHED
+ * outline in the SAME basemap-aware colour as the candidate zones (no extra
+ * fill, v1182), so the immediately-committable zones read as a lit-up dashed
+ * ring on the surrounding field rather than a new colour or a heavy wash.
  */
-export function inZoneFillPaint({
-    darkBasemap,
-    theme,
-}: {
-    darkBasemap: boolean;
-    theme: "light" | "dark";
-}) {
-    return {
-        "fill-color": candidateZoneColor(darkBasemap, theme),
-        "fill-opacity": 0.32,
-    } as const;
-}
-
 export function inZoneLinePaint({
     darkBasemap,
     theme,
@@ -123,8 +110,9 @@ export function inZoneLinePaint({
     return {
         "line-color": candidateZoneColor(darkBasemap, theme),
         "line-width": 2,
-        "line-opacity": 0.65,
-    } as const;
+        "line-opacity": 0.9,
+        "line-dasharray": [3, 2],
+    };
 }
 
 /**
