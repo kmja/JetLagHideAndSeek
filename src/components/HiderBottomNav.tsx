@@ -7,8 +7,6 @@ import { AppSettingsDrawer } from "@/components/AppSettingsDrawer";
 import {
     NAV_BTN_CLASS,
     NAV_LABEL_CLASS,
-    NAV_PRIMARY_CLASS,
-    NAV_PRIMARY_LABEL_CLASS,
     NavBadge,
 } from "@/components/bottomNavPrimitives";
 import { HiderHomeContent } from "@/components/HiderHome";
@@ -123,12 +121,10 @@ export function HiderBottomNav() {
 
     // v873: match the SEEKER nav (BottomNav) exactly — flat muted buttons,
     // NOT the old bordered/filled tiles, so the two navs read identically.
-    // The hider's PRIMARY action (Zone) mirrors the seeker's "New question"
-    // centre CTA — filled brand red, slightly wider.
+    // All four hider nav slots use the same neutral drawer-button style
+    // (v1177 — the Zone slot is no longer a filled red CTA).
     const navBtnClass = NAV_BTN_CLASS;
-    const navPrimaryClass = NAV_PRIMARY_CLASS;
     const navLabelClass = NAV_LABEL_CLASS;
-    const navPrimaryLabelClass = NAV_PRIMARY_LABEL_CLASS;
 
     return (
         <>
@@ -161,14 +157,18 @@ export function HiderBottomNav() {
                         )}
                     </button>
 
+                    {/* v1177: the Zone slot is a normal drawer button (like
+                        Questions / Map / Lobby), NOT the filled brand-red CTA —
+                        the seeker's red centre CTA is "New question" (an action),
+                        whereas Zone just opens a drawer. */}
                     <button
                         type="button"
                         onClick={() => setZoneOpen(true)}
-                        className={navPrimaryClass}
+                        className={navBtnClass}
                         aria-label="Open hiding zone controls"
                     >
                         <Tent className="w-5 h-5" strokeWidth={2} />
-                        <span className={navPrimaryLabelClass}>
+                        <span className={navLabelClass}>
                             {$hidingZone === null ? "Select zone" : "Zone"}
                         </span>
                     </button>

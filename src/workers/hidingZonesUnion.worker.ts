@@ -18,7 +18,6 @@
 import {
     circle as turfCircle,
     featureCollection as turfFeatureCollection,
-    simplify as turfSimplify,
     union as turfUnion,
 } from "@turf/turf";
 import type { Units } from "@turf/turf";
@@ -43,25 +42,19 @@ ctx.onmessage = (e: MessageEvent<UnionRequest>) => {
         // worker there's no reason to bound it below the seeker.
         const circles = stations
             .map((s) =>
-                // Smooth circles (64 steps) so the merged envelope matches
-                // the seeker overlay's look — the earlier 16-step + heavy
-                // simplify made blocky, angular arcs. It's all off the main
-                // thread here, so the extra vertices don't hitch the app.
-                turfCircle([s.lng, s.lat], radius, { units, steps: 64 }),
+                // v1177: 512-step circles + NO post-simplify — BYTE-for-byte
+                // the seeker overlay's `zonePipeline.styleZoneStations`
+                // ("stations" branch unions raw 512-step circles, never
+                // simplifies). The old 64-step + ~22 m simplify was lower-poly
+                // than the seeker, so the hider's extent envelope looked
+                // chunky/angular next to it. It's all off the main thread here,
+                // so the extra vertices don't hitch the app.
+                turfCircle([s.lng, s.lat], radius, { units, steps: 512 }),
             );
         if (circles.length >= 2) {
-            const merged = turfUnion(
+            union = turfUnion(
                 turfFeatureCollection(circles) as never,
             ) as Feature | null;
-            // Only a GENTLE simplify (~22 m) to trim vertices for render
-            // without visibly flattening the arcs (the old 88 m tolerance
-            // is what made the edges look chunky).
-            union = merged
-                ? (turfSimplify(merged as never, {
-                      tolerance: 0.0002,
-                      highQuality: false,
-                  }) as Feature)
-                : null;
         } else if (circles.length === 1) {
             union = circles[0] as Feature;
         }

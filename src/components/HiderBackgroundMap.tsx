@@ -18,7 +18,6 @@ import Map, {
 
 import { FadeOverlay } from "@/components/FadeOverlay";
 import { HiderGracePrompt } from "@/components/HiderGracePrompt";
-import { HiderZoneNudge } from "@/components/HiderZoneNudge";
 import { HiderMapTimer } from "@/components/HiderMapTimer";
 import { HiderPoiOverlay } from "@/components/HiderPoiOverlay";
 import { MapNavControls } from "@/components/MapNavControls";
@@ -47,6 +46,7 @@ import { hidingSpot, hidingZone, scoutedSpots } from "@/lib/hiderRole";
 import { shortenStationLabel } from "@/lib/stationLabel";
 import { decodeStationModes } from "@/lib/stationModes";
 import {
+    hiderInZoneFC,
     hiderReachFC,
     selectedMapStation,
     showHiderReach,
@@ -139,6 +139,7 @@ export function HiderBackgroundMap() {
     const $gps = useStore(lastKnownPosition);
     const $followMe = useStore(followMe);
     const $reach = useStore(hiderReachFC);
+    const $inZoneFC = useStore(hiderInZoneFC);
     const $labelMaxChars = useStore(stationLabelMaxChars);
     // v835: display copy of the reach FC with a shortened `shortName` per
     // point (abbreviated + truncated to the debug max-chars). Full `name`
@@ -878,6 +879,41 @@ export function HiderBackgroundMap() {
                     )}
                 </FadeOverlay>
 
+                {/* v1177: SUBTLE highlight of the zones the hider is CURRENTLY
+                    STANDING IN (`hiderInZoneFC`, from `HiderInZoneWatcher`) —
+                    the immediately-committable subset of the candidate field.
+                    A gentle gold ring + faint gold fill so they pop from the
+                    general (faint) field without shouting; drawn above the
+                    reach overlay, below the tapped-selected highlight. No hit
+                    layer — the underlying `hider-reach-hit` already makes them
+                    tappable, and the timer's "Hide here" nudge commits the
+                    nearest one. */}
+                {$inZoneFC && $inZoneFC.features.length > 0 && (
+                    <Source
+                        id="hider-in-zone"
+                        type="geojson"
+                        data={$inZoneFC}
+                    >
+                        <Layer
+                            id="hider-in-zone-fill"
+                            type="fill"
+                            paint={{
+                                "fill-color": "#F2C63C",
+                                "fill-opacity": 0.12,
+                            }}
+                        />
+                        <Layer
+                            id="hider-in-zone-line"
+                            type="line"
+                            paint={{
+                                "line-color": "#F2C63C",
+                                "line-width": 2,
+                                "line-opacity": 0.9,
+                            }}
+                        />
+                    </Source>
+                )}
+
                 {/* Tapped-zone highlight — parity with the seeker map's
                     `selected-zone-*` layers: a prominent white ring + fill +
                     dot on the station the hider tapped, drawn above the
@@ -1053,14 +1089,11 @@ export function HiderBackgroundMap() {
                 containing zone to one-tap commit. Only renders during grace. */}
             <HiderGracePrompt />
 
-            {/* v1132: on-map zone-select nudge — collapsed "Select hiding zone"
-                header during the hiding period, expands INLINE to the same
-                station picker the Zone drawer uses, so the hider can commit a
-                zone straight from the map. (v946 removed the old hint in favour
-                of the bottom-nav slot; this brings the on-map affordance back as
-                an expandable card.) The grace prompt owns the after-whistle
-                case, so they never share the top slot. */}
-            <HiderZoneNudge />
+            {/* v1177: the zone-select nudge moved OFF the map into the
+                timer's stack (`HiderMapTimer` renders `HiderZoneNudge`), a
+                subtle "hide here" pill next to the timer; the zones the hider
+                is standing in are highlighted on the map instead of a big
+                top-of-map card. */}
 
             {/* v632: the floating top-right map-options popover was removed.
                 Map display options now live in the hider bottom-nav "Map"

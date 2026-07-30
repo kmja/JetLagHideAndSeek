@@ -31,6 +31,7 @@ import {
     roundLog,
     ZONE_GRACE_MS,
 } from "@/lib/hiderRole";
+import { HiderZoneNudge } from "@/components/HiderZoneNudge";
 import { RankBadge, rankBoxBg } from "@/components/LeaderboardRankBadge";
 import { endHidingPeriodEarly } from "@/lib/roundActions";
 import { cn } from "@/lib/utils";
@@ -219,6 +220,12 @@ export function HiderMapTimer() {
                     : "right-2 md:right-4 items-end",
             )}
         >
+            {/* "Hide here" nudge — sits directly above the timer during the
+                hiding period (before a zone is committed), reflecting the zones
+                the hider is standing in (also subtly highlighted on the map).
+                Self-gates, so it renders nothing otherwise. */}
+            <HiderZoneNudge />
+
             {/* Mark-spot — hider-only, stacks above the timer when the
                 hider's GPS is inside their committed zone (seeking /
                 endgame). */}

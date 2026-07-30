@@ -10,6 +10,7 @@ import { GamePausedOverlay } from "@/components/GamePausedOverlay";
 import { GameStartWatcher } from "@/components/GameStartWatcher";
 import { HandLimitEnforcer } from "@/components/HandLimitEnforcer";
 import { HiderHandFan } from "@/components/HiderHandFan";
+import { HiderInZoneWatcher } from "@/components/HiderInZoneWatcher";
 import { HiderReachOverlay } from "@/components/HiderReachOverlay";
 import { HiderView } from "@/components/HiderView";
 import { HidingZoneOptionsSync } from "@/components/HidingZoneOptionsSync";
@@ -154,6 +155,9 @@ export function HiderPage() {
                 phase + GPS + zone-committed; renders nothing
                 directly. */}
             <HiderReachOverlay />
+            {/* v1177: computes the zones the hider is standing in (subtle map
+                highlight + the timer's "Hide here" nudge). Renders nothing. */}
+            <HiderInZoneWatcher />
             {/* Seeker-proximity watcher — keeps the seekerEta atom fresh
                 during seeking and fires an OS notification when the seekers
                 cross into a closer colour band, even with the Zone drawer

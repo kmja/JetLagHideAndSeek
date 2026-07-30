@@ -62,6 +62,21 @@ export const showHiderReach = persistentAtom<boolean>(
  */
 export const hiderReachFC = atom<GeoJSON.FeatureCollection | null>(null);
 
+/* ─────────────── Hider "zones you're standing in" (v1177) ─────────────── */
+//
+// The immediately-selectable subset of the candidate field: the zones whose
+// hiding-radius circle CONTAINS the hider's live GPS. Computed by
+// `HiderInZoneWatcher` during the hiding period before a zone is committed,
+// deband-throttled on movement. `hiderInZones` (list, nearest first) drives the
+// small nudge next to the timer (`HiderZoneNudge`); `hiderInZoneFC` (circle
+// polygons) is subtly highlighted on the map (`HiderBackgroundMap`).
+
+/** Candidate zones the hider is currently standing inside, nearest first. */
+export const hiderInZones = atom<import("./stations").AreaStation[]>([]);
+
+/** Circle polygons of `hiderInZones`, for the subtle on-map highlight. */
+export const hiderInZoneFC = atom<GeoJSON.FeatureCollection | null>(null);
+
 /* ───────────────── Seeker proximity (hider's ETA) ───────────────── */
 
 /**

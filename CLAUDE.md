@@ -432,6 +432,30 @@ bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
 build stamp. Current: `v1069`. Use `git log` for the per-version detail;
 
+**v1177 — hider "zones you're in" highlight + timer nudge, nav-colour + low-poly
+fixes.** Three hider-map changes. (1) **The zone-select overlay is back as a
+SUBTLE in-zone highlight + a compact nudge next to the timer** (replacing the big
+top-of-map `HiderZoneNudge` card). New `HiderInZoneWatcher` (mounted on
+`HiderPage`) computes the zones whose hiding-radius circle CONTAINS the hider's
+live GPS (`findZonesNearPoint`, deband-throttled ≥25 m) → `hiderInZones` (list)
++ `hiderInZoneFC` (circles, `journey/state.ts`). `HiderBackgroundMap` paints
+those circles as a gentle gold ring + faint fill (`hider-in-zone-*`, above the
+reach field, below the tapped-selected highlight; no hit layer — the existing
+`hider-reach-hit` already makes them tappable). `HiderZoneNudge` is now a compact
+"Hide here" pill rendered at the top of `HiderMapTimer`'s stack: standing in ≥1
+zone → gold pill naming the nearest (tap → commit via the shared lock-in confirm);
+standing in none → a muted "walk to a transit station" prompt. (2) **The hider
+bottom-nav "Zone" slot is a normal drawer button, not the filled brand-red CTA**
+(`HiderBottomNav`) — red is for the seeker's "New question" ACTION; Zone just
+opens a drawer, so it now matches Questions/Map/Lobby. (3) **The hider
+hiding-zones union is no longer low-poly** — `hidingZonesUnion.worker.ts` now
+builds 512-step circles with NO post-simplify, byte-for-byte the seeker's
+`zonePipeline.styleZoneStations` (the old 64-step + ~22 m simplify made the extent
+envelope look chunky next to the seeker's). Architecture note: the two roles still
+have SEPARATE union workers (`seekerZones` via `zonePipeline` vs
+`hidingZonesUnion`); their output now matches, but fully sharing one pipeline is a
+deferred refactor.
+
 **v1176 — tentacle slices coloured by ADJACENCY (no similar shades touching).**
 The slices were `PURPLE_CELL_SHADES[i % n]` keyed on the candidate's LIST index,
 which is unrelated to a cell's spatial neighbours — so similar shades routinely
