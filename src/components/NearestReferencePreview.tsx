@@ -274,8 +274,12 @@ export function NearestReferencePreview({
     return (
         <div
             className={cn(
-                "mx-2 mb-2 mt-1 rounded-sm border border-border bg-secondary/40",
-                "px-3 py-2 flex items-start gap-2",
+                // v1184: align with the map (both boxes at mx-2 = 8px) + match
+                // its inner padding (px-2, was px-3 so the text sat further in
+                // than every other row) + slim the vertical margin a lot
+                // (mt-1 mb-2 → mt-0.5 mb-1).
+                "mx-2 mt-0.5 mb-1 rounded-sm border border-border bg-secondary/40",
+                "px-2 py-1.5 flex items-start gap-2",
             )}
             data-testid="nearest-reference-preview"
         >

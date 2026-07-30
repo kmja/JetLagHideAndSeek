@@ -432,6 +432,20 @@ bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
 build stamp. Current: `v1069`. Use `git log` for the per-version detail;
 
+**v1184 — configure/preview dialog polish (header, nearest-ref alignment,
+matching map framing).** (1) The dialog header is always **"New question"** now
+(matches the bottom-nav CTA + intent), dropping the v1178 "Configure/Preview"
+split (`AddQuestionDialog`). (2/3) The "Your nearest reference" box aligns with
+the map (`px-3`→`px-2` inner padding so its text no longer sits further in than
+every other row) and its vertical margin is slimmed (`mt-1 mb-2`→`mt-0.5 mb-1`,
+`NearestReferencePreview`). (4) **The configure map frames the matching SPLIT**:
+for a matching question the old seeker+nearest-reference fit sat entirely inside
+the seeker's Voronoi cell → an all-matching view with no impact info (the reported
+airport case). Now matching gates that fit off and instead fits to the "matching"
+(`impact.yes`) region so its edges — where the answer flips to non-matching — are
+on screen (deduped on the cell bbox, gated on `mapReady`, only when both regions
+exist). Measuring/others keep the seeker+reference fit.
+
 **v1183 — revert lock-in dialog header font + bigger bottom-nav labels.** (1) The
 lock-in confirm dialog title is back to the standard `AlertDialogTitle` style
 (matching the "Configure question" dialog) — the v1178 `font-display` experiment

@@ -593,9 +593,13 @@ export function InlineLocationPicker({
     // One-shot fit: when a reference point first appears (or moves to a
     // different location), pan/zoom the map so both the seeker pin and
     // the reference fit comfortably in view.
+    // v1184: NOT for matching — the seeker + their nearest reference both sit
+    // INSIDE the matching Voronoi cell, so framing them showed an all-matching
+    // view with no sense of the question's impact (the reported airport bug).
+    // Matching frames the cell instead (the effect below).
     const lastFitRef = useRef<string>("");
     useEffect(() => {
-        if (!referencePoint) return;
+        if (!referencePoint || impactMode === "matching") return;
         if (
             !Number.isFinite(referencePoint.lat) ||
             !Number.isFinite(referencePoint.lng)
@@ -618,6 +622,46 @@ export function InlineLocationPicker({
             { padding: 40, maxZoom: 14, duration: 400 },
         );
     }, [safeLat, safeLng, referencePoint?.lat, referencePoint?.lng]);
+
+    // v1184: MATCHING → frame the impact SPLIT, not the seeker's cell. Fit to
+    // the "matching" (yes) region — the seeker's Voronoi cell — so its edges
+    // (where the answer flips to non-matching) are on screen. That shows an
+    // even-ish split of matching vs non-matching, unlike the old seeker+
+    // reference fit which sat entirely inside the matching cell (all one
+    // colour = no useful impact info). Only when BOTH regions exist (a real
+    // split); deduped on the cell bbox; gated on `mapReady` so a cell that
+    // resolved before the map loaded still frames once it's ready.
+    const lastMatchFitRef = useRef<string>("");
+    useEffect(() => {
+        if (impactMode !== "matching") return;
+        const yes = impact?.yes;
+        if (!yes || !impact?.no) return;
+        const map = mapRef.current?.getMap();
+        if (!map) return;
+        let bb: [number, number, number, number];
+        try {
+            bb = turfBbox(yes) as [number, number, number, number];
+        } catch {
+            return;
+        }
+        const [minX, minY, maxX, maxY] = bb;
+        if (![minX, minY, maxX, maxY].every((n) => Number.isFinite(n))) return;
+        const key = `${minX.toFixed(3)},${minY.toFixed(3)},${maxX.toFixed(3)},${maxY.toFixed(3)}`;
+        if (lastMatchFitRef.current === key) return;
+        try {
+            map.fitBounds(
+                [
+                    [minX, minY],
+                    [maxX, maxY],
+                ],
+                { padding: 28, maxZoom: 14, duration: 400 },
+            );
+            lastMatchFitRef.current = key;
+        } catch {
+            /* map not ready — retry on a later render */
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [impactMode, impact?.yes, impact?.no, mapReady]);
 
     // Radar: reframe to fit the whole radius circle whenever the RADIUS
     // changes — i.e. the seeker picked a different preset size. Guarded on

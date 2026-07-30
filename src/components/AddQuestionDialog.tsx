@@ -1451,16 +1451,11 @@ export const AddQuestionDialog = ({
                         )}
                     >
                         <div className="px-6 pt-6 pb-3 shrink-0 flex items-center justify-between gap-2">
-                            {/* v1178: only radar + thermometer expose adjustable
-                                parameters in this dialog; every other type is a
-                                read-only preview of the question you're about to
-                                send, so the header says so. */}
-                            <DialogTitle>
-                                {pendingQuestion?.id === "radius" ||
-                                pendingQuestion?.id === "thermometer"
-                                    ? "Configure question"
-                                    : "Preview question"}
-                            </DialogTitle>
+                            {/* v1184: always "New question" — matches the
+                                bottom-nav "New question" CTA + the user's intent,
+                                regardless of whether the type is configurable
+                                (radar/thermometer) or a preview. */}
+                            <DialogTitle>New question</DialogTitle>
                             {pendingQuestion &&
                                 rulebookAnchorForCategory(pendingQuestion.id) && (
                                     <button
