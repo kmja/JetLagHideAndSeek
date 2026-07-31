@@ -448,6 +448,17 @@ SMALL piece (`area < 5 km²`): the big ocean is left to the chunking (buffering 
 whole is the perf hit the grid exists to avoid, and it already tests in-result).
 `tsc` + 284 tests green.
 
+**v1215 — overlapping in-zone taps pick the NEAREST centre (not the topmost).**
+Follow-up to v1214. The overlay-ON tap target (`hider-reach-hit`) is a small
+circle per station CENTRE, so tapping between overlapping zones reliably selects
+the one you aimed at. The v1214 overlay-OFF path used the WHOLE hiding-radius
+fill, and `queryRenderedFeatures` returns overlapping fills in DRAW order — so
+`inZoneHit[0]` was always the topmost zone, not the closest centre (the reported
+"wrong overlapping zone" bug). Tier-1.5 now scans ALL in-zone features under the
+tap and picks the one whose stored centre is nearest (cos-lat-corrected squared
+lng/lat distance), matching the overlay-on center-accurate feel. `tsc` + 284
+tests green.
+
 **v1214 — hider "zones you're in" highlight is tappable with the overlay off.**
 The dashed "zones you're standing in" highlight (`hider-in-zone-*`) is drawn
 regardless of the hiding-zones overlay toggle, but it previously relied on the

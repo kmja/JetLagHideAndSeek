@@ -676,20 +676,55 @@ export function HiderBackgroundMap() {
                         layers: [HIDER_IN_ZONE_TAP_LAYER],
                     });
                     if (inZoneHit.length > 0) {
-                        const p = (inZoneHit[0].properties ?? {}) as {
+                        // v1214.1: when zones OVERLAP, the tap is inside several
+                        // full-radius fills at once — and queryRenderedFeatures
+                        // returns them in DRAW order, so `[0]` was always the
+                        // topmost zone, not the one you aimed at (the reported
+                        // "wrong overlapping zone" bug). Pick the feature whose
+                        // stored CENTRE is nearest the tap, matching the
+                        // overlay-on `hider-reach-hit` feel (a small target per
+                        // centre). Squared lng/lat distance is fine — all
+                        // centres are within a zone radius of the tap.
+                        const { lat: tLat, lng: tLng } = e.lngLat;
+                        let best: {
+                            lat: number;
+                            lng: number;
                             name?: string;
-                            lat?: number | string;
-                            lng?: number | string;
                             modes?: string;
-                        };
-                        const lat = Number(p.lat);
-                        const lng = Number(p.lng);
-                        if (Number.isFinite(lat) && Number.isFinite(lng)) {
-                            const decoded = decodeStationModes(p.modes);
+                        } | null = null;
+                        let bestD = Infinity;
+                        for (const f of inZoneHit) {
+                            const p = (f.properties ?? {}) as {
+                                name?: string;
+                                lat?: number | string;
+                                lng?: number | string;
+                                modes?: string;
+                            };
+                            const lat = Number(p.lat);
+                            const lng = Number(p.lng);
+                            if (!Number.isFinite(lat) || !Number.isFinite(lng))
+                                continue;
+                            const dLat = lat - tLat;
+                            const dLng = (lng - tLng) * Math.cos(
+                                (tLat * Math.PI) / 180,
+                            );
+                            const d = dLat * dLat + dLng * dLng;
+                            if (d < bestD) {
+                                bestD = d;
+                                best = {
+                                    lat,
+                                    lng,
+                                    name: p.name,
+                                    modes: p.modes,
+                                };
+                            }
+                        }
+                        if (best) {
+                            const decoded = decodeStationModes(best.modes);
                             selectedMapStation.set({
-                                lat,
-                                lng,
-                                name: p.name,
+                                lat: best.lat,
+                                lng: best.lng,
+                                name: best.name,
                                 modes: decoded.length ? decoded : undefined,
                             });
                             return;
