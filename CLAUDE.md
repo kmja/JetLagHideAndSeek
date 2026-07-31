@@ -448,6 +448,13 @@ SMALL piece (`area < 5 km²`): the big ocean is left to the chunking (buffering 
 whole is the perf hit the grid exists to avoid, and it already tests in-result).
 `tsc` + 284 tests green.
 
+**v1205 — "Start endgame" timer button appears only after 3 questions.** The
+seeker `HiderTimer`'s "Start endgame" entry no longer shows from the start of
+seeking — it now also gates on the seekers having ASKED at least 3 questions (a
+sent question has `data.createdAt` stamped), since there's no point offering the
+endgame right away. The map-tap "Start endgame here" entry (`StationTransitCard`)
+is unchanged. `tsc` + 284 tests green.
+
 **v1204 — matching configure map frames the SPLIT better (reference + the
 edge).** The v1184 matching fit framed the whole "match" (`impact.yes`) region.
 That's right for a COMPACT match island surrounded by no-match (its perimeter IS

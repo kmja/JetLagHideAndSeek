@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import { useNow } from "@/hooks/useNow";
 import { appConfirm } from "@/lib/confirm";
-import { lastKnownPosition } from "@/lib/context";
+import { lastKnownPosition, questions } from "@/lib/context";
 import {
     allowedTransit,
     effectiveHiddenDebitMs,
@@ -62,7 +62,17 @@ export function HiderTimer({ preview }: { preview?: HiderTimerPreview } = {}) {
     let $endgameConfirmedAt = useStore(endgameConfirmedAt);
     let $foundAt = useStore(roundFoundAt);
     let $roundLog = useStore(roundLog);
+    const $questions = useStore(questions);
     const $participants = useStore(participants);
+    // The endgame-trigger button doesn't need to be present from the very
+    // start of seeking — only offer it once the seekers have asked a few
+    // questions (a sent question has `createdAt` stamped). Preview always
+    // shows it so the /debug gallery can render the armed state.
+    const askedCount = preview
+        ? 3
+        : $questions.filter(
+              (q) => (q.data as { createdAt?: number }).createdAt,
+          ).length;
     // v879: the name of the hider hiding THIS round, for the live
     // leaderboard row (past rows carry their own stored name). v1088: with
     // MULTIPLE hiders, show EVERY hide-team member's name (joined), not just
@@ -311,9 +321,14 @@ export function HiderTimer({ preview }: { preview?: HiderTimerPreview } = {}) {
                 hider is found (the FoundSummary lives in the lobby). */}
             {/* Before the endgame is armed: a "Start endgame" entry to the LEFT
                 of the timer — a second way in, in addition to tapping the hider's
-                zone on the map. Shows once the hiding period is over and until a
-                claim is armed / the hider is found. */}
-            {!inHidingPeriod && !$foundAt && $endgameStartedAt === null && (
+                zone on the map. Shows once the hiding period is over, the seekers
+                have asked at least 3 questions (no point offering it right at the
+                start of seeking), and until a claim is armed / the hider is
+                found. */}
+            {!inHidingPeriod &&
+                !$foundAt &&
+                $endgameStartedAt === null &&
+                askedCount >= 3 && (
                 <button
                     type="button"
                     onClick={handleStartEndgame}
