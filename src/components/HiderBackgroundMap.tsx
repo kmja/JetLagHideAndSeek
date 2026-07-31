@@ -125,6 +125,11 @@ const HIDER_TAP_LAYERS = [
     "hider-reach-labels",
 ];
 
+/** The "zones you're standing in" highlight has its OWN invisible fill hit
+ *  layer (v1214) so those circles stay tappable even when the hiding-zones
+ *  overlay (and its `hider-reach-hit` target) is toggled OFF. */
+const HIDER_IN_ZONE_TAP_LAYER = "hider-in-zone-hit";
+
 export function HiderBackgroundMap() {
     const mapRef = useRef<MapRef | null>(null);
     // Pointer-cursor affordance while hovering a tappable reach feature.
@@ -660,6 +665,36 @@ export function HiderBackgroundMap() {
                         }
                         return;
                     }
+                    // Tier 1.5 (v1214): the "zones you're standing in"
+                    // highlight is drawn whenever the hider is inside a
+                    // candidate zone — REGARDLESS of the hiding-zones overlay
+                    // toggle — so those circles have their own hit layer and
+                    // resolve here, independent of the overlay-gated Tier 2
+                    // below. Read the station centre + modes off the tapped
+                    // circle's stored properties.
+                    const inZoneHit = map.queryRenderedFeatures(e.point, {
+                        layers: [HIDER_IN_ZONE_TAP_LAYER],
+                    });
+                    if (inZoneHit.length > 0) {
+                        const p = (inZoneHit[0].properties ?? {}) as {
+                            name?: string;
+                            lat?: number | string;
+                            lng?: number | string;
+                            modes?: string;
+                        };
+                        const lat = Number(p.lat);
+                        const lng = Number(p.lng);
+                        if (Number.isFinite(lat) && Number.isFinite(lng)) {
+                            const decoded = decodeStationModes(p.modes);
+                            selectedMapStation.set({
+                                lat,
+                                lng,
+                                name: p.name,
+                                modes: decoded.length ? decoded : undefined,
+                            });
+                            return;
+                        }
+                    }
                     // Tier 2: no overlay feature under the tap. Resolve the
                     // tap against the game's OWN candidate-zone set (v665 —
                     // same shared play-area fetch as the overlay): the nearest
@@ -886,16 +921,30 @@ export function HiderBackgroundMap() {
                     brighter DASHED ring in the SAME basemap-aware colour as the
                     candidate zones (no extra fill), so they read as lit-up
                     versions of the field rather than a new colour. Above the
-                    reach overlay, below the tapped-selected highlight. No hit
-                    layer — the underlying `hider-reach-hit` already makes them
-                    tappable, and the timer's "Hide here" nudge commits the
-                    nearest one. */}
+                    reach overlay, below the tapped-selected highlight. v1214:
+                    carries its OWN invisible fill hit layer so the circles stay
+                    tappable even when the hiding-zones overlay (and its
+                    `hider-reach-hit` target) is toggled off. */}
                 {$inZoneFC && $inZoneFC.features.length > 0 && (
                     <Source
                         id="hider-in-zone"
                         type="geojson"
                         data={$inZoneFC}
                     >
+                        {/* v1214: an invisible fill so the whole highlighted
+                            circle is a tap target on its OWN hit layer — the
+                            in-zone highlight is drawn regardless of the
+                            hiding-zones overlay toggle, so it must stay
+                            tappable when that overlay's `hider-reach-hit` isn't
+                            mounted. */}
+                        <Layer
+                            id="hider-in-zone-hit"
+                            type="fill"
+                            paint={{
+                                "fill-color": "#000000",
+                                "fill-opacity": 0,
+                            }}
+                        />
                         <Layer
                             id="hider-in-zone-line"
                             type="line"

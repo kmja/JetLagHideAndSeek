@@ -448,6 +448,18 @@ SMALL piece (`area < 5 km²`): the big ocean is left to the chunking (buffering 
 whole is the perf hit the grid exists to avoid, and it already tests in-result).
 `tsc` + 284 tests green.
 
+**v1214 — hider "zones you're in" highlight is tappable with the overlay off.**
+The dashed "zones you're standing in" highlight (`hider-in-zone-*`) is drawn
+regardless of the hiding-zones overlay toggle, but it previously relied on the
+overlay's `hider-reach-hit` layer for tapping — so with the overlay OFF the
+circles had no hit target. Now the `hider-in-zone` source carries its OWN
+invisible fill hit layer (`hider-in-zone-hit`), and a new Tier-1.5 tap resolver
+in `HiderBackgroundMap` (ungated by `showHiderReach`) reads the station centre +
+modes stored on the tapped circle's properties (`HiderInZoneWatcher` now stamps
+`lat`/`lng`/`modes` via `encodeStationModes`) and opens the `StationTransitCard`.
+So an in-zone circle is selectable/committable even when the overlay isn't shown.
+`tsc` + 284 tests green.
+
 **v1213 — reachability loading placeholder matches the verdict height.** The
 v1212 "Checking reachability…" copy was longer than the resolved verdict text, so
 it wrapped to an extra line and the banner was taller while loading → still a

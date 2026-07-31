@@ -9,6 +9,7 @@ import { radiusForGameSize } from "@/lib/hiderRole";
 import { hidingZone } from "@/lib/hiderRole";
 import { hiderInZoneFC, hiderInZones } from "@/lib/journey/state";
 import { findZonesNearPoint } from "@/lib/journey/stations";
+import { encodeStationModes } from "@/lib/stationModes";
 
 /**
  * v1177: computes the candidate hiding zones the hider is CURRENTLY STANDING IN
@@ -85,6 +86,16 @@ export function HiderInZoneWatcher() {
                                           properties: {
                                               name: z.name,
                                               stopId: String(z.id),
+                                              // v1214: carry the station CENTRE
+                                              // + modes so a tap on this circle
+                                              // (its own hit layer) resolves to
+                                              // the station even when the
+                                              // hiding-zones overlay is off.
+                                              lat: z.lat,
+                                              lng: z.lng,
+                                              modes: encodeStationModes(
+                                                  z.modes ?? [],
+                                              ),
                                           },
                                       },
                                   ),
