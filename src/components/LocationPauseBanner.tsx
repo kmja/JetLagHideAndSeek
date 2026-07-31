@@ -112,7 +112,7 @@ function TrackingElsewhereButton() {
             variant="secondary"
             size="sm"
             onClick={() => setLocationTrackingExternal(true)}
-            className="mt-1.5 h-auto py-1 text-[11px]"
+            className="mt-1.5 h-auto py-1 text-xs"
         >
             We&apos;re tracking GPS another way — stop these warnings
         </Button>

@@ -108,7 +108,7 @@ export function AppSettingsDrawer() {
                             <PWAInstallButton />
 
                             <div className="pt-3 mt-3 border-t border-border space-y-3">
-                                <div className="text-[10px] uppercase tracking-[0.16em] font-poppins font-bold text-muted-foreground">
+                                <div className="text-xs uppercase tracking-[0.16em] font-poppins font-bold text-muted-foreground">
                                     App
                                 </div>
                                 <div className="flex items-center justify-between gap-3">
@@ -162,7 +162,7 @@ export function AppSettingsDrawer() {
                                     <div className="flex items-center justify-between gap-3">
                                         <span className="text-sm font-medium leading-snug">
                                             Location warnings
-                                            <span className="block text-[11px] font-normal text-muted-foreground">
+                                            <span className="block text-xs font-normal text-muted-foreground leading-snug break-words">
                                                 Off if seekers track GPS
                                                 another way
                                             </span>
@@ -195,7 +195,7 @@ export function AppSettingsDrawer() {
 
                             {$setupCompleted && (
                                 <div className="pt-3 mt-3 border-t border-border">
-                                    <div className="text-[10px] uppercase tracking-[0.16em] font-poppins font-bold text-muted-foreground mb-2">
+                                    <div className="text-xs uppercase tracking-[0.16em] font-poppins font-bold text-muted-foreground mb-2">
                                         Preload during hiding
                                     </div>
                                     <PreloadChoicesPanel

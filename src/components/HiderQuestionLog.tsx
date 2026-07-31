@@ -55,7 +55,7 @@ export function HiderQuestionLog() {
                         "px-4 py-8 flex flex-col items-center text-center gap-2",
                     )}
                 >
-                    <div className="text-[10px] uppercase tracking-[0.08em] font-display font-extrabold text-muted-foreground">
+                    <div className="text-xs uppercase tracking-[0.08em] font-display font-extrabold text-muted-foreground">
                         No questions yet
                     </div>
                     <p className="text-xs text-muted-foreground leading-snug max-w-[26ch]">

@@ -820,7 +820,7 @@ function EditTabs({
                         className={cn(
                             "flex items-center justify-center gap-1.5",
                             "px-2 py-1.5 rounded-sm",
-                            "text-[11px] font-poppins font-bold uppercase tracking-[0.10em]",
+                            "text-xs font-poppins font-bold uppercase tracking-[0.10em]",
                             "transition-colors",
                             "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                             active
@@ -1415,7 +1415,7 @@ export function PlayAreaStep({
                                 <div className="rounded-md border-2 border-primary bg-primary/10 p-3 flex items-start gap-2 flex-1 min-w-0">
                                     <MapPin className="w-4 h-4 mt-0.5 text-primary shrink-0" />
                                     <div className="min-w-0 flex-1">
-                                        <div className="text-[10px] uppercase tracking-wider font-poppins font-bold text-muted-foreground">
+                                        <div className="text-xs uppercase tracking-wider font-poppins font-bold text-muted-foreground">
                                             Play area
                                         </div>
                                         <div className="flex items-center gap-1.5">
@@ -1430,7 +1430,7 @@ export function PlayAreaStep({
                                             )}
                                         </div>
                                         <div className="flex items-center flex-wrap gap-1.5 mt-1">
-                                            <span className="inline-flex items-center px-1.5 py-0.5 rounded-sm text-[10px] uppercase tracking-wider font-poppins font-bold bg-background/60 border border-border/60 text-muted-foreground">
+                                            <span className="inline-flex items-center px-1.5 py-0.5 rounded-sm text-xs uppercase tracking-wider font-poppins font-bold bg-background/60 border border-border/60 text-muted-foreground">
                                                 {typeLabel}
                                             </span>
                                             {areaLabel && (
@@ -1565,7 +1565,7 @@ export function PlayAreaStep({
                                             onClick={() => tryGpsSuggest(true)}
                                             className={cn(
                                                 "ml-auto px-2 py-0.5 rounded-sm",
-                                                "text-[10px] uppercase tracking-wider font-poppins font-bold",
+                                                "text-xs uppercase tracking-wider font-poppins font-bold",
                                                 "bg-primary/15 text-primary border border-primary/40",
                                                 "hover:bg-primary/25 transition-colors",
                                             )}
@@ -1655,7 +1655,7 @@ export function PlayAreaStep({
                                                         )}
                                                     </div>
                                                     <div className="flex items-center flex-wrap gap-1.5 mt-1">
-                                                        <span className="inline-flex items-center px-1.5 py-0.5 rounded-sm text-[10px] uppercase tracking-wider font-poppins font-bold bg-background/60 border border-border/60 text-muted-foreground">
+                                                        <span className="inline-flex items-center px-1.5 py-0.5 rounded-sm text-xs uppercase tracking-wider font-poppins font-bold bg-background/60 border border-border/60 text-muted-foreground">
                                                             {typeLabel}
                                                         </span>
                                                         {areaLabel && (

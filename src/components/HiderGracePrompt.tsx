@@ -139,7 +139,7 @@ export function HiderGracePrompt() {
             <div className="flex items-center gap-3 px-4 pt-3 pb-2 animate-pulse">
                 <Timer className="w-9 h-9 shrink-0" strokeWidth={2.5} />
                 <div className="flex flex-col leading-none gap-1 min-w-0">
-                    <span className="text-[11px] font-poppins font-extrabold uppercase tracking-[0.14em]">
+                    <span className="text-xs font-poppins font-extrabold uppercase tracking-[0.14em]">
                         Pick a zone — grace period
                     </span>
                     <span className="font-inter-tight font-black tabular-nums text-4xl leading-none">
@@ -166,7 +166,7 @@ export function HiderGracePrompt() {
                             })()}
                         </span>
                         <div className="min-w-0 flex-1">
-                            <div className="text-[10px] uppercase tracking-[0.14em] font-poppins font-bold text-muted-foreground">
+                            <div className="text-xs uppercase tracking-[0.14em] font-poppins font-bold text-muted-foreground">
                                 {closest.inside
                                     ? "You're in this zone"
                                     : `Closest zone · ${Math.round(closest.station.distanceMeters)} m`}

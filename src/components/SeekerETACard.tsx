@@ -58,7 +58,7 @@ export function SeekerETACard() {
                 <Radar className="h-3.5 w-3.5" />
             </span>
             <div className="min-w-0 flex-1 leading-tight">
-                <div className="text-[10px] font-poppins font-bold uppercase tracking-[0.14em] text-muted-foreground">
+                <div className="text-xs font-poppins font-bold uppercase tracking-[0.14em] text-muted-foreground">
                     Seekers' ETA to your station
                 </div>
                 <div className="mt-0.5 text-sm font-inter-tight font-bold">

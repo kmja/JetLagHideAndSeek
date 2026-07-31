@@ -141,7 +141,7 @@ export function SeekingStartOverlay() {
                     "animate-in zoom-in-90 duration-300",
                 )}
             >
-                <div className="text-[10px] uppercase tracking-[0.18em] font-display font-extrabold text-muted-foreground">
+                <div className="text-xs uppercase tracking-[0.18em] font-display font-extrabold text-muted-foreground">
                     {hh}:{mm} · Hiding period over
                 </div>
                 <div

@@ -569,7 +569,7 @@ function ShareQuestionRow({ question }: { question: Question }) {
 
     return (
         <div className="px-2 pt-2 pb-1">
-            <div className="text-[10px] uppercase tracking-[0.16em] font-poppins font-semibold text-muted-foreground mb-1.5">
+            <div className="text-xs uppercase tracking-[0.16em] font-poppins font-semibold text-muted-foreground mb-1.5">
                 {primaryLabel}
             </div>
             <div className="flex gap-2">

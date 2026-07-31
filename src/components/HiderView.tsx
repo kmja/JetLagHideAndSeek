@@ -588,7 +588,7 @@ function ResponseCardActions({
                         <span className="block text-sm font-poppins font-bold">
                             {busy ? "Randomizing…" : "Play Randomize"}
                         </span>
-                        <span className="block text-[11px] text-muted-foreground leading-snug">
+                        <span className="block text-xs text-muted-foreground leading-snug break-words">
                             Skip this question — the seekers ask a random
                             different one instead, and you get a fresh window to
                             answer that.
@@ -612,7 +612,7 @@ function ResponseCardActions({
                         <span className="block text-sm font-poppins font-bold">
                             Play Veto
                         </span>
-                        <span className="block text-[11px] text-muted-foreground leading-snug">
+                        <span className="block text-xs text-muted-foreground leading-snug break-words">
                             Send no answer. No reward, but the seekers can
                             ask their next question.
                         </span>

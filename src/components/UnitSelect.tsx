@@ -44,7 +44,7 @@ export const UnitSelect = ({
                         disabled={disabled}
                         className={cn(
                             "inline-flex items-center justify-center rounded-sm",
-                            "h-8 px-2.5 text-[11px] font-poppins font-semibold uppercase tracking-wider",
+                            "h-8 px-2.5 text-xs font-poppins font-semibold uppercase tracking-wider",
                             "transition-colors",
                             "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                             active

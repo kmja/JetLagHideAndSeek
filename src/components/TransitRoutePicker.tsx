@@ -533,7 +533,7 @@ export function TransitRoutePicker({
                                     transform: `rotate(${dirBearing}deg)`,
                                 }}
                             />
-                            <span className="text-[10px] font-bold uppercase leading-none text-muted-foreground">
+                            <span className="text-xs font-bold uppercase leading-none text-muted-foreground">
                                 {dirAbbr}
                             </span>
                         </span>
@@ -739,7 +739,7 @@ export function TransitRoutePicker({
                                 open
                                 className="group/sec rounded-md border border-border bg-secondary/30"
                             >
-                                <summary className="flex cursor-pointer list-none items-center gap-2 px-2.5 py-2 text-[11px] font-bold uppercase tracking-[0.12em] text-muted-foreground">
+                                <summary className="flex cursor-pointer list-none items-center gap-2 px-2.5 py-2 text-xs font-bold uppercase tracking-[0.12em] text-muted-foreground">
                                     <ChevronDown className="h-3.5 w-3.5 shrink-0 transition-transform group-open/sec:rotate-0 -rotate-90" />
                                     {section.label}
                                     <span className="ml-auto text-[10px] font-semibold normal-case tracking-normal opacity-70">

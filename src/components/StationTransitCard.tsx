@@ -481,7 +481,7 @@ export function StationTransitCard({
                                             ? "Reachable in time"
                                             : "Out of reach"}
                                     </div>
-                                    <p className="mt-0.5 text-[11px] leading-snug text-foreground/70">
+                                    <p className="mt-0.5 text-xs leading-snug text-foreground/70 break-words">
                                         {reachability.reachable
                                             ? `Arrives ${formatClock(
                                                   reachability.arriveAt,
@@ -770,7 +770,7 @@ function DeparturesSection({
                                 {d.line ?? modeLabel(d.mode)}
                             </div>
                             {d.headsign && (
-                                <div className="truncate text-[11px] leading-tight text-muted-foreground">
+                                <div className="truncate text-xs leading-tight text-muted-foreground">
                                     {d.headsign}
                                 </div>
                             )}

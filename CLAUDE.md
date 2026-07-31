@@ -432,6 +432,28 @@ bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
 build stamp. Current: `v1069`. Use `git log` for the per-version detail;
 
+**v1186 — sub-`text-xs` copy bumped to `text-xs` app-wide (readability pass).**
+Follow-up to the v1185 audit: every hard-coded `text-[8px]`/`[9px]`/`[10px]`/
+`[11px]` class on USER-FACING COPY (sentences, labels, headings, button text,
+hints, empty-states, section eyebrows) was raised to `text-xs` across ~58
+components — the too-small copy read cramped (the same complaint that drove the
+v1183 nav-label bump, now applied everywhere). **Deliberately NOT touched:**
+numeric-only badges/counts + telemetry (`tabular-nums`), coordinate readouts,
+MapLibre layer paint / `text-size` style props, debug-panel text, the dead
+`GameSetupDialog` `!isEditMode` wizard branch, the intentionally-shrunk
+`SizeBadge` override, ordinal superscripts, and the legacy `!target`
+"Legacy thermometer …" hint — so counts/coords/map-labels keep their compact
+sizing. Because larger text can clip, every bump was paired with **conservative
+overflow hardening** (no layout restructuring): dynamic single-line labels
+(station/place/player/city/destination names) got `min-w-0` on the flex parent +
+`truncate`; a few fixed-width name pills were widened a step (`max-w-[9rem]`→
+`[11rem]` on the timer name eyebrows, the cast-dialog subtype chip, the tentacle
+map-marker label); multi-line copy got `leading-snug`/`break-words`; and the
+compact top-of-map countdown pills (`PendingAnswerOverlay`/`HiderUnansweredOverlay`)
+got `whitespace-nowrap` so the now-larger 2-word labels can't wrap over the timer.
+Verified: `tsc` + eslint-hooks + 284 tests green; remaining sub-xs occurrences in
+touched files are all confirmed non-copy skips.
+
 **v1185 — dead-code purge (font-size audit fallout).** A reachability audit of
 the app's hard-coded copy surfaced several strings tied to removed/disabled
 mechanics that never render; four dead-code clusters were deleted (tsc + eslint

@@ -363,7 +363,7 @@ export function ThermometerPreviewMap({
                         latitude={hotterAt[1]}
                         anchor="center"
                     >
-                        <span className="px-1.5 py-0.5 rounded text-[10px] font-poppins font-bold uppercase tracking-wide text-white bg-[#ea580c] shadow">
+                        <span className="px-1.5 py-0.5 rounded text-xs font-poppins font-bold uppercase tracking-wide text-white bg-[#ea580c] shadow">
                             Hotter
                         </span>
                     </Marker>
@@ -374,7 +374,7 @@ export function ThermometerPreviewMap({
                         latitude={colderAt[1]}
                         anchor="center"
                     >
-                        <span className="px-1.5 py-0.5 rounded text-[10px] font-poppins font-bold uppercase tracking-wide text-white bg-[#0284c7] shadow">
+                        <span className="px-1.5 py-0.5 rounded text-xs font-poppins font-bold uppercase tracking-wide text-white bg-[#0284c7] shadow">
                             Colder
                         </span>
                     </Marker>
@@ -411,7 +411,7 @@ export function ThermometerPreviewMap({
                     </div>
                 </Marker>
             </MapGL>
-            <div className="pointer-events-none absolute bottom-1.5 left-1/2 -translate-x-1/2 px-2 py-0.5 rounded-full bg-black/55 text-white text-[10px] font-medium">
+            <div className="pointer-events-none absolute bottom-1.5 left-1/2 -translate-x-1/2 px-2 py-0.5 rounded-full bg-black/55 text-white text-xs font-medium">
                 Drag the arrow to aim your travel direction
             </div>
         </div>

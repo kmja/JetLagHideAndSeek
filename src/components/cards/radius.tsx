@@ -330,7 +330,7 @@ export const RadiusQuestionComponent = ({
                                                     : currentPreset?.label ??
                                                       "Custom"}
                                             </span>
-                                            <span className="text-[11px] uppercase tracking-wider text-muted-foreground mt-2">
+                                            <span className="text-xs uppercase tracking-wider text-muted-foreground mt-2">
                                                 Radar size
                                             </span>
                                         </div>

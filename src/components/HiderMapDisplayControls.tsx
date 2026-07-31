@@ -118,7 +118,7 @@ export function HiderMapOptionsPanel({ roomy = false }: { roomy?: boolean }) {
     const rowIcon = roomy ? "w-5 h-5" : "w-3.5 h-3.5";
     const sectionGap = roomy ? "space-y-5" : "space-y-3";
     const label =
-        "text-[11px] uppercase tracking-[0.16em] font-poppins font-bold text-muted-foreground";
+        "text-xs uppercase tracking-[0.16em] font-poppins font-bold text-muted-foreground";
 
     return (
         <div className={sectionGap}>
@@ -425,7 +425,7 @@ function HiderPoiSection({ label, roomy }: { label: string; roomy: boolean }) {
             {(focused || q.length > 0) && (
             <div className="max-h-56 overflow-y-auto rounded-lg border border-border bg-background/60 p-1 flex flex-col gap-0.5">
                 {results.length === 0 ? (
-                    <p className="text-[11px] text-muted-foreground px-2 py-2">
+                    <p className="text-xs text-muted-foreground px-2 py-2">
                         No matching place type.
                     </p>
                 ) : (
@@ -483,7 +483,7 @@ function HiderPoiSection({ label, roomy }: { label: string; roomy: boolean }) {
                 <button
                     type="button"
                     onClick={() => hiderPoiHighlightKinds.set([])}
-                    className="text-[11px] text-muted-foreground hover:text-foreground px-0.5 inline-flex items-center gap-1"
+                    className="text-xs text-muted-foreground hover:text-foreground px-0.5 inline-flex items-center gap-1"
                 >
                     <X className="w-3 h-3" />
                     Clear {$highlight.length} highlighted

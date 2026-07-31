@@ -198,7 +198,7 @@ export function PlayAreaExtensions({ primary }: { primary: OpenStreetMap }) {
         // discoverable. Otherwise render nothing.
         if (warmCandidates.length === 0) return null;
         return (
-            <p className="text-[11px] text-muted-foreground leading-snug px-0.5">
+            <p className="text-xs text-muted-foreground leading-snug px-0.5">
                 Tap a neighbouring area on the map to fold it into your play
                 area.
             </p>
@@ -207,7 +207,7 @@ export function PlayAreaExtensions({ primary }: { primary: OpenStreetMap }) {
 
     return (
         <div className="space-y-1.5">
-            <div className="text-[10px] uppercase tracking-wider font-poppins font-bold text-muted-foreground px-0.5">
+            <div className="text-xs uppercase tracking-wider font-poppins font-bold text-muted-foreground px-0.5">
                 Added areas
             </div>
             {/* v458: only THIS list scrolls when it grows long — the

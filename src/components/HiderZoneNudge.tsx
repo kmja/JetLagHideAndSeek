@@ -78,7 +78,7 @@ export function HiderZoneNudge() {
                 />
             </span>
             <span className="min-w-0 flex-1 flex flex-col text-left leading-tight">
-                <span className="text-[9px] font-poppins font-bold uppercase tracking-[0.14em] text-muted-foreground">
+                <span className="text-xs font-poppins font-bold uppercase tracking-[0.14em] text-muted-foreground">
                     You&apos;re in a hiding zone{more > 0 ? ` · +${more}` : ""}
                 </span>
                 <span className="truncate text-sm font-semibold text-foreground">

@@ -352,7 +352,7 @@ export function QuestionOutcomeMap({
     if (!base) {
         return (
             <div
-                className={`${containerCls} flex items-center justify-center bg-muted/40 text-[11px] text-muted-foreground`}
+                className={`${containerCls} flex items-center justify-center bg-muted/40 text-xs text-muted-foreground`}
             >
                 No play area to preview
             </div>
@@ -374,7 +374,7 @@ export function QuestionOutcomeMap({
                 />
                 {(failed || !outcome) && (
                     <div className="absolute inset-x-0 bottom-0 flex justify-center pb-1.5">
-                        <span className="rounded-full bg-background/80 px-2 py-0.5 text-[10px] font-poppins text-muted-foreground backdrop-blur-sm">
+                        <span className="rounded-full bg-background/80 px-2 py-0.5 text-xs font-poppins text-muted-foreground backdrop-blur-sm">
                             {failed
                                 ? "Couldn't render this outcome"
                                 : "No resulting area"}

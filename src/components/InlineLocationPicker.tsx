@@ -1496,7 +1496,7 @@ export function InlineLocationPicker({
                                             of matching / measuring. */}
                                         {impactMode === "tentacles" &&
                                             c.name && (
-                                                <span className="max-w-[88px] truncate rounded-sm border border-foreground/20 bg-background/85 px-1 py-0.5 text-[9px] font-semibold leading-none text-foreground/85 shadow-sm">
+                                                <span className="max-w-[104px] truncate rounded-sm border border-foreground/20 bg-background/85 px-1 py-0.5 text-xs font-semibold leading-none text-foreground/85 shadow-sm">
                                                     {c.name}
                                                 </span>
                                             )}
@@ -1643,7 +1643,7 @@ export function InlineLocationPicker({
                 lat/lng readout was noise and the "Use GPS" button
                 was redundant with that. */}
             {gpsState === "denied" && !coordsAreSet && (
-                <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground italic">
+                <div className="flex items-center gap-1.5 text-xs text-muted-foreground italic">
                     <LocateOff className="w-3 h-3 shrink-0" />
                     <span>
                         GPS unavailable — tap the map to drop a pin.
@@ -1651,7 +1651,7 @@ export function InlineLocationPicker({
                 </div>
             )}
             {radiusMeters !== undefined && (
-                <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
                     <CircleIcon className="w-3 h-3 text-primary" />
                     <span>
                         Preview shows the{" "}

@@ -251,7 +251,7 @@ export function Welcome() {
                     <div className="space-y-1.5 pt-1">
                         <label
                             htmlFor="welcome-join-code"
-                            className="text-[10px] uppercase tracking-[0.16em] font-inter-tight font-bold text-muted-foreground"
+                            className="text-xs uppercase tracking-[0.16em] font-inter-tight font-bold text-muted-foreground"
                         >
                             Game code
                         </label>
@@ -281,7 +281,7 @@ export function Welcome() {
                                     "No active game with that code."}
                             </p>
                         ) : (
-                            <p className="text-[10px] text-muted-foreground">
+                            <p className="text-xs text-muted-foreground leading-snug">
                                 Letters and digits only. Case-insensitive.
                             </p>
                         )}

@@ -281,7 +281,7 @@ export const PhotoQuestionComponent = ({
                         decline location-bound photos. Surface it so the
                         hide team knows the option is on the table. */}
                     {data.drag && isHideTeam && inEndgame && (
-                        <p className="text-[11px] leading-snug text-yellow-400/90 border border-yellow-500/40 bg-yellow-500/5 rounded-md px-2.5 py-2">
+                        <p className="text-xs leading-snug text-yellow-400/90 border border-yellow-500/40 bg-yellow-500/5 rounded-md px-2.5 py-2">
                             Endgame: if this photo would mean leaving your
                             hiding spot, you can answer &quot;I cannot
                             answer&quot; and still draw a card.

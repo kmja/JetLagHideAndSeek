@@ -153,7 +153,7 @@ export function FilmViewfinder({
     return (
         <div className="flex flex-col items-center gap-2">
             {cameraError ? (
-                <p className="text-[11px] text-muted-foreground text-center max-w-xs leading-snug">
+                <p className="text-xs text-muted-foreground text-center max-w-xs leading-snug break-words">
                     Camera unavailable — point your phone&apos;s own camera at
                     the bird and use the timer below.
                 </p>
@@ -167,7 +167,7 @@ export function FilmViewfinder({
                         className="w-full h-full object-cover"
                     />
                     {running && (
-                        <div className="absolute top-2 left-2 flex items-center gap-1.5 rounded-full bg-black/60 px-2 py-0.5 text-[11px] font-semibold text-white">
+                        <div className="absolute top-2 left-2 flex items-center gap-1.5 rounded-full bg-black/60 px-2 py-0.5 text-xs font-semibold text-white">
                             <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
                             REC
                         </div>
@@ -208,7 +208,7 @@ export function FilmViewfinder({
                         variant="secondary"
                         size="sm"
                         onClick={reset}
-                        className="h-auto py-1 text-[11px]"
+                        className="h-auto py-1 text-xs"
                     >
                         Redo
                     </Button>
@@ -225,7 +225,7 @@ export function FilmViewfinder({
                         <Play className="w-4 h-4" />
                         Start timer
                     </Button>
-                    <p className="text-[11px] text-muted-foreground leading-snug text-center inline-flex items-center gap-1">
+                    <p className="text-xs text-muted-foreground leading-snug break-words text-center inline-flex items-center gap-1">
                         <Video className="w-3 h-3" />
                         {targetSeconds != null
                             ? `Film a bird for at least ${formatClock(targetSeconds)}.`

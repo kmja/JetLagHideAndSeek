@@ -213,7 +213,7 @@ export const QuestionSidebar = () => {
                                 )}
                             >
                                 <div className="space-y-1.5">
-                                    <div className="text-[10px] uppercase tracking-[0.08em] font-display font-extrabold text-muted-foreground">
+                                    <div className="text-xs uppercase tracking-[0.08em] font-display font-extrabold text-muted-foreground">
                                         {hidingRunning
                                             ? "Waiting on the hider"
                                             : "No questions yet"}

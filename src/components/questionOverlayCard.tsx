@@ -400,7 +400,7 @@ export function QuestionOverlayCard({
                 icon-block flush so the text has space to breathe. */}
             <div className="min-w-0 flex-1 px-5 py-2 flex flex-col justify-center">
                 {effectiveEyebrow && (
-                    <div className="text-[10px] uppercase tracking-wider font-poppins font-bold leading-none mb-1 truncate">
+                    <div className="text-xs uppercase tracking-wider font-poppins font-bold leading-none mb-1 truncate">
                         {effectiveEyebrow}
                     </div>
                 )}
@@ -411,7 +411,7 @@ export function QuestionOverlayCard({
                     {displayBigLabel}
                 </div>
                 {summary.detail && (
-                    <div className="text-[11px] sm:text-xs text-[color:var(--overlay-card-desc)] leading-snug truncate mt-0.5">
+                    <div className="text-xs text-[color:var(--overlay-card-desc)] leading-snug truncate mt-0.5">
                         {summary.detail}
                     </div>
                 )}

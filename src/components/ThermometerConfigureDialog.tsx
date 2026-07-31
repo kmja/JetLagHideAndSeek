@@ -272,7 +272,7 @@ export function ThermometerConfigureDialog({
                                 <span className="text-3xl font-poppins font-bold text-primary tabular-nums leading-none">
                                     {current?.label ?? "—"}
                                 </span>
-                                <span className="text-[11px] uppercase tracking-wider text-muted-foreground mt-2">
+                                <span className="text-xs uppercase tracking-wider text-muted-foreground mt-2">
                                     Travel distance
                                 </span>
                             </div>

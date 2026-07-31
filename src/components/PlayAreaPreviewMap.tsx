@@ -1464,7 +1464,7 @@ function AdjacentCandidatesOverlay({
                             className={cn(
                                 "inline-flex items-center gap-1 px-1.5 py-0.5",
                                 "rounded-full border-2 shadow-md",
-                                "text-[10px] font-poppins font-bold uppercase tracking-wide",
+                                "text-xs font-poppins font-bold uppercase tracking-wide",
                                 "transition-colors",
                                 isAdded
                                     ? "bg-primary border-primary text-primary-foreground hover:bg-primary/90"

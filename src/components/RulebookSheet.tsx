@@ -606,7 +606,7 @@ export function RulebookSheet() {
 function QuickReference({ onJump }: { onJump: (id: string) => void }) {
     return (
         <div className="mb-6">
-            <p className="text-[11px] uppercase tracking-[0.14em] font-poppins font-bold text-muted-foreground mb-2">
+            <p className="text-xs uppercase tracking-[0.14em] font-poppins font-bold text-muted-foreground mb-2">
                 Question types
             </p>
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
@@ -644,7 +644,7 @@ function QuickReference({ onJump }: { onJump: (id: string) => void }) {
                                 >
                                     {cat.label}
                                 </span>
-                                <span className="block text-[11px] text-muted-foreground leading-snug mt-0.5">
+                                <span className="block text-xs text-muted-foreground leading-snug mt-0.5">
                                     {qr.blurb}
                                 </span>
                             </span>
@@ -653,7 +653,7 @@ function QuickReference({ onJump }: { onJump: (id: string) => void }) {
                 })}
             </div>
 
-            <p className="text-[11px] uppercase tracking-[0.14em] font-poppins font-bold text-muted-foreground mt-4 mb-2">
+            <p className="text-xs uppercase tracking-[0.14em] font-poppins font-bold text-muted-foreground mt-4 mb-2">
                 How a round flows
             </p>
             <div className="flex items-center flex-wrap gap-1.5">

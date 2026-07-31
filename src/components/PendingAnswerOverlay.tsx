@@ -310,7 +310,7 @@ export function PendingAnswerOverlay({
     // and "Answered!" on resolve.
     const rightSlot = waiting ? (
         <div className="flex flex-col items-center leading-none">
-            <span className="text-[8px] uppercase tracking-[0.14em] font-poppins font-bold text-[color:var(--overlay-card-desc)] mb-0.5">
+            <span className="text-xs uppercase tracking-[0.14em] font-poppins font-bold text-[color:var(--overlay-card-desc)] mb-0.5 whitespace-nowrap">
                 Answer in
             </span>
             <span className="text-2xl font-poppins font-black tabular-nums leading-none text-[color:var(--cat-label)]">
@@ -323,7 +323,7 @@ export function PendingAnswerOverlay({
                 0:00
             </span>
             <span
-                className="text-[8px] uppercase tracking-[0.12em] font-poppins font-bold mt-0.5 whitespace-nowrap"
+                className="text-xs uppercase tracking-[0.12em] font-poppins font-bold mt-0.5 whitespace-nowrap"
                 title="Past the answer window — the hider's clock is paused (rulebook p61)"
             >
                 Game paused
@@ -347,7 +347,7 @@ export function PendingAnswerOverlay({
             )}
         >
             <RefreshCw className="w-4 h-4" strokeWidth={2.5} />
-            <span className="text-[9px] uppercase tracking-[0.1em] font-poppins font-bold">
+            <span className="text-xs uppercase tracking-[0.1em] font-poppins font-bold">
                 Retry
             </span>
         </button>
@@ -371,7 +371,7 @@ export function PendingAnswerOverlay({
             )}
         >
             <Dices className="w-4 h-4" strokeWidth={2.5} />
-            <span className="text-[9px] uppercase tracking-[0.1em] font-poppins font-bold">
+            <span className="text-xs uppercase tracking-[0.1em] font-poppins font-bold">
                 Ask new
             </span>
         </button>

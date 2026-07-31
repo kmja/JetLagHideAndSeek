@@ -387,7 +387,7 @@ export function CurseInbox({
                                         {curse.name}
                                     </span>
                                     {remaining && (
-                                        <span className="text-[10px] tabular-nums text-white/75 leading-none mt-0.5">
+                                        <span className="text-xs tabular-nums text-white/75 leading-none mt-0.5">
                                             {remaining} left
                                         </span>
                                     )}
@@ -456,20 +456,20 @@ export function CurseInbox({
                                     />
                                 )}
                                 {curse.filmSeconds != null && (
-                                    <p className="text-[11px] text-purple-300 mt-1 leading-snug font-semibold tabular-nums">
+                                    <p className="text-xs text-purple-300 mt-1 leading-snug font-semibold tabular-nums break-words">
                                         Film a bird for at least{" "}
                                         {formatFilmTarget(curse.filmSeconds)}.
                                     </p>
                                 )}
                                 {curse.rockCount != null && (
-                                    <p className="text-[11px] text-purple-300 mt-1 leading-snug font-semibold tabular-nums">
+                                    <p className="text-xs text-purple-300 mt-1 leading-snug font-semibold tabular-nums break-words">
                                         Build a rock tower {curse.rockCount}{" "}
                                         rock{curse.rockCount === 1 ? "" : "s"}{" "}
                                         high.
                                     </p>
                                 )}
                                 {curse.travelDestination && (
-                                    <p className="text-[11px] text-purple-300 mt-1 leading-snug font-semibold">
+                                    <p className="text-xs text-purple-300 mt-1 leading-snug font-semibold break-words">
                                         Destination: {curse.travelDestination}
                                     </p>
                                 )}
@@ -480,7 +480,7 @@ export function CurseInbox({
                                     const e = meta(curse).expiresAt;
                                     if (e == null) return null;
                                     return (
-                                        <p className="text-[11px] text-purple-300 mt-1 leading-snug inline-flex items-center gap-1 tabular-nums">
+                                        <p className="text-xs text-purple-300 mt-1 leading-snug inline-flex items-center gap-1 tabular-nums">
                                             <Hourglass className="w-3 h-3" />
                                             Clears in{" "}
                                             {formatCurseCountdown(e - now)}
@@ -505,7 +505,7 @@ export function CurseInbox({
                             </button>
                         </div>
                         <div className="flex items-center justify-between mt-2 gap-2">
-                            <span className="text-[11px] text-purple-400/70 italic">
+                            <span className="text-xs text-purple-400/70 italic">
                                 {meta(curse).requiresDice
                                     ? "Tap card to roll dice"
                                     : "Tap card for details"}
@@ -514,7 +514,7 @@ export function CurseInbox({
                                 type="button"
                                 size="sm"
                                 variant="default"
-                                className="gap-1.5 h-7 px-2.5 text-[11px]"
+                                className="gap-1.5 h-7 px-2.5 text-xs"
                                 onClick={(e) => {
                                     e.stopPropagation();
                                     acknowledge(curse.receivedAt);
@@ -862,7 +862,7 @@ export function CurseInbox({
                                         ? "On transit — questions blocked"
                                         : "I'm on transit / in a station"}
                                 </span>
-                                <span className="block text-[11px] text-muted-foreground leading-snug">
+                                <span className="block text-xs text-muted-foreground leading-snug break-words">
                                     Turn this on while you&apos;re on transit
                                     or in a station — asking is blocked until
                                     you turn it off.
@@ -888,7 +888,7 @@ export function CurseInbox({
                       resolvedDialog.disabledCategories &&
                       resolvedDialog.disabledCategories.length > 0 ? (
                         <div className="rounded-sm border border-purple-500/40 bg-purple-500/5 px-2.5 py-2">
-                            <div className="text-[10px] uppercase tracking-[0.16em] font-poppins font-bold text-purple-300 mb-1.5">
+                            <div className="text-xs uppercase tracking-[0.16em] font-poppins font-bold text-purple-300 mb-1.5">
                                 Disabled for the rest of the run
                             </div>
                             <div className="flex flex-wrap gap-1.5">
@@ -900,7 +900,7 @@ export function CurseInbox({
                                     return (
                                         <span
                                             key={id}
-                                            className="inline-flex items-center gap-1.5 rounded-full border border-purple-500/40 px-2.5 py-1 text-[11px] font-semibold"
+                                            className="inline-flex items-center gap-1.5 rounded-full border border-purple-500/40 px-2.5 py-1 text-xs font-semibold"
                                         >
                                             <span
                                                 className="inline-flex items-center justify-center w-4 h-4 rounded-sm shrink-0"
@@ -1221,7 +1221,7 @@ function HangmanBoard({
                         </Button>
                     </div>
                 ) : (
-                    <p className="text-[11px] text-muted-foreground text-center">
+                    <p className="text-xs text-muted-foreground text-center leading-snug break-words">
                         The seekers are playing — waiting for their next guess…
                         {game.losses > 0 &&
                             ` Losses ${game.losses}/${game.maxLosses}.`}
@@ -1260,7 +1260,7 @@ function HangmanBoard({
                             );
                         })}
                     </div>
-                    <p className="text-[11px] text-muted-foreground text-center">
+                    <p className="text-xs text-muted-foreground text-center leading-snug break-words">
                         {pending
                             ? `Waiting for the hider to reveal "${pending}"…`
                             : `Guess the hider's word — ${left} wrong ${

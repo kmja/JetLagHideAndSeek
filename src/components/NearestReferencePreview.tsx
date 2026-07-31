@@ -285,7 +285,7 @@ export function NearestReferencePreview({
         >
             <MapPin className="w-3.5 h-3.5 text-primary mt-0.5 shrink-0" />
             <div className="min-w-0 flex-1 text-xs">
-                <div className="text-[10px] uppercase tracking-[0.14em] font-poppins font-semibold text-muted-foreground">
+                <div className="text-xs uppercase tracking-[0.14em] font-poppins font-semibold text-muted-foreground">
                     Your nearest reference
                 </div>
                 {(state.status === "loading" || state.status === "idle") && (

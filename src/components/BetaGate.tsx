@@ -56,7 +56,7 @@ export function BetaGate({ children }: { children: React.ReactNode }) {
                     )}
                     overlayClassName="z-[2000] bg-black/70 backdrop-blur-sm"
                 >
-                    <span className="inline-flex items-center rounded-full border border-jetlag-yellow/60 bg-jetlag-yellow/10 px-3 py-1 text-[10px] font-display font-extrabold uppercase tracking-[0.16em] text-jetlag-yellow">
+                    <span className="inline-flex items-center rounded-full border border-jetlag-yellow/60 bg-jetlag-yellow/10 px-3 py-1 text-xs font-display font-extrabold uppercase tracking-[0.16em] text-jetlag-yellow">
                         Private beta
                     </span>
                     <DialogTitle className="font-display font-black uppercase text-lg tracking-tight">

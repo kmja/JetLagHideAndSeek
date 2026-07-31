@@ -227,7 +227,7 @@ export function EndgameOverlay() {
                         <MapPinOff className="w-8 h-8" strokeWidth={2.25} />
                     )}
                 </span>
-                <div className="text-[10px] uppercase tracking-[0.2em] font-display font-extrabold text-muted-foreground">
+                <div className="text-xs uppercase tracking-[0.2em] font-display font-extrabold text-muted-foreground">
                     {eyebrow}
                 </div>
                 <div

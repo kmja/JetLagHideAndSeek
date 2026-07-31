@@ -36,7 +36,7 @@ export function ThemeToggle() {
                         onClick={() => themePreference.set(value)}
                         className={cn(
                             "inline-flex items-center justify-center gap-1.5 h-8 px-2.5 rounded-sm",
-                            "text-[11px] font-poppins font-semibold uppercase tracking-wider",
+                            "text-xs font-poppins font-semibold uppercase tracking-wider",
                             "transition-colors",
                             "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                             active

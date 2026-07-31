@@ -156,7 +156,7 @@ function FoundSummary({
                     <div className="font-inter-tight italic font-black tabular-nums text-3xl text-primary leading-none mt-1">
                         {elapsed}
                     </div>
-                    <p className="text-[11px] text-muted-foreground leading-snug mt-1">
+                    <p className="text-xs text-muted-foreground leading-snug mt-1">
                         Seek time from end of hiding period. The hider's
                         hand time-bonus minutes get subtracted from this to
                         get the final score.

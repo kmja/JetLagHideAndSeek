@@ -359,7 +359,7 @@ export function HiderHomeContent() {
                 >
                     <Flag className="w-5 h-5 shrink-0 text-yellow-400 mt-0.5" />
                     <div className="flex-1 space-y-1">
-                        <div className="text-[10px] uppercase tracking-[0.18em] font-poppins font-bold text-yellow-400">
+                        <div className="text-xs uppercase tracking-[0.18em] font-poppins font-bold text-yellow-400">
                             Endgame — they reached your zone
                         </div>
                         <p className="text-sm text-foreground leading-snug">
@@ -381,7 +381,7 @@ export function HiderHomeContent() {
                     <div className="flex items-start gap-3">
                         <AlertTriangle className="w-5 h-5 shrink-0 text-yellow-500 mt-0.5" />
                         <div className="flex-1 space-y-1">
-                            <div className="text-[10px] uppercase tracking-[0.16em] font-poppins font-bold text-yellow-500">
+                            <div className="text-xs uppercase tracking-[0.16em] font-poppins font-bold text-yellow-500">
                                 Waiting on the seeker
                             </div>
                             <p className="text-sm text-foreground leading-snug">
@@ -392,7 +392,7 @@ export function HiderHomeContent() {
                         </div>
                     </div>
                     <div className="rounded-sm bg-secondary/30 px-3 py-2.5 text-xs text-muted-foreground leading-snug space-y-1.5">
-                        <div className="text-[10px] uppercase tracking-[0.16em] font-poppins font-bold text-muted-foreground">
+                        <div className="text-xs uppercase tracking-[0.16em] font-poppins font-bold text-muted-foreground">
                             What happens next
                         </div>
                         <ol className="list-decimal pl-4 space-y-0.5">
@@ -535,7 +535,7 @@ function GracePhaseView({
             <section className="rounded-md border-2 border-warning bg-warning/10 px-4 py-5 mb-4 text-center">
                 <div className="flex items-center justify-center gap-2 mb-1.5">
                     <Lock className="w-4 h-4 text-warning" />
-                    <div className="text-[10px] uppercase tracking-[0.2em] font-poppins font-bold text-warning">
+                    <div className="text-xs uppercase tracking-[0.2em] font-poppins font-bold text-warning">
                         Pick your zone now
                     </div>
                 </div>
@@ -722,7 +722,7 @@ function PostRoundView({
             <section className="rounded-md border-2 border-muted/40 bg-secondary/30 px-4 py-3 mb-4 flex items-center gap-3 opacity-80">
                 <Timer className="w-5 h-5 shrink-0 text-muted-foreground" />
                 <div className="flex flex-col leading-none gap-1">
-                    <span className="text-[9px] font-inter-tight font-bold uppercase tracking-[0.18em] text-muted-foreground">
+                    <span className="text-xs font-inter-tight font-bold uppercase tracking-[0.18em] text-muted-foreground">
                         Hidden for (final)
                     </span>
                     <span className="font-inter-tight italic font-black tabular-nums text-2xl text-primary leading-none">
@@ -828,7 +828,7 @@ function FinalScoreBanner({
             </div>
             <div className="flex items-center justify-center">
                 <div className="text-center">
-                    <div className="text-[9px] font-inter-tight font-bold uppercase tracking-[0.18em] text-muted-foreground mb-1">
+                    <div className="text-xs font-inter-tight font-bold uppercase tracking-[0.18em] text-muted-foreground mb-1">
                         Final
                     </div>
                     <div className="font-inter-tight italic font-black tabular-nums text-4xl text-primary leading-none">
@@ -838,7 +838,7 @@ function FinalScoreBanner({
             </div>
             <div className="mt-3 grid grid-cols-2 gap-2 text-center text-xs">
                 <div className="rounded-sm bg-background/40 border border-border py-2 px-1">
-                    <div className="text-[9px] uppercase tracking-[0.16em] text-muted-foreground">
+                    <div className="text-xs uppercase tracking-[0.16em] text-muted-foreground">
                         Seek time
                     </div>
                     <div className="font-inter-tight font-bold tabular-nums text-base mt-0.5">
@@ -846,7 +846,7 @@ function FinalScoreBanner({
                     </div>
                 </div>
                 <div className="rounded-sm bg-background/40 border border-border py-2 px-1">
-                    <div className="text-[9px] uppercase tracking-[0.16em] text-muted-foreground">
+                    <div className="text-xs uppercase tracking-[0.16em] text-muted-foreground">
                         Bonus minutes
                     </div>
                     <div className="font-inter-tight font-bold tabular-nums text-base mt-0.5">
@@ -854,7 +854,7 @@ function FinalScoreBanner({
                     </div>
                 </div>
             </div>
-            <p className="text-[10px] text-muted-foreground mt-3 text-center leading-snug">
+            <p className="text-xs text-muted-foreground mt-3 text-center leading-snug break-words">
                 Time bonus cards in your hand add to your final time. Longest
                 single hide wins.
             </p>
@@ -1193,7 +1193,7 @@ function HidingSpotSection({
                 <Crosshair className="w-4 h-4 text-muted-foreground" />
                 <SectionPill>Hiding spot</SectionPill>
                 {spot && !editing && (
-                    <span className="text-[10px] text-muted-foreground tabular-nums ml-1">
+                    <span className="text-xs text-muted-foreground tabular-nums ml-1">
                         locked
                     </span>
                 )}

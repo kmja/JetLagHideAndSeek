@@ -225,7 +225,7 @@ export function NearbyStationsPicker({
             )}
         >
             <div className="flex items-center justify-between gap-2">
-                <div className="text-[10px] uppercase tracking-[0.16em] font-poppins font-bold text-muted-foreground">
+                <div className="text-xs uppercase tracking-[0.16em] font-poppins font-bold text-muted-foreground">
                     Zones you're in · within {radiusMeters} m
                 </div>
                 <Button

@@ -945,7 +945,7 @@ export const ZoneSidebar = () => {
                                     }
                                 />
                                 <div className="mt-1.5 px-1 flex items-center justify-between gap-2">
-                                    <span className="text-[11px] text-muted-foreground leading-snug">
+                                    <span className="min-w-0 text-xs text-muted-foreground leading-snug break-words">
                                         {$autoFromTransit
                                             ? "Auto-matched to allowed transit modes."
                                             : "Custom selection — no longer tracking allowed transit."}
@@ -960,7 +960,7 @@ export const ZoneSidebar = () => {
                                             }}
                                             className={cn(
                                                 "shrink-0 rounded-sm border border-border bg-secondary px-2 py-1",
-                                                "text-[11px] font-poppins font-semibold uppercase tracking-wide",
+                                                "text-xs font-poppins font-semibold uppercase tracking-wide",
                                                 "hover:bg-accent transition-colors",
                                             )}
                                             title="Snap the station-type list back to whatever transit modes the game allows."

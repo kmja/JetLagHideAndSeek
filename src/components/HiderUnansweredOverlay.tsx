@@ -118,7 +118,7 @@ export function HiderUnansweredOverlay({
             <div className="flex flex-col items-center leading-none">
                 <span
                     className={cn(
-                        "text-[8px] uppercase tracking-[0.14em] font-poppins font-bold mb-0.5 whitespace-nowrap",
+                        "text-xs uppercase tracking-[0.14em] font-poppins font-bold mb-0.5 whitespace-nowrap",
                         overdue
                             ? "text-destructive"
                             : "text-[color:var(--overlay-card-desc)]",
@@ -140,7 +140,7 @@ export function HiderUnansweredOverlay({
                 </span>
                 {extraCount > 0 && (
                     <span
-                        className="text-[9px] font-poppins font-bold mt-0.5 text-[color:var(--overlay-card-desc)]"
+                        className="text-xs font-poppins font-bold mt-0.5 text-[color:var(--overlay-card-desc)] whitespace-nowrap"
                         aria-label={`${extraCount} more question${extraCount === 1 ? "" : "s"} waiting`}
                     >
                         +{extraCount} more

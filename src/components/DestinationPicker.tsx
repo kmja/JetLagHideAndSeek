@@ -255,7 +255,7 @@ export function DestinationPicker({
                 )}
             </MapGL>
             {!value && (
-                <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-background/80 px-3 py-1.5 text-[11px] text-center text-muted-foreground">
+                <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-background/80 px-3 py-1.5 text-xs text-center text-muted-foreground leading-snug">
                     Tap inside the green zone to drop a pin
                 </div>
             )}

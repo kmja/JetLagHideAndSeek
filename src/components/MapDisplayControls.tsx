@@ -101,7 +101,7 @@ function MapOptionsPanel({ roomy = false }: { roomy?: boolean }) {
     const rowIcon = roomy ? "w-5 h-5" : "w-4 h-4";
     const sectionGap = roomy ? "space-y-5" : "space-y-3";
     const label =
-        "text-[11px] uppercase tracking-[0.16em] font-poppins font-bold text-muted-foreground";
+        "text-xs uppercase tracking-[0.16em] font-poppins font-bold text-muted-foreground";
 
     return (
         <div className={sectionGap}>

@@ -108,7 +108,7 @@ function HandCardRow({
                 <div className="text-xs font-semibold truncate">
                     {card.name}
                 </div>
-                <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                <div className="text-xs uppercase tracking-wider text-muted-foreground truncate">
                     {meta.label}
                 </div>
             </div>

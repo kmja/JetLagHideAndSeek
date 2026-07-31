@@ -287,7 +287,7 @@ export function HiderTimer({ preview }: { preview?: HiderTimerPreview } = {}) {
                         title="You're in the hider's zone. Find them!"
                     >
                         <Flag className="w-3.5 h-3.5" strokeWidth={2.5} />
-                        <span className="text-[10px] font-poppins font-bold uppercase tracking-[0.15em]">
+                        <span className="text-xs font-poppins font-bold uppercase tracking-[0.15em]">
                             In the zone
                         </span>
                     </div>
@@ -329,7 +329,7 @@ export function HiderTimer({ preview }: { preview?: HiderTimerPreview } = {}) {
                         strokeWidth={2.5}
                     />
                     <div className="flex flex-col leading-none gap-1">
-                        <span className="text-[10px] font-poppins font-extrabold uppercase tracking-[0.12em] text-[#1F2F3F]">
+                        <span className="text-xs font-poppins font-extrabold uppercase tracking-[0.12em] text-[#1F2F3F]">
                             Hiding time remaining
                         </span>
                         <span className="font-inter-tight font-black tabular-nums text-3xl leading-none text-[#1F2F3F]">
@@ -348,7 +348,7 @@ export function HiderTimer({ preview }: { preview?: HiderTimerPreview } = {}) {
                     title={`${phaseLabel}: ${display}`}
                     className="relative overflow-hidden rounded-xl shadow-lg bg-white pl-4 pr-7 py-2"
                 >
-                    <span className="block max-w-[9rem] truncate text-[9px] font-poppins font-extrabold uppercase tracking-[0.14em] text-[#1F2F3F]/55 leading-none mb-0.5">
+                    <span className="block max-w-[11rem] truncate text-xs font-poppins font-extrabold uppercase tracking-[0.14em] text-[#1F2F3F]/55 leading-none mb-0.5">
                         {currentHiderName}
                     </span>
                     <span className="font-inter-tight font-black tabular-nums text-3xl leading-none text-jetlag">
@@ -386,7 +386,7 @@ export function HiderTimer({ preview }: { preview?: HiderTimerPreview } = {}) {
                                 // size (text-3xl, red accent), always shown.
                                 // v879: the eyebrow carries the hider's NAME.
                                 <div className="relative flex flex-col justify-center bg-white pl-3 pr-7 py-2 leading-none">
-                                    <span className="block max-w-[9rem] truncate text-[9px] font-poppins font-extrabold uppercase tracking-[0.14em] text-[#1F2F3F]/55 leading-none mb-0.5">
+                                    <span className="block max-w-[11rem] truncate text-xs font-poppins font-extrabold uppercase tracking-[0.14em] text-[#1F2F3F]/55 leading-none mb-0.5">
                                         {e.name}
                                     </span>
                                     <span className="font-inter-tight font-black tabular-nums text-3xl leading-none text-jetlag">
@@ -407,7 +407,7 @@ export function HiderTimer({ preview }: { preview?: HiderTimerPreview } = {}) {
                                     style={{ background: rankBoxBg(e.rank) }}
                                 >
                                     {/* v879: hider name above the time. */}
-                                    <span className="block max-w-[9rem] truncate text-[9px] font-poppins font-extrabold uppercase tracking-[0.12em] text-[#1F2F3F]/60 leading-none mb-0.5">
+                                    <span className="block max-w-[11rem] truncate text-xs font-poppins font-extrabold uppercase tracking-[0.12em] text-[#1F2F3F]/60 leading-none mb-0.5">
                                         {e.name}
                                     </span>
                                     <span className="font-inter-tight font-black tabular-nums text-xl leading-none text-[#1F2F3F]">

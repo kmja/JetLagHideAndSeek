@@ -298,7 +298,7 @@ export function HiderHandPanel() {
                                                 : undefined
                                         }
                                         onClick={() => onPlayPowerup(card)}
-                                        className="flex-1 gap-1 h-7 px-2 text-[10px]"
+                                        className="flex-1 gap-1 h-7 px-2 text-xs"
                                     >
                                         <Sparkles className="w-3 h-3" />
                                         Play
@@ -345,7 +345,7 @@ export function HiderHandPanel() {
                                                               card,
                                                           )
                                                 }
-                                                className="flex-1 gap-1 h-7 px-2 text-[10px]"
+                                                className="flex-1 gap-1 h-7 px-2 text-xs"
                                             >
                                                 <SkullCrossbones className="w-3 h-3" />
                                                 Cast
@@ -479,7 +479,7 @@ function DiscardCardButton({ card }: { card: Card }) {
                     type="button"
                     variant="secondary"
                     size="sm"
-                    className="gap-1.5 h-7 px-2 text-[11px]"
+                    className="gap-1.5 h-7 px-2 text-xs"
                 >
                     <Trash2 className="w-3 h-3" />
                     Discard

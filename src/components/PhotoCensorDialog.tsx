@@ -469,7 +469,7 @@ export function PhotoCensorDialog({
 
                 {/* Context controls */}
                 <div className="flex items-center justify-between gap-2 min-h-[2rem]">
-                    <span className="text-[11px] text-muted-foreground">
+                    <span className="min-w-0 text-xs text-muted-foreground leading-snug break-words">
                         {mode === "crop"
                             ? cropValid
                                 ? "Tap Apply crop to trim."

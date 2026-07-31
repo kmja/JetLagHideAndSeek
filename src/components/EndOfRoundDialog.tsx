@@ -478,7 +478,7 @@ export function EndOfRoundDialog() {
                                             <span className="ml-auto min-w-0 truncate text-sm font-medium text-muted-foreground">
                                                 {row.hiderName}
                                                 {row.current && (
-                                                    <span className="ml-1 text-[10px] font-poppins font-bold text-primary uppercase tracking-wider">
+                                                    <span className="ml-1 text-xs font-poppins font-bold text-primary uppercase tracking-wider">
                                                         now
                                                     </span>
                                                 )}

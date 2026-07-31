@@ -200,7 +200,7 @@ export function RolePicker() {
                 <div className="px-5 pt-3 pb-1 space-y-1">
                     <label
                         htmlFor="rolepicker-display-name"
-                        className="text-[10px] uppercase tracking-[0.16em] font-poppins font-bold text-muted-foreground"
+                        className="text-xs uppercase tracking-[0.16em] font-poppins font-bold text-muted-foreground"
                     >
                         Your display name
                     </label>
@@ -239,7 +239,7 @@ export function RolePicker() {
                                 Seeker
                             </span>
                         </div>
-                        <p className="text-[11px] text-muted-foreground leading-snug">
+                        <p className="text-xs text-muted-foreground leading-snug">
                             Ask questions, rule out the map, close in.
                         </p>
                     </button>
@@ -266,7 +266,7 @@ export function RolePicker() {
                                 Hider
                             </span>
                         </div>
-                        <p className="text-[11px] text-muted-foreground leading-snug">
+                        <p className="text-xs text-muted-foreground leading-snug">
                             Answer questions and play cards to slow the seekers
                             down.
                         </p>

@@ -156,7 +156,7 @@ export const BottomNav = () => {
                         }
                     >
                         <Plus className="w-5 h-5" strokeWidth={2.5} />
-                        <span className="text-[10px] font-bold uppercase tracking-wider">
+                        <span className="text-xs font-bold uppercase tracking-wider">
                             New question
                         </span>
                     </button>

@@ -713,7 +713,7 @@ export function GameLobbyDialog() {
                     <div className="px-5 pt-2 pb-3 shrink-0 border-b border-border space-y-2.5">
                         <div className="flex items-center gap-2">
                             <div className="flex flex-col min-w-0 leading-none">
-                                <span className="text-[10px] uppercase tracking-[0.14em] font-display font-extrabold text-muted-foreground">
+                                <span className="text-xs uppercase tracking-[0.14em] font-display font-extrabold text-muted-foreground">
                                     Room code
                                 </span>
                                 <span className="font-display font-black uppercase text-2xl tabular-nums tracking-[0.08em] text-primary mt-0.5">
@@ -809,7 +809,7 @@ export function GameLobbyDialog() {
                         {/* SHARE section — room code + Share / Copy / QR. */}
                         <div className="flex items-center gap-2">
                             <div className="flex flex-col min-w-0 leading-none">
-                                <span className="text-[10px] uppercase tracking-[0.14em] font-display font-extrabold text-muted-foreground">
+                                <span className="text-xs uppercase tracking-[0.14em] font-display font-extrabold text-muted-foreground">
                                     Room code
                                 </span>
                                 {$code ? (
@@ -1017,7 +1017,7 @@ export function GameLobbyDialog() {
                             <div className="text-xs font-medium text-destructive">
                                 Couldn't create a game room.
                             </div>
-                            <div className="text-[11px] text-muted-foreground leading-snug">
+                            <div className="text-xs text-muted-foreground leading-snug">
                                 Check your connection — without a
                                 room there's no way to invite players
                                 or start the game.
@@ -1063,7 +1063,7 @@ export function GameLobbyDialog() {
                                     />
                                 </div>
                                 <div className="text-center">
-                                    <div className="text-[10px] uppercase tracking-[0.14em] font-display font-extrabold text-muted-foreground">
+                                    <div className="text-xs uppercase tracking-[0.14em] font-display font-extrabold text-muted-foreground">
                                         Room code
                                     </div>
                                     <div className="font-display font-black uppercase text-2xl tabular-nums tracking-[0.10em] text-primary mt-1">
@@ -1269,7 +1269,7 @@ export function GameLobbyDialog() {
                         download never starts silently. */}
                     {!isMidGame && (
                         <div className="space-y-2">
-                            <div className="text-[11px] uppercase tracking-[0.16em] font-poppins font-bold text-muted-foreground px-1">
+                            <div className="text-xs uppercase tracking-[0.16em] font-poppins font-bold text-muted-foreground px-1">
                                 Preload the map
                             </div>
                             {/* On a metered link the checkbox is the CONSENT
@@ -1380,7 +1380,7 @@ export function GameLobbyDialog() {
                                 </span>
                                 {startReady && (
                                     <span
-                                        className="text-[10px] font-semibold leading-none mt-1 opacity-80 tabular-nums"
+                                        className="text-xs font-semibold leading-none mt-1 opacity-80 tabular-nums"
                                         style={{ letterSpacing: "0.14em" }}
                                     >
                                         {planningActive
@@ -1754,7 +1754,7 @@ function LeaderboardSection() {
     return (
         <div className="border-t border-border pt-3 space-y-2 animate-in fade-in duration-200">
             <div className="flex items-center gap-2">
-                <span className="text-[10px] uppercase tracking-[0.16em] font-poppins font-bold text-muted-foreground">
+                <span className="text-xs uppercase tracking-[0.16em] font-poppins font-bold text-muted-foreground">
                     Leaderboard
                 </span>
                 <span className="text-[10px] tabular-nums text-muted-foreground">

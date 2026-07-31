@@ -208,7 +208,7 @@ export function ThermometerOverlay({
                     right={
                         target ? (
                             <div className="flex flex-col items-center leading-none">
-                                <span className="text-[8px] uppercase tracking-[0.14em] font-poppins font-bold text-[color:var(--overlay-card-desc)] mb-0.5">
+                                <span className="text-xs uppercase tracking-[0.14em] font-poppins font-bold text-[color:var(--overlay-card-desc)] mb-0.5">
                                     Target
                                 </span>
                                 <span className="text-xl font-poppins font-black tabular-nums leading-none text-[color:var(--cat-label)]">

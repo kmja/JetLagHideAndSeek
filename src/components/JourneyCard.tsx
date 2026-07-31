@@ -83,7 +83,7 @@ export function JourneyCard({
             {(title || onRefresh) && (
                 <div className="flex items-center justify-between gap-2">
                     {title && (
-                        <div className="text-[10px] uppercase tracking-[0.16em] font-poppins font-bold text-muted-foreground">
+                        <div className="min-w-0 truncate text-xs uppercase tracking-[0.16em] font-poppins font-bold text-muted-foreground">
                             {title}
                         </div>
                     )}
@@ -178,7 +178,7 @@ function JourneySummary({
                 <span
                     className={cn(
                         "ml-auto inline-flex items-center px-1.5 py-0.5 rounded-sm",
-                        "border border-yellow-400/60 text-[10px] font-poppins font-bold",
+                        "border border-yellow-400/60 text-xs font-poppins font-bold",
                         "text-yellow-700 dark:text-yellow-100 bg-background/40",
                     )}
                     title="No live schedule in this area; walking estimate only."

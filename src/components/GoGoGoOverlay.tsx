@@ -257,7 +257,7 @@ export function GoGoGoOverlay({ preview }: { preview?: GoGoGoPreview } = {}) {
                             "jlGoExplode 520ms cubic-bezier(0.34,1.56,0.64,1) both",
                     }}
                 >
-                    <div className="text-[10px] uppercase tracking-[0.18em] font-display font-extrabold text-muted-foreground">
+                    <div className="text-xs uppercase tracking-[0.18em] font-display font-extrabold text-muted-foreground">
                         Game on · {totalMinutes}-min hiding period
                     </div>
                     <div
@@ -278,7 +278,7 @@ export function GoGoGoOverlay({ preview }: { preview?: GoGoGoPreview } = {}) {
                     </div>
                     {$endsAt !== null && (
                         <div className="pt-2 space-y-1">
-                            <div className="text-[10px] uppercase tracking-[0.18em] font-display font-extrabold text-muted-foreground">
+                            <div className="text-xs uppercase tracking-[0.18em] font-display font-extrabold text-muted-foreground">
                                 Hiding period
                             </div>
                             <div

@@ -246,7 +246,7 @@ export function HiderMapTimer() {
                                 "px-2.5 py-1.5 rounded-md shadow-md",
                                 "bg-primary text-primary-foreground border-2 border-primary",
                                 "hover:bg-primary/90 active:bg-primary/80 transition-colors",
-                                "text-[10px] font-poppins font-bold uppercase tracking-wider",
+                                "text-xs font-poppins font-bold uppercase tracking-wider",
                                 "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                             )}
                         >
@@ -260,10 +260,10 @@ export function HiderMapTimer() {
                         className="w-[280px] p-3 bg-card border-2 border-border shadow-xl space-y-3"
                     >
                         <div className="space-y-1">
-                            <div className="text-[10px] uppercase tracking-[0.16em] font-poppins font-bold text-muted-foreground">
+                            <div className="text-xs uppercase tracking-[0.16em] font-poppins font-bold text-muted-foreground">
                                 Mark potential hiding spot
                             </div>
-                            <p className="text-[11px] text-muted-foreground leading-snug">
+                            <p className="text-xs text-muted-foreground leading-snug break-words">
                                 Saves your current location with a short
                                 description you can find later in the Zone
                                 drawer.
@@ -321,7 +321,7 @@ export function HiderMapTimer() {
                 $zoneCallout && (
                     <div className="relative w-[min(80vw,20rem)] rounded-xl border-2 border-border bg-card p-3 shadow-xl">
                         <div className="mb-1">
-                            <span className="text-[11px] font-poppins font-extrabold uppercase tracking-[0.12em] text-foreground">
+                            <span className="text-xs font-poppins font-extrabold uppercase tracking-[0.12em] text-foreground">
                                 Zone locked in
                             </span>
                         </div>
@@ -375,7 +375,7 @@ export function HiderMapTimer() {
                         strokeWidth={2.5}
                     />
                     <div className="flex flex-col leading-none gap-1">
-                        <span className="text-[10px] font-poppins font-extrabold uppercase tracking-[0.12em] text-muted-foreground">
+                        <span className="text-xs font-poppins font-extrabold uppercase tracking-[0.12em] text-muted-foreground">
                             Waiting on seeker
                         </span>
                         <span className="text-sm text-foreground leading-tight">
@@ -398,7 +398,7 @@ export function HiderMapTimer() {
                         strokeWidth={2.5}
                     />
                     <div className="flex flex-col leading-none gap-1">
-                        <span className="text-[10px] font-poppins font-extrabold uppercase tracking-[0.12em] text-[#1F2F3F]">
+                        <span className="text-xs font-poppins font-extrabold uppercase tracking-[0.12em] text-[#1F2F3F]">
                             Hiding time remaining
                         </span>
                         <span className="font-inter-tight font-black tabular-nums text-3xl leading-none text-[#1F2F3F]">
@@ -434,7 +434,7 @@ export function HiderMapTimer() {
                         strokeWidth={2.5}
                     />
                     <div className="flex flex-col leading-none gap-1">
-                        <span className="text-[10px] font-poppins font-extrabold uppercase tracking-[0.12em] text-destructive-foreground">
+                        <span className="text-xs font-poppins font-extrabold uppercase tracking-[0.12em] text-destructive-foreground">
                             Forfeited
                         </span>
                         <span className="font-inter-tight font-black uppercase text-xl leading-none text-destructive-foreground">
@@ -463,7 +463,7 @@ export function HiderMapTimer() {
                                 className="flex flex-col justify-center px-3 py-1.5 leading-none"
                                 style={{ background: rankBoxBg(nextToBeat.rank) }}
                             >
-                                <span className="block max-w-[9rem] truncate text-[9px] font-poppins font-extrabold uppercase tracking-[0.12em] text-[#1F2F3F]/60 leading-none mb-0.5">
+                                <span className="block max-w-[11rem] truncate text-xs font-poppins font-extrabold uppercase tracking-[0.12em] text-[#1F2F3F]/60 leading-none mb-0.5">
                                     {nextToBeat.name}
                                 </span>
                                 <span className="font-inter-tight font-black tabular-nums text-lg leading-none text-[#1F2F3F]">
@@ -478,7 +478,7 @@ export function HiderMapTimer() {
                         aria-label={`Hidden for: ${formatTimeRemaining(hiddenElapsedMs)}`}
                         className="relative overflow-hidden rounded-xl shadow-lg bg-white pl-4 pr-7 py-2"
                     >
-                        <span className="block text-[9px] font-poppins font-extrabold uppercase tracking-[0.14em] text-[#1F2F3F]/55 leading-none mb-0.5">
+                        <span className="block text-xs font-poppins font-extrabold uppercase tracking-[0.14em] text-[#1F2F3F]/55 leading-none mb-0.5">
                             {phase === "endgame"
                                 ? "Endgame · stay still"
                                 : phase === "over"

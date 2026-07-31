@@ -128,7 +128,7 @@ export function MapLoadingOverlay() {
                 <div className="flex items-center gap-3">
                     <Loader2 className="w-5 h-5 text-primary animate-spin shrink-0" />
                     <div className="min-w-0">
-                        <div className="font-inter-tight font-black uppercase text-[11px] tracking-[0.12em] text-primary">
+                        <div className="font-inter-tight font-black uppercase text-xs tracking-[0.12em] text-primary">
                             Loading play area
                         </div>
                         <div className="text-sm font-medium truncate">
@@ -222,7 +222,7 @@ export function MapLoadingOverlay() {
                     a button. */}
                 {elapsed !== null && elapsed >= 20000 && downloaded === 0 && (
                     <div className="pt-1 border-t border-border/50 space-y-1.5">
-                        <p className="text-[11px] text-muted-foreground leading-snug">
+                        <p className="text-xs text-muted-foreground leading-snug">
                             Taking longer than expected — the public
                             Overpass mirrors are sometimes overloaded.
                         </p>

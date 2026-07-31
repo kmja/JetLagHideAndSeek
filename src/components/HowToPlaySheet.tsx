@@ -252,10 +252,10 @@ function CatRow({
                 <div className="font-inter-tight font-bold uppercase tracking-wide text-xs">
                     {label}
                 </div>
-                <div className="text-[11px] text-muted-foreground italic leading-snug">
+                <div className="text-xs text-muted-foreground italic leading-snug break-words">
                     {template}
                 </div>
-                <div className="text-[11px] text-foreground/80 mt-0.5">
+                <div className="text-xs text-foreground/80 mt-0.5 leading-snug break-words">
                     {cost}
                     {note ? ` · ${note}` : ""}
                 </div>

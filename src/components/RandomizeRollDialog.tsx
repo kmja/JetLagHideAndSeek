@@ -244,7 +244,7 @@ export function RandomizeRollDialog() {
                         )}
                         style={{ borderColor: settled ? undefined : cat?.color }}
                     >
-                        <span className="text-[10px] uppercase tracking-[0.16em] font-poppins font-bold text-muted-foreground">
+                        <span className="text-xs uppercase tracking-[0.16em] font-poppins font-bold text-muted-foreground">
                             {cat?.label ?? category}
                         </span>
                         <span
