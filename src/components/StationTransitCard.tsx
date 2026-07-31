@@ -3,7 +3,6 @@ import {
     CheckCircle2,
     ChevronDown,
     Clock,
-    Flag,
     Loader2,
     MapPin,
     Route,
@@ -14,6 +13,7 @@ import type { LucideIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { JourneyCard } from "@/components/JourneyCard";
+import { Button } from "@/components/ui/button";
 import { appConfirm } from "@/lib/confirm";
 import {
     hidingRadius,
@@ -435,7 +435,7 @@ export function StationTransitCard({
             className="fixed top-[calc(env(safe-area-inset-top,0px)+4.25rem)] left-0 right-0 mx-auto z-[1045] flex max-h-[70vh] w-[min(94vw,460px)] flex-col overflow-hidden rounded-2xl border border-border bg-background text-foreground shadow-2xl animate-in fade-in slide-in-from-top-4 duration-200"
         >
             <div className="overflow-y-auto px-5 pt-4 pb-5">
-                        <div className="flex items-start gap-2.5">
+                        <div className="flex items-center gap-2.5">
                             <span className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-primary/15">
                                 <StationIcon className="h-4.5 w-4.5 text-primary" />
                             </span>
@@ -449,7 +449,7 @@ export function StationTransitCard({
                                 onClick={close}
                                 aria-label="Close"
                                 title="Close"
-                                className="-mr-1 -mt-1 shrink-0 rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                className="-mr-1 shrink-0 rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                             >
                                 <X className="h-4 w-4" />
                             </button>
@@ -522,24 +522,13 @@ export function StationTransitCard({
 
                         {canTriggerEndgame && (
                             <div className="mt-3 space-y-1.5">
-                                <button
+                                <Button
                                     type="button"
                                     onClick={handleStartEndgame}
-                                    className={cn(
-                                        "flex w-full items-center justify-center gap-2 rounded-md px-3 py-3",
-                                        "border-2 border-yellow-500/60 bg-yellow-500/15",
-                                        "text-yellow-600 dark:text-yellow-300",
-                                        "hover:bg-yellow-500/25 active:bg-yellow-500/30 transition-colors",
-                                        "text-sm font-poppins font-bold uppercase tracking-wider",
-                                        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                                    )}
+                                    className="w-full"
                                 >
-                                    <Flag
-                                        className="h-4 w-4"
-                                        strokeWidth={2.5}
-                                    />
                                     Start endgame here
-                                </button>
+                                </Button>
                                 <p className="text-xs leading-snug text-muted-foreground text-center px-1">
                                     Declare you&apos;ve reached this zone.
                                     We&apos;ll check your location against the

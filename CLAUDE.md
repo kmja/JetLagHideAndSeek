@@ -432,6 +432,26 @@ bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
 build stamp. Current: `v1069`. Use `git log` for the per-version detail;
 
+**v1188 — station-card + outcome-map polish.** From live seeker screenshots:
+(1) **Tap anywhere in a hiding zone selects it (seeker), instantly** — the
+`StationTransitCard` selection: a tap on the shaded `hiding-zones-fill` now
+resolves SYNCHRONOUSLY to the nearest displayed centre UNCAPPED (you're
+demonstrably inside the union, so "closest centre wins" even if the merged
+geometry puts it >one radius away), instead of only after the async
+`findZoneAtPoint` round-trip — so tapping in a zone is crisp, not
+dot-precise. The async full-candidate-set resolver still runs as the
+culled-dot fallback (`Map.tsx handleStationTap`). (2) **"Start endgame here"
+is a normal primary `Button`** (brand-red fill, white text, no `Flag`
+icon) instead of the bordered gold-tinted button (`StationTransitCard`).
+(3) **Station name vertically centred with its icon** — the card header row
+is `items-center` (was `items-start`), and the close X dropped its `-mt-1`
+nudge. (4) **`QuestionOutcomeMap` no longer stamps "No resulting area" over a
+snapshot that shows a region** — the caption read a freshly-recomputed
+`outcome` that can flake to null (the measuring buffer's known
+non-determinism); it's now suppressed when a `cachedImage` from a prior expand
+is being shown (the image is authoritative), so it only captions a fresh
+capture whose `outcome` matches.
+
 **v1187 — reconnecting is a non-blocking on-map PILL + central write-gate
 (replaces the full-screen curtain).** The v935 "Reconnecting…" curtain dimmed +
 blocked the WHOLE app while the socket was down — but the two things people

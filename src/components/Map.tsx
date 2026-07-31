@@ -1778,31 +1778,36 @@ export function Map({ className }: MapProps) {
         // lands in. Skipped while drawing a question (a tap there is
         // placing geometry, not picking a station).
         if ($drawingQuestionKey !== null) return;
-        const nearest = nearestZoneStation(e.lngLat);
+        if (!$showHidingZones) return;
+        // Did the tap land on the shaded zone FILL (the safeUnion of every
+        // candidate circle)? If so the user is demonstrably INSIDE a zone, so
+        // resolve to the nearest centre even if the merged/union geometry puts
+        // that centre more than one radius away — "closest centre wins".
+        const hitFill = !!features?.some(
+            (f) => f.layer?.id === "hiding-zones-fill",
+        );
+        // Instant, synchronous: nearest DISPLAYED (post-elimination) centre.
+        // Capped to the hiding radius for a tap on bare map (so a tap outside
+        // every zone does nothing), UNCAPPED when the tap hit the fill (you're
+        // inside the union → the nearest centre is the intended one).
+        const nearest = nearestZoneStation(e.lngLat, !hitFill);
         if (nearest) {
             selectedMapStation.set(nearest);
             return;
         }
         // v1091: parity with the hider map — a tap ANYWHERE inside a zone
-        // selects it, not just on the centre dot. `nearestZoneStation` scans
-        // the currently-DISPLAYED (post-elimination) point set, which can miss
-        // a tap that lands in a zone whose centre dot was culled/labelled off
-        // or sits just past the sync radius. Fall through to the SAME
-        // containment resolver the hider uses (`findZoneAtPoint` — nearest
-        // station whose hiding-radius circle contains the tap, over the game's
-        // full candidate set), so both roles behave identically.
-        if (!$showHidingZones) return;
+        // selects it, not just on the centre dot. The synchronous scan above
+        // can miss a tap that lands in a zone whose centre dot was culled /
+        // labelled off. Fall through to the SAME containment resolver the
+        // hider uses (`findZoneAtPoint` — nearest station whose hiding-radius
+        // circle contains the tap, over the game's full candidate set), so
+        // both roles behave identically.
         const radiusMeters = turf.convertLength(
             $hidingRadius,
             $hidingRadiusUnits,
             "meters",
         );
         const { lat: tapLat, lng: tapLng } = e.lngLat;
-        // Did the tap land on the shaded zone FILL? If so, the user clearly
-        // meant "this zone", so we ALWAYS resolve it to a station below.
-        const hitFill = !!features?.some(
-            (f) => f.layer?.id === "hiding-zones-fill",
-        );
         void (async () => {
             const station = await findZoneAtPoint(tapLat, tapLng, {
                 allowed: allowedTransit.get(),
@@ -1815,15 +1820,6 @@ export function Map({ className }: MapProps) {
                     name: station.name,
                     modes: [station.mode],
                 });
-                return;
-            }
-            // Last resort: a tap on the shaded fill that neither resolver
-            // caught (radius/containment edge, or the candidate set differs
-            // from the displayed one) — select the nearest DISPLAYED station
-            // uncapped so a shaded-zone tap never does nothing.
-            if (hitFill) {
-                const near = nearestZoneStation(e.lngLat, false);
-                if (near) selectedMapStation.set(near);
             }
         })();
     };

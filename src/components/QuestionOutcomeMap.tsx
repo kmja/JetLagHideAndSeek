@@ -372,7 +372,13 @@ export function QuestionOutcomeMap({
                     className="h-full w-full object-cover"
                     draggable={false}
                 />
-                {(failed || !outcome) && (
+                {/* Only caption a FRESH capture (`capturedUrl`, computed this
+                    render so `outcome` matches the image). A `cachedImage` from
+                    a prior expand is authoritative — the live recompute behind
+                    it can flake to null (the measuring buffer's known
+                    non-determinism) and must NOT stamp "No resulting area" over
+                    a snapshot that clearly shows a region. */}
+                {!cachedImage && (failed || !outcome) && (
                     <div className="absolute inset-x-0 bottom-0 flex justify-center pb-1.5">
                         <span className="rounded-full bg-background/80 px-2 py-0.5 text-xs font-poppins text-muted-foreground backdrop-blur-sm">
                             {failed
