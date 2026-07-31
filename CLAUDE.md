@@ -448,6 +448,15 @@ SMALL piece (`area < 5 km²`): the big ocean is left to the chunking (buffering 
 whole is the perf hit the grid exists to avoid, and it already tests in-result).
 `tsc` + 284 tests green.
 
+**v1212 — hider station-card polish: primary "Hide here" + reachability loading
+state.** Two `StationTransitCard` fixes on the hider side. (1) The "Hide here"
+commit button is now a normal primary `Button` with no icon (was a bordered
+gold-tinted button with a `Tent` glyph). (2) The "Reachable in time / Out of
+reach" banner used to POP IN once the trip plan resolved, shoving the layout
+down; a same-size LOADING placeholder ("Checking reachability…" + spinner) now
+reserves that slot while `planning` is true and no verdict exists yet, so the
+banner swaps in with no layout shift. `tsc` + 284 tests green.
+
 **v1211 — seeker "Start endgame here" only for zones you're IN, replacing Route
 & departures.** In the seeker's `StationTransitCard`, the endgame trigger now
 gates on `seekerInsideZone` (live GPS within the tapped zone's hiding radius +

@@ -6,7 +6,6 @@ import {
     Loader2,
     MapPin,
     Route,
-    Tent,
     X,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
@@ -298,6 +297,17 @@ export function StationTransitCard({
                   arriveAt: journey.arriveAt,
               }
             : null;
+    // v1211: while the trip is being planned, reserve the reachability slot
+    // with a LOADING placeholder (same size as the banner) so the verdict
+    // doesn't pop in out of nowhere and shove the layout down once it resolves.
+    // Same gating as the banner; kept out while a (possibly stale) result is
+    // already shown so a re-plan doesn't flash the spinner over it.
+    const reachabilityLoading =
+        $endsAt !== null &&
+        Date.now() < $endsAt &&
+        !hiderInsideZone &&
+        planning &&
+        !reachability;
 
     // v1211: is the SEEKER physically inside the tapped zone? The endgame
     // begins when the seekers REACH the hider's zone (rulebook p43), so
@@ -493,23 +503,33 @@ export function StationTransitCard({
                             </div>
                         )}
 
+                        {reachabilityLoading && (
+                            <div className="mt-3 flex items-start gap-2.5 rounded-lg border-2 border-border/60 bg-muted/40 px-3 py-2.5 text-muted-foreground">
+                                <Loader2
+                                    className="mt-0.5 h-4.5 w-4.5 shrink-0 animate-spin"
+                                    strokeWidth={2.5}
+                                />
+                                <div className="min-w-0">
+                                    <div className="font-poppins text-xs font-bold uppercase tracking-wider">
+                                        Checking reachability
+                                    </div>
+                                    <p className="mt-0.5 text-xs leading-snug text-foreground/60 break-words">
+                                        Planning a route to see if you can reach
+                                        this zone before the whistle…
+                                    </p>
+                                </div>
+                            </div>
+                        )}
+
                         {canCommitZone && (
                             <div className="mt-3 space-y-1.5">
-                                <button
+                                <Button
                                     type="button"
                                     onClick={handleCommitZone}
-                                    className={cn(
-                                        "flex w-full items-center justify-center gap-2 rounded-md px-3 py-3",
-                                        "border-2 border-primary/60 bg-primary/15",
-                                        "text-primary",
-                                        "hover:bg-primary/25 active:bg-primary/30 transition-colors",
-                                        "text-sm font-poppins font-bold uppercase tracking-wider",
-                                        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                                    )}
+                                    className="w-full"
                                 >
-                                    <Tent className="h-4 w-4" strokeWidth={2.5} />
                                     Hide here
-                                </button>
+                                </Button>
                                 <p className="text-xs leading-snug text-muted-foreground text-center px-1">
                                     Lock in this station as your hiding zone for
                                     the round.
