@@ -28,7 +28,10 @@ import { CacheType } from "@/maps/api/types";
 import { isFountainWaterFeature } from "@/maps/questions/measuring";
 import { MAJOR_CITIES } from "@/maps/data/majorCities";
 import type { APILocations } from "@/maps/schema";
-import { nearestBasemapWater } from "@/maps/api/basemapWater";
+import {
+    ensureBasemapWaterForArea,
+    nearestBasemapWater,
+} from "@/maps/api/basemapWater";
 import { fetchPrewarmedAreaWater } from "@/maps/api/water";
 
 /**
@@ -693,6 +696,24 @@ export async function fetchNearestWater(
     // body-of-water elimination buffers — so the label distance and the overlay
     // agree by construction (both read `getBasemapWaterPolys`). Falls back to
     // the OSM path below only when no map has captured the basemap water yet.
+    //
+    // v1192: the elimination AWAITS the deterministic headless read
+    // (`ensureBasemapWaterForArea`, v1013) before it reads the water, but this
+    // LABEL read used to be synchronous — so it picked a DIFFERENT nearest water
+    // (a mid-capture snapshot) than the buffer used (the "Shoreline 1.2km label
+    // vs 440m buffer" mismatch → the phantom "further band" between the seeker
+    // and the labelled reference). Await the SAME memoised headless read here so
+    // the label and the elimination read one snapshot and agree by construction.
+    try {
+        const poly = polyGeoJSON.get();
+        const bb = poly ? turf.bbox(poly) : null;
+        if (bb)
+            await ensureBasemapWaterForArea(
+                bb.slice(0, 4) as [number, number, number, number],
+            );
+    } catch {
+        /* best-effort determinism — fall through to whatever's captured */
+    }
     const bmw = nearestBasemapWater(lat, lng);
     if (bmw) return bmw;
     let data: { elements?: unknown[] } | null = await fetchPrewarmedAreaWater();

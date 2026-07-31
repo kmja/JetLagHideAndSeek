@@ -432,6 +432,28 @@ bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
 build stamp. Current: `v1069`. Use `git log` for the per-version detail;
 
+**v1192 — body-of-water label≠elimination ROOT CAUSE: the label read a
+non-deterministic water snapshot.** The real bug behind "different reference each
+time" + "a band of 'further' between me and the reference" (and the same on
+coastline): the basemap water is CAPTURED off the display map as tiles stream in
+(`captureBasemapWater`), so it's a moving target. The ELIMINATION awaits the
+DETERMINISTIC headless pmtiles read (`ensureBasemapWaterForArea`, v1013) before it
+buffers, but the nearest-reference LABEL (`fetchNearestWater` → `nearestBasemapWater`)
+read the cache SYNCHRONOUSLY — so it picked a DIFFERENT nearest water than the
+buffer used. Concretely: the label showed "Shoreline 1.2 km" while the buffer used
+`r=440m` (a closer inland `kind=water` piece), so the closer region (within 440 m
+of any water) didn't reach the labelled 1.2 km shoreline → a phantom "further band"
+between the seeker and the reference. This ALSO made the v1190 `ref-in=N` diagnostic
+misleading (it compared a label-snapshot ref against a different buffer snapshot).
+Fix: `fetchNearestWater` now AWAITS the same memoised `ensureBasemapWaterForArea`
+before reading, so the label + elimination read ONE snapshot and the labelled
+reference matches the buffer radius by construction (the water is captured
+deterministically once the headless read lands; the `headless` flag then freezes
+the capture). Coastline has a RELATED but distinct source mismatch (its label reads
+OSM coastline lines while its elimination reads the basemap sea) — to be aligned
+next. (The v1191 keep-collapsed-piece fix stays — it's correct and harmless — but
+the non-determinism was the dominant cause.)
+
 **v1191 — body-of-water chunking artifact FIXED (small water piece dropped by
 simplify).** The v1190 diagnostic settled it: a live NYC reading came back
 `ref@40.691,-73.980(440m)-in=N seeker-in=N` — the labelled nearest water (ON
