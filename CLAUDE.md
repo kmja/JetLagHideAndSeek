@@ -448,6 +448,13 @@ SMALL piece (`area < 5 km²`): the big ocean is left to the chunking (buffering 
 whole is the perf hit the grid exists to avoid, and it already tests in-result).
 `tsc` + 284 tests green.
 
+**v1213 — reachability loading placeholder matches the verdict height.** The
+v1212 "Checking reachability…" copy was longer than the resolved verdict text, so
+it wrapped to an extra line and the banner was taller while loading → still a
+layout shift when it resolved. Shortened the loading copy to the verdict's ~2-line
+length and `line-clamp-2`ed it so it can never exceed two lines. `tsc` + 284 tests
+green.
+
 **v1212 — hider station-card polish: primary "Hide here" + reachability loading
 state.** Two `StationTransitCard` fixes on the hider side. (1) The "Hide here"
 commit button is now a normal primary `Button` with no icon (was a bordered

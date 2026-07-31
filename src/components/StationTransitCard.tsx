@@ -513,9 +513,9 @@ export function StationTransitCard({
                                     <div className="font-poppins text-xs font-bold uppercase tracking-wider">
                                         Checking reachability
                                     </div>
-                                    <p className="mt-0.5 text-xs leading-snug text-foreground/60 break-words">
-                                        Planning a route to see if you can reach
-                                        this zone before the whistle…
+                                    <p className="mt-0.5 text-xs leading-snug text-foreground/60 break-words line-clamp-2">
+                                        Planning a route to see if you&apos;ll
+                                        make it in time…
                                     </p>
                                 </div>
                             </div>
