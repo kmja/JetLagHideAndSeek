@@ -670,6 +670,9 @@ export function InlineLocationPicker({
     // very first radius is already framed by initialViewState's
     // zoomForRadius, so we skip that and only animate later changes.
     const lastRadiusRef = useRef<number | undefined>(undefined);
+    const fitTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(
+        undefined,
+    );
     useEffect(() => {
         if (radiusMeters == null || radiusMeters <= 0) {
             lastRadiusRef.current = radiusMeters ?? undefined;
@@ -681,22 +684,35 @@ export function InlineLocationPicker({
         if (isFirst) return;
         const map = mapRef.current?.getMap();
         if (!map) return;
-        try {
-            const circle = turfCircle([safeLng, safeLat], radiusMeters / 1000, {
-                steps: 64,
-                units: "kilometers",
-            });
-            const [minX, minY, maxX, maxY] = turfBbox(circle);
-            map.fitBounds(
-                [
-                    [minX, minY],
-                    [maxX, maxY],
-                ],
-                { padding: 32, duration: 400 },
-            );
-        } catch {
-            /* ignore — map may not be ready */
-        }
+        // v1202: DEBOUNCE the camera fit. While dragging the slider `radiusMeters`
+        // streams in; re-fitting on every step restarts a 400ms fitBounds
+        // animation each frame, which never settles → the choppy zoom the user
+        // saw. Fit ONCE, ~150ms after the value stops changing, so the camera
+        // glides smoothly to the final framing.
+        if (fitTimerRef.current !== undefined) clearTimeout(fitTimerRef.current);
+        const r = radiusMeters;
+        fitTimerRef.current = setTimeout(() => {
+            try {
+                const circle = turfCircle([safeLng, safeLat], r / 1000, {
+                    steps: 64,
+                    units: "kilometers",
+                });
+                const [minX, minY, maxX, maxY] = turfBbox(circle);
+                map.fitBounds(
+                    [
+                        [minX, minY],
+                        [maxX, maxY],
+                    ],
+                    { padding: 32, duration: 400 },
+                );
+            } catch {
+                /* ignore — map may not be ready */
+            }
+        }, 150);
+        return () => {
+            if (fitTimerRef.current !== undefined)
+                clearTimeout(fitTimerRef.current);
+        };
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [radiusMeters, safeLat, safeLng]);
 
@@ -774,12 +790,21 @@ export function InlineLocationPicker({
         radiusMeters && radiusMeters > 0 ? radiusMeters : 0,
     );
     const radiusAnimRef = useRef<number | undefined>(undefined);
+    const lastRadiusChangeTs = useRef<number>(0);
     useEffect(() => {
         const target = radiusMeters && radiusMeters > 0 ? radiusMeters : 0;
         const from = radiusAnimRef.current;
         radiusAnimRef.current = target;
-        // Snap on first value, no change, or when clearing to 0 (radar off).
-        if (from === undefined || from === target || target === 0) {
+        // v1202: SNAP during a rapid change stream (a slider drag) — the drag
+        // already supplies continuous values, so tweening every step fought the
+        // stream and looked choppy. Tween ONLY a discrete jump (a preset pick),
+        // where there's a single change after a pause.
+        const now =
+            typeof performance !== "undefined" ? performance.now() : 0;
+        const rapid = now - lastRadiusChangeTs.current < 140;
+        lastRadiusChangeTs.current = now;
+        // Snap on first value, no change, clearing to 0 (radar off), or a drag.
+        if (from === undefined || from === target || target === 0 || rapid) {
             setAnimatedRadius(target);
             return;
         }

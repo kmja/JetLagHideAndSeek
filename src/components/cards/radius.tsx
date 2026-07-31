@@ -448,75 +448,70 @@ export const RadiusQuestionComponent = ({
                             {/* Custom-size toggle — full manual control via
                                 the slider below. Kept as a compact secondary
                                 action beneath the carousel. */}
-                            <button
-                                type="button"
-                                onClick={() => {
-                                    data.useCustom = !data.useCustom;
-                                    questionModified();
-                                }}
-                                disabled={
-                                    !data.drag ||
-                                    ($askOnce &&
-                                        usedSigs.has("custom") &&
-                                        !data.useCustom)
-                                }
-                                className={cn(
-                                    "self-center py-2.5 px-6 rounded-md text-sm font-poppins font-semibold",
-                                    "bg-secondary text-foreground hover:bg-accent",
-                                    "transition-colors whitespace-nowrap leading-none",
-                                    "disabled:opacity-30 disabled:cursor-not-allowed",
-                                    data.useCustom &&
-                                        "ring-2 ring-primary bg-primary/20 text-primary",
-                                )}
-                            >
-                                Custom size
-                            </button>
+                            {/* v1202: hidden while Custom is active — the ring on
+                                the carousel selector + the visible slider already
+                                show it's on, and the chevrons switch back to a
+                                preset. So it only ever appears in the OFF state. */}
+                            {!data.useCustom && (
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        data.useCustom = true;
+                                        questionModified();
+                                    }}
+                                    disabled={
+                                        !data.drag ||
+                                        ($askOnce && usedSigs.has("custom"))
+                                    }
+                                    className={cn(
+                                        "self-center py-2.5 px-6 rounded-md text-sm font-poppins font-semibold",
+                                        "bg-secondary text-foreground hover:bg-accent",
+                                        "transition-colors whitespace-nowrap leading-none",
+                                        "disabled:opacity-30 disabled:cursor-not-allowed",
+                                    )}
+                                >
+                                    Custom size
+                                </button>
+                            )}
 
-                            {/* Custom slider — only when Custom is active. v747:
-                                dropped the unit selector (the slider range is a
-                                sensible km window); the number is centered above
-                                the slider with a bigger handle + more-visible
-                                track. */}
+                            {/* Custom slider — only when Custom is active. The
+                                number is edited in the carousel selector above; this
+                                is the coarse control. */}
                             {data.useCustom && (
-                                <div className="flex flex-col gap-3 pt-1">
-                                    <input
-                                        type="range"
-                                        min={0}
-                                        max={SLIDER_TRACK}
-                                        step={1}
-                                        value={radiusToSlider(data.radius)}
-                                        disabled={!isQuestionEditable(data) || $isLoading}
-                                        onChange={(e) =>
-                                            questionModified(
-                                                (data.radius = sliderToRadius(
-                                                    parseInt(
-                                                        e.target.value,
-                                                        10,
-                                                    ),
-                                                )),
-                                            )
-                                        }
-                                        className={cn(
-                                            "w-full appearance-none cursor-pointer",
-                                            // Higher-contrast track — bg-muted was
-                                            // nearly invisible in dark mode.
-                                            "h-3 rounded-full bg-foreground/20 ring-1 ring-inset ring-foreground/25",
-                                            "accent-primary",
-                                            "[&::-webkit-slider-thumb]:appearance-none",
-                                            "[&::-webkit-slider-thumb]:h-7 [&::-webkit-slider-thumb]:w-7",
-                                            "[&::-webkit-slider-thumb]:rounded-full",
-                                            "[&::-webkit-slider-thumb]:bg-primary",
-                                            "[&::-webkit-slider-thumb]:shadow-md",
-                                            "[&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-white",
-                                            "[&::-webkit-slider-thumb]:-mt-2",
-                                            "[&::-moz-range-thumb]:h-7 [&::-moz-range-thumb]:w-7",
-                                            "[&::-moz-range-thumb]:rounded-full",
-                                            "[&::-moz-range-thumb]:bg-primary",
-                                            "[&::-moz-range-thumb]:border-2 [&::-moz-range-thumb]:border-white",
-                                            "disabled:opacity-50 disabled:cursor-not-allowed",
-                                        )}
-                                    />
-                                </div>
+                                <input
+                                    type="range"
+                                    min={0}
+                                    max={SLIDER_TRACK}
+                                    step={1}
+                                    value={radiusToSlider(data.radius)}
+                                    disabled={
+                                        !isQuestionEditable(data) || $isLoading
+                                    }
+                                    onChange={(e) =>
+                                        questionModified(
+                                            (data.radius = sliderToRadius(
+                                                parseInt(e.target.value, 10),
+                                            )),
+                                        )
+                                    }
+                                    className={cn(
+                                        // v1202: the input is as TALL as the thumb
+                                        // and the visible track is a `h-3` pseudo-
+                                        // element auto-centred inside it, so the
+                                        // thumb sits dead-centre on the track (the
+                                        // old h-3 input + -mt-2 hack read off-centre).
+                                        "w-full h-7 appearance-none bg-transparent cursor-pointer",
+                                        // Track — a muted groove that reads in both
+                                        // themes without the washed-out look.
+                                        "[&::-webkit-slider-runnable-track]:h-3 [&::-webkit-slider-runnable-track]:rounded-full [&::-webkit-slider-runnable-track]:bg-muted-foreground/30",
+                                        "[&::-moz-range-track]:h-3 [&::-moz-range-track]:rounded-full [&::-moz-range-track]:bg-muted-foreground/30",
+                                        // Thumb — brand red, white ring; -mt-2
+                                        // centres the 28px thumb on the 12px track.
+                                        "[&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:h-7 [&::-webkit-slider-thumb]:w-7 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-primary [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-white [&::-webkit-slider-thumb]:shadow-md [&::-webkit-slider-thumb]:-mt-2",
+                                        "[&::-moz-range-thumb]:h-7 [&::-moz-range-thumb]:w-7 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-primary [&::-moz-range-thumb]:border-2 [&::-moz-range-thumb]:border-white",
+                                        "disabled:opacity-50 disabled:cursor-not-allowed",
+                                    )}
+                                />
                             )}
                         </div>
                     );

@@ -448,6 +448,24 @@ SMALL piece (`area < 5 km²`): the big ocean is left to the chunking (buffering 
 whole is the perf hit the grid exists to avoid, and it already tests in-result).
 `tsc` + 284 tests green.
 
+**v1202 — radar custom-slider polish + smoother map radius animation.** Five
+tweaks: (1) the slider **thumb is vertically centred** on the track — the input is
+now as tall as the thumb (`h-7`) with the visible track a `h-3` pseudo-element
+(`::-webkit-slider-runnable-track` / `::-moz-range-track`) auto-centred inside it,
+so the 28px thumb sits dead-centre on the 12px track (the old `h-3` input + `-mt-2`
+read off-centre). (2) The **"Custom size" button is hidden while custom is active**
+(the carousel selector's ring + the visible slider already show it's on; the
+chevrons switch back to a preset). (3) **Spacing is uniform** — the slider is a
+direct child of the `gap-3` controls column (dropped its extra `pt-1` wrapper), so
+the gap above the button/slider matches. (4) **Track colour** → `bg-muted-foreground/30`
+(a muted groove that reads in both themes, replacing the washed-out `bg-foreground/20`).
+(5) **The map radius animation is smooth** (`InlineLocationPicker`): dragging the
+slider streams `radiusMeters`, and the old code restarted a 400ms `fitBounds` AND a
+420ms circle tween on every step → choppy. Now the camera fit is **debounced ~150ms**
+(fires once after the value settles) and the circle **snaps during a rapid change
+stream** (a drag) while still **tweening a discrete jump** (a preset pick). `tsc` +
+284 tests green.
+
 **v1201 — configure map shrinks via a real FLEX chain (replaces the v1200 clamp
 workaround) + map section flattened to one layer.** The v1200 map-shrink used a
 fixed-budget `clamp(…, calc(100dvh - 28rem))` that couldn't track the actual
