@@ -448,6 +448,23 @@ SMALL piece (`area < 5 km²`): the big ocean is left to the chunking (buffering 
 whole is the perf hit the grid exists to avoid, and it already tests in-result).
 `tsc` + 284 tests green.
 
+**v1204 — matching configure map frames the SPLIT better (reference + the
+edge).** The v1184 matching fit framed the whole "match" (`impact.yes`) region.
+That's right for a COMPACT match island surrounded by no-match (its perimeter IS
+the edge, all on screen), but when the play area divides into one big match half
++ one no-match half, framing the whole match half zooms out past the interesting
+part — the reference location and the match/no-match boundary. `InlineLocationPicker`
+now branches: it measures the match bbox against the whole play-area bbox (`yes`
+∪ `no`) and, if the match region is COMPACT (≤72% of the area in both dims), keeps
+the whole-region frame; otherwise (a SPLIT) it frames the REFERENCE + the seeker +
+the nearest point of the match/no DIVIDER — so the reference and the edge are both
+on screen instead of a zoomed-out all-match half. The divider is the internal
+segments the two outlines share (`matchNoDivider` → `polygonToLine` +
+`lineOverlap`, excluding the play-area edge), and the nearest divider point to the
+reference is found with `nearestPointOnLine`. Falls back to the whole-region frame
+when there's no reference (admin/landmass/street matching) or the divider can't be
+computed. `tsc` + 284 tests green.
+
 **v1203 — endgame-trigger button fixes (seeker `HiderTimer` + `EndgameOverlay`).**
 Four fixes to the v1189 "Start endgame" button beside the seeker timer. (1) The
 button now sits to the **LEFT** of the timer (a `flex items-end gap-2` row with

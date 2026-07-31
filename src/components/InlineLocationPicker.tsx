@@ -7,7 +7,10 @@ import {
     booleanPointInPolygon,
     circle as turfCircle,
     featureCollection,
+    lineOverlap,
+    nearestPointOnLine,
     point as turfPoint,
+    polygonToLine,
     voronoi,
 } from "@turf/turf";
 import type maplibregl from "maplibre-gl";
@@ -156,6 +159,62 @@ function matchingBorderIndices(
         return [...keep];
     } catch (e) {
         console.warn("[impact] matching border pass failed:", e);
+        return null;
+    }
+}
+
+/** Every ring of a polygon feature as one flat MultiLineString (handles
+ *  Polygon, Polygon-with-holes, and MultiPolygon uniformly). */
+function polygonOutlineML(
+    poly: GeoJSON.Feature<GeoJSON.Polygon | GeoJSON.MultiPolygon>,
+): GeoJSON.Feature<GeoJSON.MultiLineString> | null {
+    try {
+        const line = polygonToLine(poly);
+        const coords: GeoJSON.Position[][] = [];
+        const collect = (g: GeoJSON.Geometry) => {
+            if (g.type === "LineString") coords.push(g.coordinates);
+            else if (g.type === "MultiLineString") coords.push(...g.coordinates);
+        };
+        if (line.type === "FeatureCollection") {
+            for (const f of line.features) collect(f.geometry);
+        } else {
+            collect(line.geometry);
+        }
+        if (coords.length === 0) return null;
+        return {
+            type: "Feature",
+            properties: {},
+            geometry: { type: "MultiLineString", coordinates: coords },
+        };
+    } catch {
+        return null;
+    }
+}
+
+/** The INTERNAL divide between the "match" and "no-match" regions — the
+ *  segments their outlines share (i.e. NOT the play-area edge). Used to
+ *  frame the configure map on the reference + the nearest bit of that edge
+ *  when the play area splits into one big match half + one no-match half
+ *  (v1204). Null when they share no interior edge. */
+function matchNoDivider(
+    yes: GeoJSON.Feature<GeoJSON.Polygon | GeoJSON.MultiPolygon>,
+    no: GeoJSON.Feature<GeoJSON.Polygon | GeoJSON.MultiPolygon>,
+): GeoJSON.Feature<GeoJSON.MultiLineString> | null {
+    try {
+        const a = polygonOutlineML(yes);
+        const b = polygonOutlineML(no);
+        if (!a || !b) return null;
+        const overlap = lineOverlap(a, b, { tolerance: 0.01 });
+        const coords = overlap.features
+            .map((f) => f.geometry.coordinates)
+            .filter((c) => c.length >= 2);
+        if (coords.length === 0) return null;
+        return {
+            type: "Feature",
+            properties: {},
+            geometry: { type: "MultiLineString", coordinates: coords },
+        };
+    } catch {
         return null;
     }
 }
@@ -623,45 +682,114 @@ export function InlineLocationPicker({
         );
     }, [safeLat, safeLng, referencePoint?.lat, referencePoint?.lng]);
 
-    // v1184: MATCHING → frame the impact SPLIT, not the seeker's cell. Fit to
-    // the "matching" (yes) region — the seeker's Voronoi cell — so its edges
-    // (where the answer flips to non-matching) are on screen. That shows an
-    // even-ish split of matching vs non-matching, unlike the old seeker+
-    // reference fit which sat entirely inside the matching cell (all one
-    // colour = no useful impact info). Only when BOTH regions exist (a real
-    // split); deduped on the cell bbox; gated on `mapReady` so a cell that
-    // resolved before the map loaded still frames once it's ready.
+    // MATCHING → frame the impact SPLIT, not the seeker's cell (the v1184
+    // seeker+reference fit sat entirely inside the matching cell = an all-one-
+    // colour view with no impact info, the airport bug). Two shapes need two
+    // framings (v1204):
+    //   • COMPACT match region — an island of "match" surrounded by "no": its
+    //     whole perimeter IS the edge, so framing the match region shows the
+    //     reference + every edge at once. (This is the v1184 behaviour.)
+    //   • SPLIT — the play area divides into one big match half + one no half:
+    //     framing the whole match half zooms out past the interesting part, so
+    //     instead frame the REFERENCE + the nearest point of the match/no
+    //     DIVIDER (+ the seeker), putting the reference and the edge on screen.
+    // Only when BOTH regions exist; deduped on the match bbox + reference;
+    // gated on `mapReady` so a region resolved before the map loaded still
+    // frames once it's ready.
     const lastMatchFitRef = useRef<string>("");
     useEffect(() => {
         if (impactMode !== "matching") return;
         const yes = impact?.yes;
-        if (!yes || !impact?.no) return;
+        const no = impact?.no;
+        if (!yes || !no) return;
         const map = mapRef.current?.getMap();
         if (!map) return;
-        let bb: [number, number, number, number];
+        let yesBb: [number, number, number, number];
         try {
-            bb = turfBbox(yes) as [number, number, number, number];
+            yesBb = turfBbox(yes) as [number, number, number, number];
         } catch {
             return;
         }
-        const [minX, minY, maxX, maxY] = bb;
-        if (![minX, minY, maxX, maxY].every((n) => Number.isFinite(n))) return;
-        const key = `${minX.toFixed(3)},${minY.toFixed(3)},${maxX.toFixed(3)},${maxY.toFixed(3)}`;
+        if (!yesBb.every((n) => Number.isFinite(n))) return;
+        const refKey = referencePoint
+            ? `${referencePoint.lat.toFixed(3)},${referencePoint.lng.toFixed(3)}`
+            : "";
+        const key = `${yesBb.map((n) => n.toFixed(3)).join(",")}|${refKey}`;
         if (lastMatchFitRef.current === key) return;
+
+        const hasRef =
+            !!referencePoint &&
+            Number.isFinite(referencePoint.lat) &&
+            Number.isFinite(referencePoint.lng);
+
+        let target: [number, number, number, number] = yesBb;
+        try {
+            const fullBb = turfBbox(featureCollection([yes, no])) as [
+                number,
+                number,
+                number,
+                number,
+            ];
+            const yesW = yesBb[2] - yesBb[0];
+            const yesH = yesBb[3] - yesBb[1];
+            const fullW = fullBb[2] - fullBb[0] || 1e-9;
+            const fullH = fullBb[3] - fullBb[1] || 1e-9;
+            // Compact = the match region covers well under the whole play area
+            // in BOTH dimensions → an island → frame the match region itself.
+            const compact = yesW <= fullW * 0.72 && yesH <= fullH * 0.72;
+
+            if (!compact && hasRef && referencePoint) {
+                const ref = turfPoint([
+                    referencePoint.lng,
+                    referencePoint.lat,
+                ]);
+                const pts: [number, number][] = [
+                    [referencePoint.lng, referencePoint.lat],
+                    [safeLng, safeLat],
+                ];
+                const divider = matchNoDivider(yes, no);
+                if (divider) {
+                    const np = nearestPointOnLine(divider, ref);
+                    const c = np.geometry.coordinates;
+                    if (Number.isFinite(c[0]) && Number.isFinite(c[1]))
+                        pts.push([c[0], c[1]]);
+                }
+                const lngs = pts.map((p) => p[0]);
+                const lats = pts.map((p) => p[1]);
+                target = [
+                    Math.min(...lngs),
+                    Math.min(...lats),
+                    Math.max(...lngs),
+                    Math.max(...lats),
+                ];
+            }
+        } catch {
+            target = yesBb;
+        }
+        if (!target.every((n) => Number.isFinite(n))) return;
         try {
             map.fitBounds(
                 [
-                    [minX, minY],
-                    [maxX, maxY],
+                    [target[0], target[1]],
+                    [target[2], target[3]],
                 ],
-                { padding: 28, maxZoom: 14, duration: 400 },
+                { padding: 40, maxZoom: 14, duration: 400 },
             );
             lastMatchFitRef.current = key;
         } catch {
             /* map not ready — retry on a later render */
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [impactMode, impact?.yes, impact?.no, mapReady]);
+    }, [
+        impactMode,
+        impact?.yes,
+        impact?.no,
+        referencePoint?.lat,
+        referencePoint?.lng,
+        safeLat,
+        safeLng,
+        mapReady,
+    ]);
 
     // Radar: reframe to fit the whole radius circle whenever the RADIUS
     // changes — i.e. the seeker picked a different preset size. Guarded on
