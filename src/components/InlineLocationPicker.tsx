@@ -821,58 +821,9 @@ export function InlineLocationPicker({
         mapReady,
     ]);
 
-    // Radar: reframe to fit the whole radius circle whenever the RADIUS
-    // changes — i.e. the seeker picked a different preset size. Guarded on
-    // the radius value so dragging the pin (which also moves safeLat/Lng)
-    // doesn't yank the camera; only a genuine size change reframes. The
-    // very first radius is already framed by initialViewState's
-    // zoomForRadius, so we skip that and only animate later changes.
-    const lastRadiusRef = useRef<number | undefined>(undefined);
-    const fitTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(
-        undefined,
-    );
-    useEffect(() => {
-        if (radiusMeters == null || radiusMeters <= 0) {
-            lastRadiusRef.current = radiusMeters ?? undefined;
-            return;
-        }
-        if (lastRadiusRef.current === radiusMeters) return;
-        const isFirst = lastRadiusRef.current === undefined;
-        lastRadiusRef.current = radiusMeters;
-        if (isFirst) return;
-        const map = mapRef.current?.getMap();
-        if (!map) return;
-        // v1202: DEBOUNCE the camera fit. While dragging the slider `radiusMeters`
-        // streams in; re-fitting on every step restarts a 400ms fitBounds
-        // animation each frame, which never settles → the choppy zoom the user
-        // saw. Fit ONCE, ~150ms after the value stops changing, so the camera
-        // glides smoothly to the final framing.
-        if (fitTimerRef.current !== undefined) clearTimeout(fitTimerRef.current);
-        const r = radiusMeters;
-        fitTimerRef.current = setTimeout(() => {
-            try {
-                const circle = turfCircle([safeLng, safeLat], r / 1000, {
-                    steps: 64,
-                    units: "kilometers",
-                });
-                const [minX, minY, maxX, maxY] = turfBbox(circle);
-                map.fitBounds(
-                    [
-                        [minX, minY],
-                        [maxX, maxY],
-                    ],
-                    { padding: 32, duration: 400 },
-                );
-            } catch {
-                /* ignore — map may not be ready */
-            }
-        }, 150);
-        return () => {
-            if (fitTimerRef.current !== undefined)
-                clearTimeout(fitTimerRef.current);
-        };
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [radiusMeters, safeLat, safeLng]);
+    // Radar camera reframing is unified with the circle-grow animation below
+    // (v1208) so the two move together — see the single rAF "chase" loop after
+    // `maskInverted`. (There is no standalone radar camera-fit effect anymore.)
 
     // Tentacle: FRAME the actual reach circle (not a fixed zoom 13, which
     // showed only the centre and read as "centred on the play area"). We fit to
@@ -938,47 +889,103 @@ export function InlineLocationPicker({
         }
     }, [$maskData]);
 
-    // Smoothly grow/shrink the radius circle when the size changes (v747),
-    // so the overlay animates in step with the camera's animated fitBounds
-    // above instead of snapping. Tween the RENDERED radius over ~420 ms with
-    // an ease-out cubic; a fresh mount / null radius / pin drag snaps (the
-    // effect only runs on a real radius change). MapLibre GeoJSON sources
-    // don't tween geometry natively, so we drive it via requestAnimationFrame.
+    // v1208: ONE animation drives BOTH the radius overlay circle AND the map
+    // reframing, so they move SIMULTANEOUSLY and smoothly (the earlier design
+    // ran them separately — circle live, camera debounced — which read as two
+    // sequential, choppy steps). A single rAF "chase" loop eases a displayed
+    // radius toward the target with frame-rate-independent exponential
+    // smoothing; every frame it (a) sets `animatedRadius` (→ the turf circle)
+    // and (b) `jumpTo`s the camera to the CONTINUOUS zoom that frames that same
+    // radius around the pin. Because both read the one eased value each frame
+    // they stay locked together. The chase handles BOTH a discrete preset pick
+    // (eases over a few frames) and a continuous slider drag (tracks the finger
+    // with a tiny lag) — no restart-on-every-step stutter, because a new target
+    // just nudges the running loop instead of starting a fresh fixed-duration
+    // tween. `jumpTo` is instant per frame, so nothing fights it.
     const [animatedRadius, setAnimatedRadius] = useState<number>(
         radiusMeters && radiusMeters > 0 ? radiusMeters : 0,
     );
-    const radiusAnimRef = useRef<number | undefined>(undefined);
-    const lastRadiusChangeTs = useRef<number>(0);
+    const displayRadiusRef = useRef<number>(
+        radiusMeters && radiusMeters > 0 ? radiusMeters : 0,
+    );
+    const targetRadiusRef = useRef<number>(
+        radiusMeters && radiusMeters > 0 ? radiusMeters : 0,
+    );
+    const chaseRafRef = useRef<number | undefined>(undefined);
+    const chaseStartedRef = useRef<boolean>(false);
+    // Keep the pin location fresh for the loop without re-triggering it.
+    const pinRef = useRef({ lat: safeLat, lng: safeLng });
+    useEffect(() => {
+        pinRef.current = { lat: safeLat, lng: safeLng };
+    }, [safeLat, safeLng]);
     useEffect(() => {
         const target = radiusMeters && radiusMeters > 0 ? radiusMeters : 0;
-        const from = radiusAnimRef.current;
-        radiusAnimRef.current = target;
-        // v1202: SNAP during a rapid change stream (a slider drag) — the drag
-        // already supplies continuous values, so tweening every step fought the
-        // stream and looked choppy. Tween ONLY a discrete jump (a preset pick),
-        // where there's a single change after a pause.
-        const now =
-            typeof performance !== "undefined" ? performance.now() : 0;
-        const rapid = now - lastRadiusChangeTs.current < 140;
-        lastRadiusChangeTs.current = now;
-        // Snap on first value, no change, clearing to 0 (radar off), or a drag.
-        if (from === undefined || from === target || target === 0 || rapid) {
+        // SNAP (no camera move) on the very first value, when radar is cleared,
+        // or when growing from nothing — the initial view already frames it via
+        // zoomForRadius, so we don't yank the camera on mount.
+        if (
+            !chaseStartedRef.current ||
+            target === 0 ||
+            displayRadiusRef.current === 0
+        ) {
+            chaseStartedRef.current = true;
+            displayRadiusRef.current = target;
+            targetRadiusRef.current = target;
             setAnimatedRadius(target);
             return;
         }
-        const DURATION = 420;
-        const ease = (t: number) => 1 - Math.pow(1 - t, 3);
-        let raf = 0;
-        let startTs: number | null = null;
-        const step = (ts: number) => {
-            if (startTs === null) startTs = ts;
-            const t = Math.min(1, (ts - startTs) / DURATION);
-            setAnimatedRadius(from + (target - from) * ease(t));
-            if (t < 1) raf = requestAnimationFrame(step);
+        targetRadiusRef.current = target;
+        if (chaseRafRef.current != null) return; // loop already running
+        let lastTs =
+            typeof performance !== "undefined" ? performance.now() : 0;
+        const TAU_MS = 55; // smoothing time constant — snappy but smooth
+        const tick = (ts: number) => {
+            const dt = Math.min(64, Math.max(0, ts - lastTs));
+            lastTs = ts;
+            const tgt = targetRadiusRef.current;
+            let cur = displayRadiusRef.current;
+            const alpha = 1 - Math.exp(-dt / TAU_MS);
+            cur = cur + (tgt - cur) * alpha;
+            // Settle when within 0.2% (or 1 m) so the loop stops cleanly.
+            if (Math.abs(tgt - cur) <= Math.max(1, tgt * 0.002)) cur = tgt;
+            displayRadiusRef.current = cur;
+            setAnimatedRadius(cur);
+            const map = mapRef.current?.getMap();
+            if (map && cur > 0) {
+                try {
+                    const el = map.getContainer();
+                    const minPx =
+                        Math.min(el.clientWidth, el.clientHeight) || 300;
+                    const z = zoomToFitRadius(
+                        cur,
+                        pinRef.current.lat,
+                        minPx,
+                        32,
+                    );
+                    map.jumpTo({
+                        center: [pinRef.current.lng, pinRef.current.lat],
+                        zoom: z,
+                    });
+                } catch {
+                    /* map not ready — next frame retries */
+                }
+            }
+            if (cur !== tgt) {
+                chaseRafRef.current = requestAnimationFrame(tick);
+            } else {
+                chaseRafRef.current = undefined;
+            }
         };
-        raf = requestAnimationFrame(step);
-        return () => cancelAnimationFrame(raf);
+        chaseRafRef.current = requestAnimationFrame(tick);
     }, [radiusMeters]);
+    // Cancel the chase loop on unmount.
+    useEffect(
+        () => () => {
+            if (chaseRafRef.current != null)
+                cancelAnimationFrame(chaseRafRef.current);
+        },
+        [],
+    );
 
     // Pre-compute the radius circle as a turf polygon from the ANIMATED
     // radius; cheaper than re-running on every render.
@@ -1985,6 +1992,28 @@ function zoomForRadius(radiusMeters: number): number {
     if (km <= 100) return 6;
     if (km <= 200) return 5;
     return 4;
+}
+
+/** CONTINUOUS Web-Mercator zoom (fractional) that fits a circle of the given
+ *  radius into the map viewport with `padding` px on each side. Unlike the
+ *  stepped `zoomForRadius` (fine for the initial frame), this returns a smooth
+ *  value so the radar reframe animation can zoom frame-by-frame without jumping
+ *  between integer levels (v1208). Constrained by the SMALLER viewport
+ *  dimension so the whole circle fits both axes. */
+function zoomToFitRadius(
+    radiusMeters: number,
+    lat: number,
+    viewportMinPx: number,
+    padding: number,
+): number {
+    const EARTH_CIRCUM = 156543.03392; // metres/pixel at zoom 0, equator
+    const usable = Math.max(50, viewportMinPx - 2 * padding);
+    // The circle's DIAMETER (2r) must span `usable` px.
+    const metersPerPixel = (2 * radiusMeters) / usable;
+    const cosLat = Math.cos((lat * Math.PI) / 180) || 1e-6;
+    const z = Math.log2((EARTH_CIRCUM * cosLat) / metersPerPixel);
+    // Clamp to sane bounds so a degenerate value can't blow up the camera.
+    return Math.max(1, Math.min(20, z));
 }
 
 const PIN_SVG = `

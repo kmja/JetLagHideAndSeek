@@ -448,6 +448,22 @@ SMALL piece (`area < 5 km²`): the big ocean is left to the chunking (buffering 
 whole is the perf hit the grid exists to avoid, and it already tests in-result).
 `tsc` + 284 tests green.
 
+**v1208 — radar preview: circle overlay + map reframe animate together, smooth.**
+The radar configure map's radius-overlay grow/shrink and the camera reframe ran
+as two SEPARATE animations (v1202: circle live, camera debounced ~150 ms), so
+they read as sequential/choppy. They're now driven by ONE rAF "chase" loop
+(`InlineLocationPicker`): a displayed radius eases toward the target with
+frame-rate-independent exponential smoothing (τ≈55 ms), and every frame it both
+sets `animatedRadius` (→ the turf circle) AND `jumpTo`s the camera to the
+CONTINUOUS Mercator zoom that frames that same radius around the pin (new
+`zoomToFitRadius` — fractional, so the camera glides instead of jumping between
+integer zoom levels). Because both read the one eased value each frame they stay
+locked together; a discrete preset pick eases over a few frames and a continuous
+slider drag tracks the finger with a tiny lag — no restart-per-step stutter,
+since a new target just nudges the running loop. `jumpTo` is instant per frame so
+nothing fights it. Replaced the debounced camera-fit + the separate circle tween.
+`tsc` + 284 tests green.
+
 **v1207 — admin-division ("zone") matching questions named by level, dropdown
 gone.** The admin-division matching question showed a generic "Zone" header + an
 admin-level dropdown in the configure card — but each admin tier is picked as its
