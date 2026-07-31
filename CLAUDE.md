@@ -448,6 +448,13 @@ SMALL piece (`area < 5 km²`): the big ocean is left to the chunking (buffering 
 whole is the perf hit the grid exists to avoid, and it already tests in-result).
 `tsc` + 284 tests green.
 
+**v1217 — hider nav Zone slot always reads "Zone".** The hider bottom-nav Zone
+slot label was `$hidingZone === null ? "Select zone" : "Zone"`; it now always
+reads "Zone" (`HiderBottomNav`). Confirmed both nav bars' slot labels are already
+`text-xs` (shared `NAV_LABEL_CLASS` / `NAV_PRIMARY_LABEL_CLASS`, v1183); the only
+sub-`text-xs` in the nav primitives is the numeric count `NavBadge` (`text-[9px]`,
+a deliberate skip). `tsc` + 284 tests green.
+
 **v1216 — bigger "Hide here" button + lock-in dialog map loading state.** Two
 tweaks. (1) The `StationTransitCard` "Hide here" commit button is now the
 design-system's largest size (`size="lg"`, h-12) and the "Lock in this station…"
