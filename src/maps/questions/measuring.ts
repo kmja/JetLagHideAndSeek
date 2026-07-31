@@ -46,6 +46,7 @@ import {
     getDissolvedBasemapSea,
     getDissolvedBasemapWater,
     hasBasemapWater,
+    nearestBasemapWater,
 } from "@/maps/api/basemapWater";
 import { lastBodyOfWaterDiag } from "@/lib/debugState";
 import { majorCityPoints } from "@/maps/data/majorCities";
@@ -966,6 +967,30 @@ const bufferedDeterminer = memoize(
                                 } else {
                                     areaInfo += " ocean-pt=none";
                                 }
+                                // v1190 DECISIVE: is the LABELLED reference (the
+                                // nearest water to the seeker) in the closer
+                                // result? It's ON water (distance 0 < r) so it
+                                // MUST be Y — an N means the buffer is broken
+                                // near the SEEKER (a chunking artifact), which is
+                                // exactly what puts the reference in "further".
+                                // Also report the seeker itself (should be ~on
+                                // the boundary, i.e. borderline Y/N).
+                                const ref = nearestBasemapWater(
+                                    question.lat,
+                                    question.lng,
+                                );
+                                if (ref) {
+                                    const refIn = turf.booleanPointInPolygon(
+                                        turf.point([ref.lng, ref.lat]),
+                                        gridded as never,
+                                    );
+                                    areaInfo += ` ref@${ref.lat.toFixed(3)},${ref.lng.toFixed(3)}(${Math.round(ref.distanceMeters)}m)-in=${refIn ? "Y" : "N"}`;
+                                }
+                                const skIn = turf.booleanPointInPolygon(
+                                    turf.point([question.lng, question.lat]),
+                                    gridded as never,
+                                );
+                                areaInfo += ` seeker-in=${skIn ? "Y" : "N"}`;
                             } catch {
                                 /* ignore */
                             }

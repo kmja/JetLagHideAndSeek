@@ -432,6 +432,21 @@ bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
 build stamp. Current: `v1069`. Use `git log` for the per-version detail;
 
+**v1190 — body-of-water DECISIVE diagnostic (`ref-in`/`seeker-in`).** A live NYC
+`[bow]` reading proved the buffer is correct (`src=basemap-water feats=344 …
+biggest=ocean/62km² → bufferWaterGrid ok (5x5) area=3438km² ocean@…-in-result=Y`)
+— the water source + closer region are right, so the failure is elsewhere. The
+existing `ocean-in-result=Y` check uses a FAR-south ocean point, not the seeker's
+vicinity, so it can't tell "buffer broken near the seeker (chunking artifact)"
+from "render/label issue". Added a targeted check to the `bufferWaterGrid`
+diagnostic: `ref@lat,lng(Nm)-in=Y/N` (is the LABELLED nearest-water reference — on
+water, distance 0 < r, so it MUST be Y — actually in the computed closer region?)
++ `seeker-in=Y/N`. A `ref…-in=N` pinpoints a chunking artifact near the seeker;
+`ref…-in=Y` means the geometry is right and the confusion is the render or the
+`named=0` label (the offline tile pack strips water names — the v1164 limitation —
+so the label grabs a nondescript nearby "Water" instead of naming the river).
+Diagnostic-only; no behaviour change.
+
 **v1189 — second endgame entry: a "Start endgame" button beside the seeker
 timer.** v623/v624 moved the endgame trigger onto the map (tap the hider's zone
 → `StationTransitCard` "Start endgame here") and removed the timer button; this
