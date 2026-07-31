@@ -432,6 +432,20 @@ bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
 build stamp. Current: `v1069`. Use `git log` for the per-version detail;
 
+**v1189 — second endgame entry: a "Start endgame" button beside the seeker
+timer.** v623/v624 moved the endgame trigger onto the map (tap the hider's zone
+→ `StationTransitCard` "Start endgame here") and removed the timer button; this
+adds a SECOND entry back on the seeker `HiderTimer` (they can be hard to
+discover via the zone tap alone). It shows once the hiding period is over and
+until a claim is armed / the hider is found (`!inHidingPeriod && !$foundAt &&
+$endgameStartedAt === null`), sits above the timer, and calls
+`seekerStartEndgame()` with NO specific zone (behind a confirm) — the server
+validates the seeker's live GPS against the hider's actual zone exactly like the
+zone-tap path (wrong claim → `endgameDenied` overlay; correct → arms + flips the
+timer to "In the zone" + "Mark hider found"). Solo/offline arms locally. The only
+difference from the zone-tap entry is no `pendingEndgameZone`, so a
+timer-triggered success doesn't map-cut to a specific zone.
+
 **v1188 — station-card + outcome-map polish.** From live seeker screenshots:
 (1) **Tap anywhere in a hiding zone selects it (seeker), instantly** — the
 `StationTransitCard` selection: a tap on the shaded `hiding-zones-fill` now
