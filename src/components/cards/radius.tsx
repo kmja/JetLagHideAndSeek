@@ -5,10 +5,7 @@ import React from "react";
 import { LatitudeLongitude } from "@/components/LatLngPicker";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import {
-    MENU_ITEM_CLASSNAME,
-    SidebarMenuItem,
-} from "@/components/ui/sidebar-l";
+import { SidebarMenuItem } from "@/components/ui/sidebar-l";
 import {
     hiderMode,
     isLoading,
@@ -122,18 +119,29 @@ const CustomRadiusInput = ({
     const round = (n: number) =>
         data.unit === "meters" ? Math.round(n) : Math.round(n * 100) / 100;
     const fmt = (n: number) => String(round(n));
-    const [text, setText] = React.useState(() => fmt(data.radius));
-    const [focused, setFocused] = React.useState(false);
-    // Reflect external changes (slider drag, preset pick, unit switch) while the
-    // field isn't being edited, so the number always matches the live radius.
+    // `draft` = the in-progress typed string; null = mirror `data.radius`. Using a
+    // draft (instead of a `focused`-guarded copy) fixes the v1199 bug where editing
+    // the number then dragging the slider RIGHT AWAY froze both the number and the
+    // map: the old `onBlur` committed the stale typed value back onto `data.radius`
+    // (overwriting the slider), and the `!focused` guard blocked the display from
+    // following the slider. Now an EXTERNAL change to `data.radius` (slider / preset)
+    // drops the draft so the field tracks it, and blur never overwrites.
+    const [draft, setDraft] = React.useState<string | null>(null);
+    // The radius value WE last wrote — so a change from ANY other source is
+    // detectable and clears the draft (our own writes don't).
+    const ourValueRef = React.useRef(data.radius);
     React.useEffect(() => {
-        if (!focused) setText(fmt(data.radius));
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [data.radius, data.unit, focused]);
+        if (data.radius !== ourValueRef.current) {
+            ourValueRef.current = data.radius;
+            setDraft(null); // external change (slider / preset) → show live value
+        }
+    }, [data.radius]);
+    const value = draft ?? fmt(data.radius);
     const commit = (raw: string) => {
         const n = parseFloat(raw);
         if (!Number.isFinite(n) || n <= 0) return; // ignore partial / empty input
         const clamped = round(Math.max(min, Math.min(max, n)));
+        ourValueRef.current = clamped; // our own write — not an "external" change
         if (clamped !== data.radius) questionModified((data.radius = clamped));
     };
     return (
@@ -144,22 +152,15 @@ const CustomRadiusInput = ({
                 step="any"
                 min={min}
                 max={max}
-                value={text}
+                value={value}
                 disabled={disabled}
                 aria-label="Custom radar distance"
-                onFocus={(e) => {
-                    setFocused(true);
-                    e.currentTarget.select();
-                }}
+                onFocus={(e) => e.currentTarget.select()}
                 onChange={(e) => {
-                    setText(e.target.value);
+                    setDraft(e.target.value);
                     commit(e.target.value);
                 }}
-                onBlur={() => {
-                    setFocused(false);
-                    commit(text);
-                    setText(fmt(data.radius));
-                }}
+                onBlur={() => setDraft(null)}
                 className={cn(
                     "w-24 text-center text-3xl font-poppins font-bold text-primary tabular-nums leading-none",
                     "bg-transparent outline-none",
@@ -328,12 +329,10 @@ export const RadiusQuestionComponent = ({
                     };
 
                     return (
-                        <div
-                            className={cn(
-                                MENU_ITEM_CLASSNAME,
-                                "flex flex-col gap-3",
-                            )}
-                        >
+                        // v1200: a plain full-width column — NOT MENU_ITEM_CLASSNAME
+                        // (which added a `p-2` inset + a stray hover tint), so the
+                        // carousel + slider span the full dialog content width.
+                        <div className="flex w-full flex-col gap-3">
                             {/* Radar-size CAROUSEL (v747). The old 5-up
                                 preset grid + "Other" popover was replaced
                                 with a single prev/next cycler over all nine

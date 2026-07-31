@@ -448,6 +448,27 @@ SMALL piece (`area < 5 km²`): the big ocean is left to the chunking (buffering 
 whole is the perf hit the grid exists to avoid, and it already tests in-result).
 `tsc` + 284 tests green.
 
+**v1200 — custom-radius edit-then-slider fix + full-width slider + configure map
+shrinks to fit.** Three configure-dialog fixes: (1) **editing the custom radius
+then dragging the slider right away froze both the number and the map** — the
+`CustomRadiusInput` `onBlur` committed the STALE typed value back onto `data.radius`
+(overwriting the slider) and its `!focused` guard blocked the display from following
+the slider. Rewritten to a `draft` + `ourValueRef` pattern (`cards/radius.tsx`): a
+change to `data.radius` from ANY other source (slider / preset) drops the draft so
+the field tracks it, and blur just clears the draft (never overwrites) — so the
+slider updates the number AND the map instantly after an edit. (2) **The slider now
+spans the full dialog width** — the radar controls container misused
+`MENU_ITEM_CLASSNAME` (a menu-ROW class that added a `p-2` inset + a stray hover
+tint); replaced with a plain `flex w-full flex-col`, so the carousel + slider reach
+the card edges. (3) **The configure map SHRINKS when the content would overflow**
+instead of the dialog body scrolling — `InlineLocationPicker`, only inside the
+configure dialog (`ConfigureDialogContext` present), sizes the map to
+`clamp(180px, 40vh, calc(100dvh - 28rem))` via an inline style (guaranteed to apply,
+unlike a Tailwind arbitrary class that could fail to generate + collapse the map):
+preferred 40vh, but never more than the viewport minus a chrome/controls budget,
+floored at 180px (below which the body still scrolls as a last resort). Every other
+picker (hider preview, list cards) keeps its passed height. `tsc` + 284 tests green.
+
 **v1199 — radar configure-card polish (dark-mode contrast + custom-size layout).**
 Five tweaks to `cards/radius.tsx` from a dark-mode screenshot: (1) the custom
 radius is now edited RIGHT IN the main carousel selector — when custom is active

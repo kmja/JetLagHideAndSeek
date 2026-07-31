@@ -928,6 +928,19 @@ export function InlineLocationPicker({
         cfgCtx?.onPickerReady(ready);
     }, [ready, cfgCtx]);
 
+    // v1200: inside the CONFIGURE dialog, the map SHRINKS so the dialog fits
+    // instead of the body scrolling when the controls above it are tall (e.g. the
+    // radar custom slider). It's the preferred `40vh`, but never more than the
+    // viewport minus a fixed budget for the dialog chrome + controls, floored at
+    // 180px (below which the body's `overflow-y-auto` scrolls as a last resort).
+    // Only in the configure dialog (cfgCtx present) — every other picker keeps the
+    // passed `height` class (hider preview, list cards, etc.). An inline style (not
+    // a Tailwind arbitrary class) so the clamp is guaranteed to apply — a class that
+    // failed to generate would collapse the map to 0.
+    const configureMapStyle = cfgCtx
+        ? { height: "clamp(180px, 40vh, calc(100dvh - 28rem))" }
+        : undefined;
+
     // v747: report WHICH load steps are still pending, so the dialog can show
     // a labelled loading state ("Loading map…", "Getting your location…")
     // instead of a blank skeleton. Keyed on a stable joined string so we only
@@ -1057,8 +1070,9 @@ export function InlineLocationPicker({
             <div
                 className={cn(
                     "relative w-full rounded-md overflow-hidden border border-border",
-                    height,
+                    cfgCtx ? undefined : height,
                 )}
+                style={configureMapStyle}
             >
                 <Map
                     ref={mapRef}
