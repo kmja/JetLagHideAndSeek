@@ -448,6 +448,15 @@ SMALL piece (`area < 5 km²`): the big ocean is left to the chunking (buffering 
 whole is the perf hit the grid exists to avoid, and it already tests in-result).
 `tsc` + 284 tests green.
 
+**v1216 — bigger "Hide here" button + lock-in dialog map loading state.** Two
+tweaks. (1) The `StationTransitCard` "Hide here" commit button is now the
+design-system's largest size (`size="lg"`, h-12) and the "Lock in this station…"
+helper line below it was removed. (2) `ZonePreviewMap` (the map preview in the
+lock-in confirm dialog) gained the standard map loading animation — it now wires
+`useMapTilesReady` + `MapTilesVeil` so the veil shows until the basemap tiles
+paint (dataReady always true — it's purely the tile-load wait), instead of tiles
+popping in over a bare frame. `tsc` + 284 tests green.
+
 **v1215 — overlapping in-zone taps pick the NEAREST centre (not the topmost).**
 Follow-up to v1214. The overlay-ON tap target (`hider-reach-hit`) is a small
 circle per station CENTRE, so tapping between overlapping zones reliably selects

@@ -522,18 +522,15 @@ export function StationTransitCard({
                         )}
 
                         {canCommitZone && (
-                            <div className="mt-3 space-y-1.5">
+                            <div className="mt-3">
                                 <Button
                                     type="button"
+                                    size="lg"
                                     onClick={handleCommitZone}
                                     className="w-full"
                                 >
                                     Hide here
                                 </Button>
-                                <p className="text-xs leading-snug text-muted-foreground text-center px-1">
-                                    Lock in this station as your hiding zone for
-                                    the round.
-                                </p>
                             </div>
                         )}
 

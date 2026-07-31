@@ -7,11 +7,14 @@ import MapGL, { Layer, type MapRef, Source } from "react-map-gl/maplibre";
 
 import { baseTileLayer, thunderforestApiKey } from "@/lib/context";
 import { satelliteView } from "@/lib/gameSetup";
+import { useMapTilesReady } from "@/hooks/useMapTilesReady";
 import { buildStyle } from "@/lib/mapStyle";
 import { installMissingImageHandler } from "@/lib/protomapsStyle";
 import { PLAY_AREA_COLOR } from "@/lib/playAreaStyle";
 import { resolvedTheme } from "@/lib/theme";
 import { cn } from "@/lib/utils";
+
+import { MapTilesVeil } from "./MapTilesVeil";
 
 /**
  * Small non-interactive map preview of a hiding-zone extent: the brand-red
@@ -56,6 +59,19 @@ export function ZonePreviewMap({
     const $tfKey = useStore(thunderforestApiKey);
     const dark = $theme === "dark";
     const mapRef = useRef<MapRef | null>(null);
+
+    // v1216: show the regular map loading animation until the basemap tiles
+    // paint (there's no external data, so `dataReady` is always true — the
+    // veil is purely the tile-load wait). Re-arms if the framed zone changes.
+    const {
+        showVeil,
+        timedOut,
+        onLoad: tilesOnLoad,
+        onIdle: tilesOnIdle,
+    } = useMapTilesReady({
+        dataReady: true,
+        resetKey: `${lat.toFixed(5)},${lng.toFixed(5)},${radiusMeters},${dark ? "d" : "l"},${$satellite ? "s" : "m"},${$tileKey}`,
+    });
 
     const cacheKey = snapshot
         ? `${lat.toFixed(5)},${lng.toFixed(5)},${radiusMeters},${padding},${dark ? "d" : "l"},${$satellite ? "s" : "m"},${$tileKey}`
@@ -160,19 +176,19 @@ export function ZonePreviewMap({
                 onLoad={(e) => {
                     installMissingImageHandler(e.target);
                     fit();
+                    tilesOnLoad();
                 }}
-                onIdle={
-                    snapshot
-                        ? () => {
-                              if (snapshotTimerRef.current !== null)
-                                  clearTimeout(snapshotTimerRef.current);
-                              snapshotTimerRef.current = window.setTimeout(
-                                  trySnapshot,
-                                  200,
-                              );
-                          }
-                        : undefined
-                }
+                onIdle={() => {
+                    tilesOnIdle();
+                    if (snapshot) {
+                        if (snapshotTimerRef.current !== null)
+                            clearTimeout(snapshotTimerRef.current);
+                        snapshotTimerRef.current = window.setTimeout(
+                            trySnapshot,
+                            200,
+                        );
+                    }
+                }}
                 style={{ width: "100%", height: "100%" }}
             >
                 <Source id="zone-preview-fill-src" type="geojson" data={circle}>
@@ -206,6 +222,7 @@ export function ZonePreviewMap({
                     />
                 </Source>
             </MapGL>
+            <MapTilesVeil visible={showVeil} timedOut={timedOut} rounded />
         </div>
     );
 }
