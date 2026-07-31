@@ -168,6 +168,23 @@ function bumpWaterVersionDebounced(): void {
 // In-flight/done headless-ensure per play area (fetch the tiles at most once).
 const ensured = new Map<string, Promise<void>>();
 
+// v1196: track when the deterministic headless read has SETTLED per area (success
+// OR failure), separately from `basemapWaterVersion` (the memo-key version that
+// re-runs the buffer). The configure overlay's loading veil waits on this so
+// body-of-water / coastline reveal WITH the complete water instead of a coarse
+// first pass (some parts flat "further") that "fills in" a few seconds later. A
+// SEPARATE atom (not `basemapWaterVersion`) so a FAILURE bump can't bust the
+// buffer memo / re-run the buffer effect → a retry loop; it only re-evaluates the
+// veil gate.
+const ensureDone = new Set<string>();
+export const basemapWaterEnsureVersion = atom(0);
+/** True once the headless water read for the CURRENT play area has settled
+ *  (populated the deterministic set, or failed with the capture/OSM fallback as
+ *  the best available). Re-evaluated when `basemapWaterEnsureVersion` bumps. */
+export function basemapWaterEnsureSettled(): boolean {
+    return ensureDone.has(playAreaKey());
+}
+
 /**
  * v1002: DETERMINISTICALLY populate the current play area's water from the
  * pmtiles archive itself — read the `water` layer straight off R2 at a fixed
@@ -382,11 +399,22 @@ export function ensureBasemapWaterForArea(
         );
         entry.headless = true;
         basemapWaterVersion.set(basemapWaterVersion.get() + 1);
-    })().catch(() => {
-        // On failure, drop the memo so a later call can retry (the capture path
-        // covers us in the meantime).
-        ensured.delete(key);
-    });
+    })()
+        .catch(() => {
+            // On failure, drop the memo so a later call can retry (the capture
+            // path covers us in the meantime).
+            ensured.delete(key);
+        })
+        .finally(() => {
+            // v1196: mark the read attempt DONE (success OR failure) and bump the
+            // separate ensure-version so the configure veil gate re-evaluates and
+            // reveals — with the complete water on success, or the capture/OSM
+            // fallback on failure — instead of stalling until the 45 s backstop.
+            // NOT `basemapWaterVersion` (which would bust the buffer memo + re-run
+            // the effect → a failure retry loop).
+            ensureDone.add(key);
+            basemapWaterEnsureVersion.set(basemapWaterEnsureVersion.get() + 1);
+        });
     ensured.set(key, run);
     return capAwait(run);
 }

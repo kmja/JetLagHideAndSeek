@@ -448,6 +448,30 @@ SMALL piece (`area < 5 km²`): the big ocean is left to the chunking (buffering 
 whole is the perf hit the grid exists to avoid, and it already tests in-result).
 `tsc` + 284 tests green.
 
+**v1196 — body-of-water configure overlay reveals in ONE stage (waits for the
+complete water, not the coarse first pass).** The reported two-stage: the map
+loading veil lifts, the overlay shows with parts of the play area flat "further",
+then a few seconds later those parts "fill in" with body detail. Cause: the
+configure impact buffer's FIRST compute runs on PARTIAL water — `getDissolvedWater`
+awaits the deterministic headless read (`ensureBasemapWaterForArea`) but that await
+is capped at 4.5 s (`ENSURE_AWAIT_CAP_MS`, a main-thread-freeze guard), so on a slow
+read the buffer proceeds with whatever tiles were captured so far, settles →
+`measuringSettled` flips → the veil (`impact.loading`) lifts with the partial
+overlay; when the read finishes it bumps `basemapWaterVersion` (the `bmw` memo key)
+→ the buffer recomputes complete → the overlay fills in. Fix (configure veil ONLY —
+the main-map elimination + the 4.5 s cap are untouched, so cold-read first paint is
+unchanged): `basemapWater.ts` now tracks when the headless read has SETTLED per area
+(`ensureDone` + a SEPARATE `basemapWaterEnsureVersion` atom — not `basemapWaterVersion`,
+so a FAILURE bump can't bust the buffer memo → retry loop; bumped in a `.finally` on
+success AND failure). `questionImpact.ts` stamps each measuring result with the water
+version it computed at and tightens `measuringSettled` for the two water families
+(`water` + `coastline`) to require BOTH `basemapWaterEnsureSettled()` AND
+`measuring.waterVersion === relevantWaterVersion` — so the veil reveals only once the
+read has landed and the drawn buffer reflects the CURRENT (complete) water, never a
+pre-headless partial compute. On a read failure the finally still fires → the veil
+reveals with the capture/OSM fallback (no 45 s stall). Non-water families
+short-circuit (unaffected). `tsc` + 284 tests green.
+
 **v1195 — coastline label reads the basemap SEA the elimination buffers (the
 coastline sibling of v1192/v1194).** Same label≠elimination class the user
 flagged on coastline ("different reference location too, and a 'further' band

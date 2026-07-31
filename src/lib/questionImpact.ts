@@ -44,7 +44,11 @@ import {
     questionFinishedMapData,
 } from "@/lib/context";
 import { LOCATION_FIRST_TAG } from "@/maps/api";
-import { basemapWaterVersion } from "@/maps/api/basemapWater";
+import {
+    basemapWaterEnsureSettled,
+    basemapWaterEnsureVersion,
+    basemapWaterVersion,
+} from "@/maps/api/basemapWater";
 import { seaLevelRegion } from "@/maps/api/elevation";
 import { matchingDraftRegion } from "@/maps/questions/matching";
 import { measuringDraftBuffer } from "@/maps/questions/measuring";
@@ -386,6 +390,11 @@ export function useQuestionImpact(
         (family.kind === "water" ||
             (family.kind === "measuring-geom" && type === "coastline"));
     const relevantWaterVersion = consumesWater ? $waterVersion : 0;
+    // v1196: re-render when the deterministic headless water read settles, so the
+    // configure veil gate below (which reads `basemapWaterEnsureSettled()`) can
+    // reveal the overlay only once the COMPLETE water is loaded — not after the
+    // coarse first pass.
+    const $ensureVersion = useStore(basemapWaterEnsureVersion);
 
     // Warm the family cache if it isn't already (point families only;
     // city / measuring-geom / matching-region are bundled / line- or
@@ -505,6 +514,10 @@ export function useQuestionImpact(
         lng: number;
         yes: Feature<Polygon | MultiPolygon> | null;
         no: Feature<Polygon | MultiPolygon> | null;
+        // v1196: the water version the buffer was computed at — the veil gate
+        // requires this to equal the CURRENT version so it never reveals a
+        // pre-headless (partial-water) compute.
+        waterVersion: number;
     } | null>(null);
     useEffect(() => {
         if (mode !== "measuring") return;
@@ -584,7 +597,14 @@ export function useQuestionImpact(
                 // overlay, honestly) instead of stalling until the 15 s deadlock
                 // backstop. Success sets the real yes/no region.
                 if (!buffer) {
-                    setMeasuring({ key: type, lat, lng, yes: null, no: null });
+                    setMeasuring({
+                        key: type,
+                        lat,
+                        lng,
+                        yes: null,
+                        no: null,
+                        waterVersion: relevantWaterVersion,
+                    });
                     return;
                 }
                 let yes: Feature<Polygon | MultiPolygon> | null = null;
@@ -609,11 +629,25 @@ export function useQuestionImpact(
                 } catch {
                     /* keep null */
                 }
-                setMeasuring({ key: type, lat, lng, yes, no });
+                setMeasuring({
+                    key: type,
+                    lat,
+                    lng,
+                    yes,
+                    no,
+                    waterVersion: relevantWaterVersion,
+                });
             })
             .catch(() => {
                 if (!cancelled)
-                    setMeasuring({ key: type, lat, lng, yes: null, no: null });
+                    setMeasuring({
+                        key: type,
+                        lat,
+                        lng,
+                        yes: null,
+                        no: null,
+                        waterVersion: relevantWaterVersion,
+                    });
             });
         return () => {
             cancelled = true;
@@ -649,7 +683,20 @@ export function useQuestionImpact(
         measuring &&
             measuring.key === type &&
             measuring.lat === lat &&
-            measuring.lng === lng,
+            measuring.lng === lng &&
+            // v1196: for the two basemap-water families, don't reveal the veil
+            // until the DETERMINISTIC headless read has SETTLED for this area AND
+            // the drawn buffer was computed at the CURRENT water version. Without
+            // this the overlay reveals a coarse first pass (some parts flat
+            // "further") the instant the capped (4.5 s) first compute settles on
+            // PARTIAL water, then "fills in" a few seconds later when the read
+            // lands + bumps the version. `$ensureVersion` re-renders this Boolean
+            // when the read settles; `relevantWaterVersion` is the current version
+            // and `measuring.waterVersion` the one the drawn buffer used. Non-water
+            // families short-circuit (`!consumesWater`) — unaffected.
+            (!consumesWater ||
+                (basemapWaterEnsureSettled() &&
+                    measuring.waterVersion === relevantWaterVersion)),
     );
     // Same, for the matching-region boundary (keyed on type + adminLevel).
     const matchingRegionReady = Boolean(
@@ -950,6 +997,11 @@ export function useQuestionImpact(
         tick,
         measuring,
         measuringReady,
+        // v1196: `measuringSettled` folds in the water-veil gate + `$ensureVersion`
+        // re-renders when the headless read settles, so `loading` (the veil) is
+        // recomputed the moment the complete water lands.
+        measuringSettled,
+        $ensureVersion,
         matchingRegion,
         matchingRegionReady,
     ]);
