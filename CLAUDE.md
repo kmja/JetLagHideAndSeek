@@ -448,6 +448,21 @@ SMALL piece (`area < 5 km²`): the big ocean is left to the chunking (buffering 
 whole is the perf hit the grid exists to avoid, and it already tests in-result).
 `tsc` + 284 tests green.
 
+**v1198 — custom radar distance is an editable number (finer than the slider).**
+The custom-size slider snaps to "nice" steps (`snapToNiceStep` — 10/50/100 m,
+0.1/0.25/0.5/1 km), so it can't express e.g. 637 m or 1.35 km. The big number
+above it (`cards/radius.tsx`) was static display; it's now a real
+`CustomRadiusInput` text field — typing any positive value writes `data.radius`
+DIRECTLY (bypassing the snap), and because the slider reads
+`radiusToSlider(data.radius)` and the map preview derives its circle from
+`data.radius` (`InlineLocationPicker` tweens the ring + re-fits the camera on any
+`radiusMeters` change), BOTH the slider and the map respond instantly to an edit.
+Clamped to the slider's [min, max] so thumb + number stay in sync; a local string
+state lets the user type freely (partial "1." / "") without corrupting the radius
+and reflects external changes (slider drag / preset pick / unit switch) whenever
+the field isn't focused. Native spinner buttons hidden so it reads as the big
+number it replaces (arrow keys still increment). `tsc` + 284 tests green.
+
 **v1197 — subtype picker runs a loading animation until disabled states are set
 (no more grey-out-after-reveal flicker).** The matching/measuring/tentacle subtype
 pickers resolve their disabled ("too few in the play area" / "can't narrow the

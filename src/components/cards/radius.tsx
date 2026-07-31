@@ -95,6 +95,88 @@ function snapToNiceStep(value: number, unit: Units): number {
     return Math.round(value);
 }
 
+/**
+ * v1198: editable custom-radar distance. The slider snaps to "nice" steps, so it
+ * can't express e.g. 637 m or 1.35 km — this number is a real text field for fine
+ * control. Typing any positive value writes `data.radius` directly (bypassing the
+ * slider's snap), and because the slider reads `radiusToSlider(data.radius)` and
+ * the map preview derives its circle from `data.radius`, BOTH respond instantly to
+ * an edit. Clamped to the slider's [min, max] so the thumb + number stay in sync.
+ * A local string state lets the user type freely (partial "1." / "") without those
+ * intermediate values corrupting the radius; it reflects external changes (slider
+ * drag / preset pick) whenever the field isn't focused.
+ */
+const CustomRadiusInput = ({
+    data,
+    disabled,
+    min,
+    max,
+}: {
+    data: RadiusQuestion;
+    disabled?: boolean;
+    min: number;
+    max: number;
+}) => {
+    const unitLabel =
+        data.unit === "meters" ? "m" : data.unit === "miles" ? "mi" : "km";
+    const round = (n: number) =>
+        data.unit === "meters" ? Math.round(n) : Math.round(n * 100) / 100;
+    const fmt = (n: number) => String(round(n));
+    const [text, setText] = React.useState(() => fmt(data.radius));
+    const [focused, setFocused] = React.useState(false);
+    // Reflect external changes (slider drag, preset pick, unit switch) while the
+    // field isn't being edited, so the number always matches the live radius.
+    React.useEffect(() => {
+        if (!focused) setText(fmt(data.radius));
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [data.radius, data.unit, focused]);
+    const commit = (raw: string) => {
+        const n = parseFloat(raw);
+        if (!Number.isFinite(n) || n <= 0) return; // ignore partial / empty input
+        const clamped = round(Math.max(min, Math.min(max, n)));
+        if (clamped !== data.radius) questionModified((data.radius = clamped));
+    };
+    return (
+        <div className="flex items-end justify-center gap-2">
+            <input
+                type="number"
+                inputMode="decimal"
+                step="any"
+                min={min}
+                max={max}
+                value={text}
+                disabled={disabled}
+                aria-label="Custom radar distance"
+                onFocus={(e) => {
+                    setFocused(true);
+                    e.currentTarget.select();
+                }}
+                onChange={(e) => {
+                    setText(e.target.value);
+                    commit(e.target.value);
+                }}
+                onBlur={() => {
+                    setFocused(false);
+                    commit(text);
+                    setText(fmt(data.radius));
+                }}
+                className={cn(
+                    "w-32 text-center text-4xl font-poppins font-bold text-primary tabular-nums leading-none",
+                    "bg-transparent outline-none",
+                    "border-b-2 border-primary/40 focus:border-primary transition-colors",
+                    // Hide the native spinner buttons — the field reads as the big
+                    // number it replaces (arrow keys still increment).
+                    "[appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-inner-spin-button]:m-0",
+                    "disabled:opacity-50 disabled:cursor-not-allowed",
+                )}
+            />
+            <span className="text-xl font-poppins font-semibold text-muted-foreground pb-1">
+                {unitLabel}
+            </span>
+        </div>
+    );
+};
+
 export const RadiusQuestionComponent = ({
     data,
     questionKey,
@@ -381,18 +463,15 @@ export const RadiusQuestionComponent = ({
                                 track. */}
                             {data.useCustom && (
                                 <div className="flex flex-col gap-3 pt-1">
-                                    <div className="text-center leading-none">
-                                        <span className="text-4xl font-poppins font-bold text-primary tabular-nums">
-                                            {data.radius}
-                                        </span>
-                                        <span className="text-xl font-poppins font-semibold text-muted-foreground ml-1">
-                                            {data.unit === "meters"
-                                                ? "m"
-                                                : data.unit === "miles"
-                                                  ? "mi"
-                                                  : "km"}
-                                        </span>
-                                    </div>
+                                    <CustomRadiusInput
+                                        data={data}
+                                        disabled={
+                                            !isQuestionEditable(data) ||
+                                            $isLoading
+                                        }
+                                        min={sliderConfig.min}
+                                        max={sliderConfig.max}
+                                    />
                                     <input
                                         type="range"
                                         min={0}
