@@ -281,6 +281,22 @@ const SubtypeTile = ({
     );
 };
 
+/** v1197: a pulsing placeholder shaped like a `SubtypeTile` (icon block +
+ *  two text lines), shown while the availability gates compute so the picker
+ *  never reveals tiles with the wrong enabled state and then greys them out. */
+const SubtypeTileSkeleton = () => (
+    <div
+        className="flex items-stretch gap-3 rounded-lg border border-sidebar-border bg-sidebar-accent/60 p-3 animate-pulse"
+        aria-hidden="true"
+    >
+        <div className="h-12 w-12 shrink-0 rounded-md bg-foreground/10" />
+        <div className="flex min-w-0 flex-1 flex-col justify-center gap-2">
+            <div className="h-3.5 w-1/2 rounded bg-foreground/15" />
+            <div className="h-3 w-4/5 rounded bg-foreground/10" />
+        </div>
+    </div>
+);
+
 const CategoryTile = ({
     category,
     description,
@@ -391,10 +407,10 @@ export const AddQuestionDialog = ({
             ).map((s) => s.value),
         [subtypePickerFor, $gameSize],
     );
-    const subtypeAvailability = useSubtypeAvailability(
-        subtypePickerFor,
-        pickerSubtypeValues,
-    );
+    const {
+        availability: subtypeAvailability,
+        loading: subtypeAvailabilityLoading,
+    } = useSubtypeAvailability(subtypePickerFor, pickerSubtypeValues);
     // Key of the just-added question awaiting Confirm/Cancel.
     const [pendingKey, setPendingKey] = React.useState<number | null>(null);
     // v339: thermometer now needs a target-distance + Start confirm
@@ -1277,8 +1293,23 @@ export const AddQuestionDialog = ({
                                         </div>
                                     </div>
                                     <div className="flex-1 overflow-y-auto px-6 py-4 min-h-0">
-                                        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                                            {subtypes?.map((subtype) => {
+                                        {/* v1197: run a loading animation until
+                                            every availability gate settles, so a
+                                            tile's disabled state is never applied
+                                            AFTER the tile is already visible. */}
+                                        <div
+                                            className="grid grid-cols-1 gap-2 sm:grid-cols-2"
+                                            aria-busy={
+                                                subtypeAvailabilityLoading
+                                            }
+                                        >
+                                            {subtypeAvailabilityLoading
+                                                ? subtypes?.map((s) => (
+                                                      <SubtypeTileSkeleton
+                                                          key={s.value}
+                                                      />
+                                                  ))
+                                                : subtypes?.map((subtype) => {
                                                 // Per-subtype repeat count:
                                                 // 0 = never asked; N > 0 =
                                                 // the next ask is the

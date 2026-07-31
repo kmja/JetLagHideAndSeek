@@ -325,6 +325,19 @@ const BORDER1_GATED = new Set(["admin1-border"]);
 const linePresentCache = new Map<string, boolean>();
 const linePresentPending = new Set<string>();
 
+/* v1197: per-gate "settled" markers — the compute FINISHED for this key (whether
+ * it cached a value OR resolved to null/unknown). The subtype picker runs a
+ * loading animation until every gate relevant to the OPEN subtype set is settled,
+ * so a tile's disabled state is never applied AFTER the tile is already visible
+ * (the reported flicker). A cache hit implies settled; these also cover the
+ * null-result computes that don't cache. */
+const coastSettled = new Set<string>(); // sig
+const lineSettled = new Set<string>(); // `${sig}:${v}`
+const adminSpanSettled = new Set<string>(); // `${sig}:${lvl}`
+const warmSettled = new Set<FamilyKey>(); // fam (getCachedCategory is the real
+// signal; this additionally marks a warm ATTEMPT, so a family that failed to warm
+// [stays cold forever] still counts as settled and can't hang the loading state).
+
 async function computeHsrPresent(): Promise<boolean | null> {
     // v1131: don't rely on a LIVE `[highspeed=yes]` poly query — in a dense
     // metro WITH added adjacents (NYC) it gets rate-limited and throws →
@@ -425,15 +438,31 @@ const AVAILABLE: SubtypeAvailability = {
  * wrongly hide a valid question. Warms any cold families it needs and
  * re-renders once they land; also re-evaluates when the play-area
  * boundary finishes loading.
+ *
+ * Returns `{ availability, loading }`. `loading` is true while any gate relevant
+ * to the open subtype set is still being computed (or the boundary hasn't loaded)
+ * — the picker runs a loading animation until then, so disabled states are never
+ * applied AFTER the tiles are already visible (v1197). Bounded by an 8 s backstop.
  */
 export function useSubtypeAvailability(
     categoryId: string | null,
     values: string[],
-): Record<string, SubtypeAvailability> {
+): { availability: Record<string, SubtypeAvailability>; loading: boolean } {
     const $poly = useStore(polyGeoJSON); // re-evaluate once the boundary loads
     const [tick, setTick] = useState(0);
     const min = (categoryId && MIN_INSTANCES[categoryId]) || 0;
     const key = values.join(",");
+
+    // v1197: reveal-anyway backstop so the picker's loading state can never hang
+    // if the play-area boundary never loads or a gate stalls. Reset when the open
+    // subtype set changes.
+    const [revealAnyway, setRevealAnyway] = useState(false);
+    useEffect(() => {
+        setRevealAnyway(false);
+        if (!categoryId) return;
+        const t = window.setTimeout(() => setRevealAnyway(true), 8000);
+        return () => window.clearTimeout(t);
+    }, [categoryId, key]);
 
     // v1158 DIAGNOSTIC: the user reports the subtype-picker drawers
     // (matching/measuring/tentacle "subpages") lag on OPEN. Install a longtask
@@ -496,6 +525,7 @@ export function useSubtypeAvailability(
                 Array.from(cold).map((f) => prefetchCategory(f).catch(() => {})),
             ),
         ).then(() => {
+            for (const f of cold) warmSettled.add(f);
             if (!cancelled) setTick((t) => t + 1);
         });
         return () => {
@@ -533,6 +563,7 @@ export function useSubtypeAvailability(
                     const span = await computeAdminSpan(l);
                     adminSpanPending.delete(`${sig}:${l}`);
                     if (span != null) adminSpanCache.set(`${sig}:${l}`, span);
+                    adminSpanSettled.add(`${sig}:${l}`);
                 }),
             ),
         ).then(() => {
@@ -557,6 +588,7 @@ export function useSubtypeAvailability(
         timed("coast", computeCoastPresent).then((present) => {
             if (coastPresentPending === sig) coastPresentPending = null;
             if (present != null) coastPresentCache.set(sig, present);
+            coastSettled.add(sig);
             if (!cancelled) setTick((t) => t + 1);
         });
         return () => {
@@ -593,6 +625,7 @@ export function useSubtypeAvailability(
             timed(`line:${v}`, compute).then((present) => {
                 linePresentPending.delete(ckey);
                 if (present != null) linePresentCache.set(ckey, present);
+                lineSettled.add(ckey);
                 if (!cancelled) setTick((t) => t + 1);
             });
         }
@@ -602,7 +635,40 @@ export function useSubtypeAvailability(
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [key, $poly]);
 
-    return useMemo(() => {
+    // v1197: is the gate relevant to `v` SETTLED (computed for the current play
+    // area — cached value OR finished-as-null)? Used to drive the picker's loading
+    // animation so a tile's disabled state is never applied after it's visible.
+    const gateSettled = (v: string, sig: string): boolean => {
+        if (COAST_GATED.has(v))
+            return coastSettled.has(sig) || coastPresentCache.has(sig);
+        if (HSR_GATED.has(v) || BORDER0_GATED.has(v) || BORDER1_GATED.has(v)) {
+            const ck = `${sig}:${v}`;
+            return lineSettled.has(ck) || linePresentCache.has(ck);
+        }
+        const lvl = adminOsmLevel(v);
+        if (lvl != null) {
+            const ak = `${sig}:${lvl}`;
+            return adminSpanSettled.has(ak) || adminSpanCache.has(ak);
+        }
+        if (!min) return true; // ungated category (photo)
+        const fam = countableFamily(v);
+        if (!fam) return true; // non-countable subtype — never gated
+        return getCachedCategory(fam) !== null || warmSettled.has(fam);
+    };
+
+    const loading = useMemo(() => {
+        if (!categoryId || values.length === 0) return false;
+        if (revealAnyway) return false;
+        // The gates can't be computed until the play-area boundary has loaded;
+        // keep the loading animation running until it has, then until every gate
+        // settles — so the picker reveals with correct disabled states in one shot.
+        if (!hasPlayAreaPolygon()) return true;
+        const sig = areaSignature();
+        return !values.every((v) => gateSettled(v, sig));
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [key, min, tick, $poly, revealAnyway]);
+
+    const availability = useMemo(() => {
         const out: Record<string, SubtypeAvailability> = {};
         for (const v of values) {
             // Coastline / same-landmass: disabled only when we KNOW the play
@@ -666,4 +732,6 @@ export function useSubtypeAvailability(
         return out;
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [key, min, tick, $poly]);
+
+    return { availability, loading };
 }

@@ -448,6 +448,25 @@ SMALL piece (`area < 5 km²`): the big ocean is left to the chunking (buffering 
 whole is the perf hit the grid exists to avoid, and it already tests in-result).
 `tsc` + 284 tests green.
 
+**v1197 — subtype picker runs a loading animation until disabled states are set
+(no more grey-out-after-reveal flicker).** The matching/measuring/tentacle subtype
+pickers resolve their disabled ("too few in the play area" / "can't narrow the
+map") states ASYNCHRONOUSLY — warming reference families, admin-span, coast, and
+line-presence computes all land after the drawer is already open and re-render via
+`setTick`, so tiles appeared ENABLED then greyed out a beat later. Now
+`useSubtypeAvailability` returns `{ availability, loading }`: `loading` is true
+until every gate relevant to the OPEN subtype set has SETTLED (computed for the
+current play area — cached value OR finished-as-null) and the play-area boundary
+has loaded. New per-gate "settled" markers (`coastSettled`/`lineSettled`/
+`adminSpanSettled`/`warmSettled`, set in each compute's `.then` alongside the
+existing caches so a null/unknown result still counts as settled and can't hang);
+`warmSettled` also marks a warm ATTEMPT so a family that fails to warm doesn't
+stall forever. Bounded by an 8 s reveal-anyway backstop. `AddQuestionDialog` renders
+a pulsing `SubtypeTileSkeleton` grid (matching the tile layout — icon block + two
+text lines) while `loading`, then the real tiles with correct disabled states in
+one shot. A re-open of a warm category shows no spinner (all gates already cached);
+photo/ungated categories are never loading. `tsc` + 284 tests green.
+
 **v1196 — body-of-water configure overlay reveals in ONE stage (waits for the
 complete water, not the coarse first pass).** The reported two-stage: the map
 loading veil lifts, the overlay shows with parts of the play area flat "further",
