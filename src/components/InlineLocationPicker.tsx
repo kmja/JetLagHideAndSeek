@@ -11,7 +11,7 @@ import {
     voronoi,
 } from "@turf/turf";
 import type maplibregl from "maplibre-gl";
-import { Circle as CircleIcon, type LucideIcon, LocateOff } from "lucide-react";
+import { type LucideIcon, LocateOff } from "lucide-react";
 import {
     createElement,
     useContext,
@@ -928,18 +928,11 @@ export function InlineLocationPicker({
         cfgCtx?.onPickerReady(ready);
     }, [ready, cfgCtx]);
 
-    // v1200: inside the CONFIGURE dialog, the map SHRINKS so the dialog fits
-    // instead of the body scrolling when the controls above it are tall (e.g. the
-    // radar custom slider). It's the preferred `40vh`, but never more than the
-    // viewport minus a fixed budget for the dialog chrome + controls, floored at
-    // 180px (below which the body's `overflow-y-auto` scrolls as a last resort).
-    // Only in the configure dialog (cfgCtx present) — every other picker keeps the
-    // passed `height` class (hider preview, list cards, etc.). An inline style (not
-    // a Tailwind arbitrary class) so the clamp is guaranteed to apply — a class that
-    // failed to generate would collapse the map to 0.
-    const configureMapStyle = cfgCtx
-        ? { height: "clamp(180px, 40vh, calc(100dvh - 28rem))" }
-        : undefined;
+    // v1200: inside the CONFIGURE dialog the map FILLS its (basis-40vh, shrinkable)
+    // card — a flex layer — so it shrinks to keep the dialog on screen instead of
+    // the body scrolling when the controls are tall. Every other caller keeps the
+    // passed fixed `height` class (hider preview, list cards, etc.).
+    const inConfigure = cfgCtx != null;
 
     // v747: report WHICH load steps are still pending, so the dialog can show
     // a labelled loading state ("Loading map…", "Getting your location…")
@@ -1066,14 +1059,16 @@ export function InlineLocationPicker({
     }, [impactMode, impactType, candidateIcon, darkBasemap, mapReady]);
 
     return (
-        <div className="space-y-2">
-            <div
-                className={cn(
-                    "relative w-full rounded-md overflow-hidden border border-border",
-                    cfgCtx ? undefined : height,
-                )}
-                style={configureMapStyle}
-            >
+        // v1200: a SINGLE map layer — the "Preview shows the … radius" caption +
+        // the outer wrapper group were removed so the map section is one flat
+        // element that can be a flex child (fills + shrinks) in the configure
+        // dialog. The GPS-denied hint is now an overlay inside the map.
+        <div
+            className={cn(
+                "relative w-full rounded-md overflow-hidden border border-border",
+                inConfigure ? "flex-1 min-h-0" : height,
+            )}
+        >
                 <Map
                     ref={mapRef}
                     initialViewState={{
@@ -1650,30 +1645,16 @@ export function InlineLocationPicker({
                     className="right-2 bottom-2"
                 />
                 <MapTilesVeil visible={showVeil} rounded timedOut={timedOut} />
+                {/* GPS-denied hint as an in-map overlay (was a sibling caption
+                    below the map). v1200: dropped the "Preview shows the … radius"
+                    caption entirely so the map section is one flat layer. */}
+                {gpsState === "denied" && !coordsAreSet && (
+                    <div className="absolute bottom-2 left-2 z-[5] flex items-center gap-1.5 rounded bg-background/85 px-2 py-1 text-xs text-muted-foreground italic backdrop-blur-sm">
+                        <LocateOff className="w-3 h-3 shrink-0" />
+                        <span>GPS unavailable — tap the map to drop a pin.</span>
+                    </div>
+                )}
             </div>
-            {/* v317: dropped the coords + Use GPS row that used to sit
-                here. The picker's lockToGps mode (configure-dialog
-                path) already auto-grabs the fix on mount; the raw
-                lat/lng readout was noise and the "Use GPS" button
-                was redundant with that. */}
-            {gpsState === "denied" && !coordsAreSet && (
-                <div className="flex items-center gap-1.5 text-xs text-muted-foreground italic">
-                    <LocateOff className="w-3 h-3 shrink-0" />
-                    <span>
-                        GPS unavailable — tap the map to drop a pin.
-                    </span>
-                </div>
-            )}
-            {radiusMeters !== undefined && (
-                <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                    <CircleIcon className="w-3 h-3 text-primary" />
-                    <span>
-                        Preview shows the{" "}
-                        {formatMeters(radiusMeters)} radius from this point.
-                    </span>
-                </div>
-            )}
-        </div>
     );
 }
 
@@ -1821,11 +1802,6 @@ function zoomForRadius(radiusMeters: number): number {
     if (km <= 100) return 6;
     if (km <= 200) return 5;
     return 4;
-}
-
-function formatMeters(m: number): string {
-    if (m < 1000) return `${Math.round(m)} m`;
-    return `${(m / 1000).toFixed(m % 1000 === 0 ? 0 : 1)} km`;
 }
 
 const PIN_SVG = `

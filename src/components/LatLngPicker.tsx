@@ -1,6 +1,13 @@
 import { useStore } from "@nanostores/react";
 import { OpenLocationCode } from "open-location-code";
-import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import {
+    lazy,
+    Suspense,
+    useContext,
+    useEffect,
+    useRef,
+    useState,
+} from "react";
 import { toast } from "react-toastify";
 
 import { Input } from "@/components/ui/input";
@@ -12,6 +19,7 @@ import { cn } from "@/lib/utils";
 import { determineName, geocode, ICON_COLORS } from "@/maps/api";
 
 import { Button } from "./ui/button";
+import { ConfigureDialogContext } from "./configureDialogContext";
 import {
     Command,
     CommandEmpty,
@@ -447,6 +455,11 @@ export const LatitudeLongitude = ({
     impactAdminLevel?: number;
 }) => {
     const $isLoading = useStore(isLoading);
+    // v1200: inside the configure dialog the map card becomes a `basis-40vh`
+    // shrinkable flex column (so the map fills it and SHRINKS to keep the dialog
+    // on screen). Detected via the context the configure dialog provides — every
+    // other caller (hider preview, list cards) has none and keeps the fixed height.
+    const inConfigure = useContext(ConfigureDialogContext) != null;
 
     // v477: do we have a usable seeker position? In lock-to-GPS mode the
     // coords are seeded synchronously from the last GPS fix at question
@@ -465,6 +478,11 @@ export const LatitudeLongitude = ({
                 className={cn(
                     "px-2 py-2 rounded-md space-y-1 mt-2",
                     "bg-secondary/30 border border-border",
+                    // v1200: in the configure dialog this card prefers 40vh but
+                    // shrinks (floored 180px) so the dialog fits without scrolling.
+                    inConfigure &&
+                        !inlineEdit &&
+                        "flex flex-col basis-[40vh] min-h-[180px] mt-0",
                     $isLoading && "opacity-60",
                 )}
             >
@@ -472,11 +490,23 @@ export const LatitudeLongitude = ({
                     the configure dialogs — the map itself shows where you
                     are, so the reverse-geocoded label was redundant. */}
                 {!inlineEdit && (
-                    <div className="space-y-2">
+                    <div
+                        className={cn(
+                            "space-y-2",
+                            inConfigure && "flex flex-1 min-h-0 flex-col",
+                        )}
+                    >
                         {mapReady ? (
                             <Suspense
                                 fallback={
-                                    <div className="w-full h-[40vh] rounded-md border border-dashed border-border flex items-center justify-center text-xs text-muted-foreground">
+                                    <div
+                                        className={cn(
+                                            "w-full rounded-md border border-dashed border-border flex items-center justify-center text-xs text-muted-foreground",
+                                            inConfigure
+                                                ? "flex-1 min-h-[180px]"
+                                                : "h-[40vh]",
+                                        )}
+                                    >
                                         Loading map…
                                     </div>
                                 }
@@ -496,7 +526,14 @@ export const LatitudeLongitude = ({
                                 />
                             </Suspense>
                         ) : (
-                            <div className="w-full h-[40vh] rounded-md border border-dashed border-border flex items-center justify-center text-xs text-muted-foreground px-4 text-center">
+                            <div
+                                className={cn(
+                                    "w-full rounded-md border border-dashed border-border flex items-center justify-center text-xs text-muted-foreground px-4 text-center",
+                                    inConfigure
+                                        ? "flex-1 min-h-[180px]"
+                                        : "h-[40vh]",
+                                )}
+                            >
                                 {/* v477: one accurate loading message, no
                                     contradiction with the resolved "Your
                                     nearest reference" header. If we have a

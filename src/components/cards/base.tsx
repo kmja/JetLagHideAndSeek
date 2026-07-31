@@ -375,7 +375,12 @@ export const QuestionCard = ({
     const shareRow = shareable && thisQuestion;
 
     return (
-        <div className="relative">
+        // v1200: in the CONFIGURE dialog (`forceExpanded`) the card is a bounded
+        // flex column so the MAP inside it can shrink to fit instead of the dialog
+        // scrolling — the header + controls are `shrink-0` and the map region
+        // fills/shrinks. Gated on `forceExpanded`, so the collapsed-list card
+        // (grid-rows collapse animation) is untouched.
+        <div className={cn("relative", forceExpanded && "flex min-h-0 flex-col")}>
             <div
                 className={cn(
                     // Match the on-map QuestionOverlayCard treatment: sharp
@@ -385,14 +390,18 @@ export const QuestionCard = ({
                     // separating, not a contrasting block. Margins/inset are
                     // owned by the list container (QuestionSidebar) so the
                     // card sits flush in the configure dialog too.
-                    "relative overflow-hidden",
+                    "relative",
                     // v1083: in the CONFIGURE dialog only the TOP header card
                     // carries the gray surface (below); the container is
                     // transparent so the config controls sit on the dialog
-                    // background, not a full-height gray block.
+                    // background, not a full-height gray block. v1200: for the
+                    // configure dialog this is a flex column (map shrinks) with NO
+                    // overflow-hidden so the body's overflow-y-auto is the true
+                    // last-resort scroll; the collapse-animation clip stays for the
+                    // list card.
                     forceExpanded
-                        ? ""
-                        : "border shadow-lg border-sidebar-border bg-sidebar-accent",
+                        ? "flex min-h-0 flex-col"
+                        : "overflow-hidden border shadow-lg border-sidebar-border bg-sidebar-accent",
                     className,
                 )}
             >
@@ -422,62 +431,75 @@ export const QuestionCard = ({
                               // everywhere else (the on-map / collapsed cards are
                               // sharp, v588); the configure header card had picked
                               // up rounded corners in v1083.
-                              "rounded-none border border-sidebar-border bg-sidebar-accent shadow-none"
+                              "rounded-none border border-sidebar-border bg-sidebar-accent shadow-none shrink-0"
                             : "rounded-none border-0 shadow-none bg-transparent",
                     )}
                 />
-                {/* Smooth height animation via the grid-rows 0fr→1fr trick
-                    (animates to the real content height, unlike a max-h
-                    guess). The body stays mounted through the close
-                    transition (see `bodyMounted`) so both directions are
-                    smooth, then unmounts. */}
-                <div
-                    className={cn(
-                        "grid transition-[grid-template-rows] duration-300 ease-out",
-                        isCollapsed && !forceExpanded
-                            ? "grid-rows-[0fr]"
-                            : "grid-rows-[1fr]",
-                    )}
-                >
-                    <div className="overflow-hidden">
-                        {bodyMounted && (
-                            <div className={cn("pb-2", forceExpanded && "pt-3")}>
-                                {/* Expanded: a static map highlighting this
-                                    question's resulting area. Suppressed in
-                                    the configure dialog (already embeds the
-                                    interactive picker) and for PHOTO (its own
-                                    image below IS the outcome). */}
-                                {!forceExpanded &&
-                                    thisQuestion &&
-                                    category !== "photo" &&
-                                    !isRandomizedAway && (
-                                        <div className="px-2 pt-2">
-                                            <QuestionOutcomeMap
-                                                question={thisQuestion}
-                                            />
-                                        </div>
-                                    )}
-                                {!forceExpanded && isRandomizedAway && (
-                                    <div className="px-5 pt-3 text-xs text-muted-foreground leading-snug">
-                                        The hider played Randomize on this
-                                        question and answered a different one
-                                        instead — see the substitute below.
-                                    </div>
-                                    )}
-                                {(showChildren || shareRow) && (
-                                    <SidebarMenu>
-                                        {shareRow && (
-                                            <ShareQuestionRow
-                                                question={thisQuestion!}
-                                            />
-                                        )}
-                                        {showChildren && children}
-                                    </SidebarMenu>
+                {forceExpanded ? (
+                    // Configure dialog: a plain flex column (no grid-rows collapse
+                    // animation — it never collapses) so the map region fills and
+                    // SHRINKS to keep the dialog on screen. The card determines
+                    // which child flexes: the LatitudeLongitude map card is
+                    // basis-40vh + shrinkable, the controls are shrink-0.
+                    <div className="flex min-h-0 flex-col pb-2 pt-3">
+                        {(showChildren || shareRow) && (
+                            <SidebarMenu className="min-h-0">
+                                {shareRow && (
+                                    <ShareQuestionRow question={thisQuestion!} />
                                 )}
-                            </div>
+                                {showChildren && children}
+                            </SidebarMenu>
                         )}
                     </div>
-                </div>
+                ) : (
+                    /* Smooth height animation via the grid-rows 0fr→1fr trick
+                       (animates to the real content height, unlike a max-h
+                       guess). The body stays mounted through the close
+                       transition (see `bodyMounted`) so both directions are
+                       smooth, then unmounts. */
+                    <div
+                        className={cn(
+                            "grid transition-[grid-template-rows] duration-300 ease-out",
+                            isCollapsed ? "grid-rows-[0fr]" : "grid-rows-[1fr]",
+                        )}
+                    >
+                        <div className="overflow-hidden">
+                            {bodyMounted && (
+                                <div className="pb-2">
+                                    {/* Expanded: a static map highlighting this
+                                        question's resulting area. Suppressed for
+                                        PHOTO (its own image below IS the outcome). */}
+                                    {thisQuestion &&
+                                        category !== "photo" &&
+                                        !isRandomizedAway && (
+                                            <div className="px-2 pt-2">
+                                                <QuestionOutcomeMap
+                                                    question={thisQuestion}
+                                                />
+                                            </div>
+                                        )}
+                                    {isRandomizedAway && (
+                                        <div className="px-5 pt-3 text-xs text-muted-foreground leading-snug">
+                                            The hider played Randomize on this
+                                            question and answered a different one
+                                            instead — see the substitute below.
+                                        </div>
+                                    )}
+                                    {(showChildren || shareRow) && (
+                                        <SidebarMenu>
+                                            {shareRow && (
+                                                <ShareQuestionRow
+                                                    question={thisQuestion!}
+                                                />
+                                            )}
+                                            {showChildren && children}
+                                        </SidebarMenu>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                )}
             </div>
         </div>
     );

@@ -234,7 +234,9 @@ export const RadiusQuestionComponent = ({
             locked={!data.drag}
             setLocked={(locked) => questionModified((data.drag = !locked))}
         >
-            <SidebarMenuItem>
+            {/* shrink-0: the size controls keep their height; only the map card
+                below (LatitudeLongitude) shrinks to fit the configure dialog. */}
+            <SidebarMenuItem className="shrink-0">
                 {(() => {
                     // Compute current preset signature (which tier matches the
                     // stored radius+unit — in EITHER unit system, v972).

@@ -1507,7 +1507,11 @@ export const AddQuestionDialog = ({
                                 )}
                         </div>
 
-                        <div className="flex-1 overflow-y-auto px-6 pt-4 pb-0 min-h-0 relative">
+                        {/* v1200: a bounded flex column so a card whose map is a
+                            flex child can SHRINK the map to fit instead of the body
+                            scrolling. `overflow-y-auto` stays as the last-resort
+                            fallback once the map hits its min-height floor. */}
+                        <div className="flex min-h-0 flex-col overflow-y-auto px-6 pt-4 pb-0 relative">
                             {/* Progressive reveal: the question card (category
                                 header + config + nearest-reference pill) renders
                                 immediately; the map picker shows its OWN loading
@@ -1518,7 +1522,7 @@ export const AddQuestionDialog = ({
                                 placeholder for up to the 12 s tile timeout, then
                                 lifted before the overlay landed anyway. Send
                                 still waits on `pickerReady`. */}
-                            <div>
+                            <div className="flex min-h-0 flex-col">
                             {pendingQuestion &&
                                 (() => {
                                     const q = pendingQuestion;

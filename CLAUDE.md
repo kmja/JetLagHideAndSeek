@@ -448,6 +448,29 @@ SMALL piece (`area < 5 km²`): the big ocean is left to the chunking (buffering 
 whole is the perf hit the grid exists to avoid, and it already tests in-result).
 `tsc` + 284 tests green.
 
+**v1201 — configure map shrinks via a real FLEX chain (replaces the v1200 clamp
+workaround) + map section flattened to one layer.** The v1200 map-shrink used a
+fixed-budget `clamp(…, calc(100dvh - 28rem))` that couldn't track the actual
+controls height. Rebuilt properly: the configure dialog is a bounded flex column,
+and the map card is a `basis-[40vh]` shrinkable flex item, so the map fills its
+card and SHRINKS to keep the dialog on screen when the controls are tall (radar
+custom slider), floored at 180px (below which the body's `overflow-y-auto` is the
+last resort). Threaded gated on the configure dialog only:
+`AddQuestionDialog` body + inner wrapper → `cards/base.tsx` (a `forceExpanded`
+branch that drops the grid-rows collapse animation for a plain flex column; header
+`shrink-0`) → `SidebarMenu` → `LatLngPicker` map card (`basis-[40vh] min-h-[180px]`,
+detected via `ConfigureDialogContext`) → `InlineLocationPicker` map (`flex-1`).
+KEY flexbox rule applied: every layer ABOVE the basis-40vh card is content-sized
+(`flex flex-col min-h-0`, NO `flex-1`) so the 40vh preference propagates up to size
+the dialog; only INSIDE the card do children use `flex-1` to fill. `radius.tsx`
+controls are `shrink-0` so only the map shrinks. Collapsed-list cards
+(non-`forceExpanded`) are untouched. Also **flattened the map section to one
+layer**: removed the "Preview shows the … radius from this point." caption and the
+outer wrapper group from `InlineLocationPicker` (the GPS-denied hint is now an
+in-map overlay), so the map is a single flex child. `tsc` + build + 284 tests green.
+(First iteration of the flex approach — layout verified by reasoning + build, not
+on-device yet.)
+
 **v1200 — custom-radius edit-then-slider fix + full-width slider + configure map
 shrinks to fit.** Three configure-dialog fixes: (1) **editing the custom radius
 then dragging the slider right away froze both the number and the map** — the
