@@ -299,28 +299,25 @@ export function StationTransitCard({
               }
             : null;
 
-    // Endgame trigger is offered only on the seeker surface, once the
-    // hiding period is over and before the endgame is armed / the hider is
-    // found. Per the rulebook the endgame starts when the seekers reach
-    // the hider's zone — selecting that zone's station here is the natural
-    // place to declare it.
-    // v979: only offer "Start endgame here" for a zone the seeker has
-    // actually REACHED — you can't declare the endgame before arriving
-    // (rulebook p43), so showing the button for a far-off zone is pointless
-    // (and the server would just deny it). Gate on the seeker's live GPS
-    // being within the zone's hiding-radius (+ a generous margin for GPS
-    // noise). With NO GPS fix we can't tell, so we still show it (the server
-    // makes the final call).
-    // v1088: the button shows whenever the hiding period is over + the endgame
-    // isn't armed. We no longer HIDE it on a client-side GPS distance check —
-    // that silently blocked legitimate attempts (GPS noise / a spoofed fix not
-    // reaching this component), the reported "I can't start the endgame". The
-    // SERVER validates the seeker's location against the hider's zone (v950)
-    // and denies a wrong claim with a clear banner, so the location check lives
-    // there, not in whether the button appears.
-    const canTriggerEndgame =
+    // v1211: is the SEEKER physically inside the tapped zone? The endgame
+    // begins when the seekers REACH the hider's zone (rulebook p43), so
+    // "Start endgame here" is offered ONLY for a zone you're standing in —
+    // and it REPLACES the Route & departures detail (you don't need a route
+    // to a zone you're in). For a zone you're NOT in, the card shows Route &
+    // departures (how to get there) and no endgame button. GPS within the
+    // hiding radius (+ a GPS-noise margin); no fix → can't tell → not offered
+    // here (the timer's own Start-endgame button is the no-GPS fallback, and
+    // the server validates the claim regardless — v950). This intentionally
+    // re-introduces a client-side inside-zone gate that v1088 had removed, but
+    // scoped to THIS map-tap entry only, per the two-entry design.
+    const seekerInsideZone =
         allowEndgame &&
         station !== null &&
+        !!$gps &&
+        haversineMeters($gps.lat, $gps.lng, station.lat, station.lng) <=
+            endgameRadiusM + 100;
+    const canTriggerEndgame =
+        seekerInsideZone &&
         $endsAt !== null &&
         Date.now() >= $endsAt &&
         $endgame === null &&
@@ -543,9 +540,11 @@ export function StationTransitCard({
                             compact (just the title + reachability). v1182:
                             HIDDEN when the hider is already standing INSIDE this
                             zone — you don't need a route to a zone you're in
-                            (that case shows "Hide here" instead; the two are
-                            mutually exclusive). */}
-                        {!hiderInsideZone && (
+                            (that case shows "Hide here" instead). v1211: same
+                            for the SEEKER — when "Start endgame here" is shown
+                            (you're inside the zone), it REPLACES Route &
+                            departures; the two are mutually exclusive. */}
+                        {!hiderInsideZone && !canTriggerEndgame && (
                             <button
                                 type="button"
                                 onClick={() => setExpanded((e) => !e)}
@@ -566,7 +565,7 @@ export function StationTransitCard({
                             </button>
                         )}
 
-                        {expanded && !hiderInsideZone && (
+                        {expanded && !hiderInsideZone && !canTriggerEndgame && (
                             <div className="mt-3">
                                 {/* Tabs — Trip vs Departures. */}
                                 <div className="grid grid-cols-2 gap-1 rounded-lg bg-muted p-1">

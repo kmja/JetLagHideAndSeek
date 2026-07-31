@@ -448,6 +448,18 @@ SMALL piece (`area < 5 km²`): the big ocean is left to the chunking (buffering 
 whole is the perf hit the grid exists to avoid, and it already tests in-result).
 `tsc` + 284 tests green.
 
+**v1211 — seeker "Start endgame here" only for zones you're IN, replacing Route
+& departures.** In the seeker's `StationTransitCard`, the endgame trigger now
+gates on `seekerInsideZone` (live GPS within the tapped zone's hiding radius +
+100 m), and when it shows it REPLACES the Route & departures expander (mutually
+exclusive). So a zone you're NOT standing in shows how to get there (route +
+departures), and a zone you ARE in offers "Start endgame here" instead — matching
+the rulebook (the endgame begins when the seekers reach the hider's zone). No GPS
+fix → not offered here (the timer's own Start-endgame button is the fallback, and
+the server still validates the claim). This re-introduces a client-side inside-
+zone gate that v1088 had removed, but scoped to this map-tap entry only. `tsc` +
+284 tests green.
+
 **v1210 — radar reframe FPS fix (imperative circle geometry).** The v1208 chase
 loop called `setAnimatedRadius` every frame, which re-rendered the whole picker +
 map subtree (and recomputed the turf circle memo) per frame → low frame rate. The
