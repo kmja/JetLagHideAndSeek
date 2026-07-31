@@ -30,6 +30,7 @@ import { MAJOR_CITIES } from "@/maps/data/majorCities";
 import type { APILocations } from "@/maps/schema";
 import {
     ensureBasemapWaterForArea,
+    nearestBasemapSea,
     nearestBasemapWater,
 } from "@/maps/api/basemapWater";
 import { fetchPrewarmedAreaWater } from "@/maps/api/water";
@@ -586,6 +587,28 @@ async function fetchNearestCoastline(
         lng: number;
         distanceMeters: number;
     } | null = null;
+
+    // v1195: prefer the basemap SEA — the SAME source the `coastline` ELIMINATION
+    // buffers (`getDissolvedBasemapSea`) — so the label and the "closer to the
+    // coast" cut agree by construction. This is the coastline sibling of the
+    // body-of-water label≠elimination fix (v1192/v1194): the label read OSM
+    // coastline LINES while the buffer read the basemap sea, so they picked
+    // different references and drew a phantom "further" band. Await the same
+    // deterministic headless read the buffer awaits so both read one snapshot,
+    // then fall back to the OSM coastline path below when no sea is captured
+    // (mirroring the elimination's own OSM fallback).
+    try {
+        const poly = polyGeoJSON.get();
+        const bb = poly ? turf.bbox(poly) : null;
+        if (bb)
+            await ensureBasemapWaterForArea(
+                bb.slice(0, 4) as [number, number, number, number],
+            );
+    } catch {
+        /* best-effort determinism — fall through to whatever's captured */
+    }
+    const sea = nearestBasemapSea(lat, lng);
+    if (sea) return sea;
 
     // v778/v1008: the DETAILED per-city OSM coastline (prewarmed R2 → live
     // play-area Overpass) so the label agrees with the elimination, which uses

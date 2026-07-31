@@ -448,6 +448,25 @@ SMALL piece (`area < 5 km²`): the big ocean is left to the chunking (buffering 
 whole is the perf hit the grid exists to avoid, and it already tests in-result).
 `tsc` + 284 tests green.
 
+**v1195 — coastline label reads the basemap SEA the elimination buffers (the
+coastline sibling of v1192/v1194).** Same label≠elimination class the user
+flagged on coastline ("different reference location too, and a 'further' band
+between my GPS and the reference"). The `coastline` measuring ELIMINATION's
+primary source is the basemap SEA polygons (`getDissolvedBasemapSea` →
+ocean/sea/bay/strait/channel `kind`s, buffered by the seeker's distance-to-sea),
+but the nearest-reference LABEL (`fetchNearestCoastline`) read OSM coastline
+LINES (`fetchAreaCoastlineLines`) — different sources, so they picked different
+references and drew a phantom "further" band. Fix: new `nearestBasemapSea(lat,lng)`
+(`basemapWater.ts`) scans the SAME `getBasemapSeaPolys()` the elimination buffers
+(refactored to share one `scanNearestOnPolys` core with `nearestBasemapWater`, so
+both feed the ELIMINATION's already-filtered sets — v1194's pool exclusion is now
+`getBasemapWaterPolys()` rather than an inline check). `fetchNearestCoastline` now
+awaits the same deterministic headless read (`ensureBasemapWaterForArea`, like the
+water label) then prefers `nearestBasemapSea`, falling back to the OSM coastline
+path only when no sea is captured — mirroring the elimination's own OSM fallback.
+So the coastline label + cut read one snapshot and agree by construction. `tsc` +
+284 tests green.
+
 **v1194 — body-of-water ref was a POOL: the label skipped the elimination's
 pool exclusion.** The final residual `ref@…-in=N` (surviving v1192's determinism
 fix + v1193's nearest-piece guarantee) turned out to be a THIRD label≠elimination

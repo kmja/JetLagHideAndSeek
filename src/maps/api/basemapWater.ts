@@ -446,12 +446,18 @@ export function getBasemapWaterPolys(
  * "Shoreline" for the sea / "Water"), and the distance in metres. `null` if no
  * basemap water is captured for the play area yet.
  */
-export function nearestBasemapWater(
+/** Shared nearest-point scan over a set of water polygons. `nameFor` derives the
+ *  reference label from a polygon's props. v1194/v1195: both label functions feed
+ *  it the SAME already-filtered sets the ELIMINATION buffers
+ *  (`getBasemapWaterPolys` for water / `getBasemapSeaPolys` for coast), so the
+ *  label and the buffer read one set and can't disagree on which bodies count. */
+function scanNearestOnPolys(
     lat: number,
     lng: number,
+    polys: Feature<Polygon | MultiPolygon>[] | null,
+    nameFor: (props: { name?: string; kind?: string }) => string,
 ): { name: string; lat: number; lng: number; distanceMeters: number } | null {
-    const entry = cache.get(playAreaKey());
-    if (!entry || entry.polys.length === 0) return null;
+    if (!polys || polys.length === 0) return null;
     const pt = turf.point([lng, lat]);
     let best: {
         name: string;
@@ -465,29 +471,13 @@ export function nearestBasemapWater(
     // label doesn't block the main thread scanning ~1500 polys.
     const mPerDegLat = 111_320;
     const mPerDegLng = 111_320 * Math.cos((lat * Math.PI) / 180);
-    for (const w of entry.polys) {
-        // v1194: apply the SAME rulebook pool/fountain/basin exclusion the
-        // ELIMINATION applies (`getBasemapWaterPolys` → `isExcludedWaterKind`).
-        // This reader iterates `entry.polys` RAW, so without this it picked an
-        // excluded body — most visibly a named `swimming_pool` ("Steinberg
-        // Wellness Center") — as the nearest-water reference even though the
-        // buffer correctly ignores it. That mismatch put the labelled reference
-        // OUTSIDE the computed "closer" region (`ref-in=N`) and drew a phantom
-        // "further" band between the seeker and the fake reference. The
-        // `[bow] named=0` diagnostic (post-exclusion set) vs. a NAMED label was
-        // the tell: the named pool was already dropped from the elimination but
-        // not here. Now the label + elimination read one filtered set.
-        if (isExcludedWaterKind(w)) continue;
+    for (const w of polys) {
         try {
             const props = (w.properties ?? {}) as {
                 name?: string;
                 kind?: string;
             };
-            const name =
-                props.name ||
-                (props.kind === "ocean" || props.kind === "sea"
-                    ? "Shoreline"
-                    : "Water");
+            const name = nameFor(props);
             if (best) {
                 const b = turf.bbox(w);
                 const dx = lng < b[0] ? b[0] - lng : lng > b[2] ? lng - b[2] : 0;
@@ -522,6 +512,50 @@ export function nearestBasemapWater(
         }
     }
     return best;
+}
+
+// v1194: read `getBasemapWaterPolys()` (which applies the SAME rulebook
+// pool/fountain/basin exclusion the ELIMINATION applies) instead of the RAW
+// `entry.polys`. Without it the label picked an excluded body — most visibly a
+// named `swimming_pool` ("Steinberg Wellness Center") — as the nearest-water
+// reference even though the buffer correctly ignores it, putting the labelled
+// reference OUTSIDE the computed "closer" region (`ref-in=N`) and drawing a
+// phantom "further" band. The `[bow] named=0` diagnostic (post-exclusion set)
+// vs. a NAMED label was the tell. Now the label + elimination read one set.
+export function nearestBasemapWater(
+    lat: number,
+    lng: number,
+): { name: string; lat: number; lng: number; distanceMeters: number } | null {
+    return scanNearestOnPolys(lat, lng, getBasemapWaterPolys(), (props) =>
+        props.name ||
+        (props.kind === "ocean" || props.kind === "sea"
+            ? "Shoreline"
+            : "Water"),
+    );
+}
+
+/**
+ * v1195: nearest basemap SEA body (ocean/sea/bay/strait/channel) — the SAME
+ * source the `coastline` measuring ELIMINATION buffers (`getBasemapSeaPolys` →
+ * `getDissolvedBasemapSea`), so the coastline nearest-reference LABEL and the
+ * "closer to the coast" cut read one set and agree by construction. This was the
+ * coastline sibling of the body-of-water label≠elimination bug: the label read
+ * OSM coastline LINES (`fetchAreaCoastlineLines`) while the buffer read the
+ * basemap sea, so they picked different references + drew a phantom "further"
+ * band. Returns the closest point on any sea polygon (distance 0 if inside),
+ * named "Coastline"; `null` when no sea-kind basemap water is captured (the caller
+ * falls back to the OSM coastline path, mirroring the elimination's own fallback).
+ */
+export function nearestBasemapSea(
+    lat: number,
+    lng: number,
+): { name: string; lat: number; lng: number; distanceMeters: number } | null {
+    return scanNearestOnPolys(
+        lat,
+        lng,
+        getBasemapSeaPolys(),
+        (props) => props.name || "Coastline",
+    );
 }
 
 /**
