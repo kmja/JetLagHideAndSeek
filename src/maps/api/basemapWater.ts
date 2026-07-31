@@ -466,6 +466,18 @@ export function nearestBasemapWater(
     const mPerDegLat = 111_320;
     const mPerDegLng = 111_320 * Math.cos((lat * Math.PI) / 180);
     for (const w of entry.polys) {
+        // v1194: apply the SAME rulebook pool/fountain/basin exclusion the
+        // ELIMINATION applies (`getBasemapWaterPolys` → `isExcludedWaterKind`).
+        // This reader iterates `entry.polys` RAW, so without this it picked an
+        // excluded body — most visibly a named `swimming_pool` ("Steinberg
+        // Wellness Center") — as the nearest-water reference even though the
+        // buffer correctly ignores it. That mismatch put the labelled reference
+        // OUTSIDE the computed "closer" region (`ref-in=N`) and drew a phantom
+        // "further" band between the seeker and the fake reference. The
+        // `[bow] named=0` diagnostic (post-exclusion set) vs. a NAMED label was
+        // the tell: the named pool was already dropped from the elimination but
+        // not here. Now the label + elimination read one filtered set.
+        if (isExcludedWaterKind(w)) continue;
         try {
             const props = (w.properties ?? {}) as {
                 name?: string;

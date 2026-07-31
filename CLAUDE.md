@@ -448,6 +448,26 @@ SMALL piece (`area < 5 km²`): the big ocean is left to the chunking (buffering 
 whole is the perf hit the grid exists to avoid, and it already tests in-result).
 `tsc` + 284 tests green.
 
+**v1194 — body-of-water ref was a POOL: the label skipped the elimination's
+pool exclusion.** The final residual `ref@…-in=N` (surviving v1192's determinism
+fix + v1193's nearest-piece guarantee) turned out to be a THIRD label≠elimination
+mismatch — not timing (v1192) or chunking (v1193), but a FILTER gap. The user's
+reference was "Steinberg Wellness Center", an indoor swimming pool that isn't a
+body of water. Root cause: `nearestBasemapWater` (`basemapWater.ts`) — which drives
+the nearest-water LABEL AND the `[bow]` `ref@…` diagnostic — iterates `entry.polys`
+RAW, while EVERY elimination path (`getBasemapWaterPolys`/`getBasemapSeaPolys` →
+`isExcludedWaterKind`) drops the rulebook-excluded `swimming_pool`/`pool`/`fountain`/
+`basin` kinds. So the buffer correctly ignored the pool but the label still picked
+it — putting the labelled reference OUTSIDE the computed closer region (`ref-in=N`)
+and drawing the phantom "further" band between the seeker and the fake reference.
+The tell was in the diagnostic the user pasted: `water=344 named=0` (the
+post-exclusion set has ZERO named polys) alongside a NAMED label — only possible
+if the named pool was already dropped from the elimination but not the label. Fix:
+`nearestBasemapWater` now applies the same `isExcludedWaterKind` guard, so the label
+and elimination read one filtered set — the label picks the real nearest river/bay,
+the ref lands `in=Y`, and the "further" band is gone. (The pool carries a proper
+excluded `kind`, so no name/area backstop is needed.) `tsc` + 284 tests green.
+
 **v1192 — body-of-water label≠elimination ROOT CAUSE: the label read a
 non-deterministic water snapshot.** The real bug behind "different reference each
 time" + "a band of 'further' between me and the reference" (and the same on
