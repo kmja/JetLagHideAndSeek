@@ -723,6 +723,10 @@ export function InlineLocationPicker({
             Number.isFinite(referencePoint.lng);
 
         let target: [number, number, number, number] = yesBb;
+        // Split framing needs to be looser (show more non-matching context)
+        // and roomier at the TOP — the reference label is a Popup anchored
+        // above its point, so a tight top edge clips it (v1206).
+        let isSplit = false;
         try {
             const fullBb = turfBbox(featureCollection([yes, no])) as [
                 number,
@@ -739,32 +743,50 @@ export function InlineLocationPicker({
             const compact = yesW <= fullW * 0.72 && yesH <= fullH * 0.72;
 
             if (!compact && hasRef && referencePoint) {
-                const ref = turfPoint([
-                    referencePoint.lng,
-                    referencePoint.lat,
-                ]);
+                isSplit = true;
+                const rLng = referencePoint.lng;
+                const rLat = referencePoint.lat;
+                const ref = turfPoint([rLng, rLat]);
                 const pts: [number, number][] = [
-                    [referencePoint.lng, referencePoint.lat],
+                    [rLng, rLat],
                     [safeLng, safeLat],
                 ];
                 const divider = matchNoDivider(yes, no);
                 if (divider) {
                     const np = nearestPointOnLine(divider, ref);
                     const c = np.geometry.coordinates;
-                    if (Number.isFinite(c[0]) && Number.isFinite(c[1]))
+                    if (Number.isFinite(c[0]) && Number.isFinite(c[1])) {
+                        // The nearest point ON the match/no edge...
                         pts.push([c[0], c[1]]);
+                        // ...and the REFLECTION of the reference across that
+                        // edge, which lands in the NON-matching region — so the
+                        // frame straddles the divide and shows a comparable
+                        // chunk of "no" instead of an almost-all-match view
+                        // (v1206: ref→edge alone showed too little no).
+                        const noLng = 2 * c[0] - rLng;
+                        const noLat = 2 * c[1] - rLat;
+                        if (Number.isFinite(noLng) && Number.isFinite(noLat))
+                            pts.push([noLng, noLat]);
+                    }
                 }
                 const lngs = pts.map((p) => p[0]);
                 const lats = pts.map((p) => p[1]);
-                target = [
-                    Math.min(...lngs),
-                    Math.min(...lats),
-                    Math.max(...lngs),
-                    Math.max(...lats),
-                ];
+                let minX = Math.min(...lngs);
+                let minY = Math.min(...lats);
+                let maxX = Math.max(...lngs);
+                let maxY = Math.max(...lats);
+                // Pad the window ~25% each side for breathing room + context.
+                const padX = (maxX - minX) * 0.25 || 0.001;
+                const padY = (maxY - minY) * 0.25 || 0.001;
+                minX -= padX;
+                maxX += padX;
+                minY -= padY;
+                maxY += padY;
+                target = [minX, minY, maxX, maxY];
             }
         } catch {
             target = yesBb;
+            isSplit = false;
         }
         if (!target.every((n) => Number.isFinite(n))) return;
         try {
@@ -773,7 +795,15 @@ export function InlineLocationPicker({
                     [target[0], target[1]],
                     [target[2], target[3]],
                 ],
-                { padding: 40, maxZoom: 14, duration: 400 },
+                {
+                    // Extra TOP room so the reference's above-anchored label
+                    // pill never clips at the frame edge.
+                    padding: isSplit
+                        ? { top: 96, bottom: 44, left: 52, right: 52 }
+                        : { top: 76, bottom: 36, left: 36, right: 36 },
+                    maxZoom: isSplit ? 13 : 14,
+                    duration: 400,
+                },
             );
             lastMatchFitRef.current = key;
         } catch {

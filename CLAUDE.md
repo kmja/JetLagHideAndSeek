@@ -448,6 +448,19 @@ SMALL piece (`area < 5 km²`): the big ocean is left to the chunking (buffering 
 whole is the perf hit the grid exists to avoid, and it already tests in-result).
 `tsc` + 284 tests green.
 
+**v1206 — matching split frame: show more non-match + fit the reference label.**
+The v1204 split frame (reference + seeker + nearest divider point) was too tight
+— it barely reached the non-matching side and clipped the reference label
+(`InlineLocationPicker`). Two fixes: (1) it now also includes the REFLECTION of
+the reference across the nearest divider point (`2·edge − ref`), which lands in
+the non-matching region, so the window straddles the divide and shows a
+comparable chunk of "no"; the bbox is then padded ~25% each side for context.
+(2) The reference's "nearest reference" label is a Popup anchored ABOVE its
+point, so the split fit uses asymmetric padding with extra TOP room
+(`{top:96, bottom:44, left:52, right:52}`, maxZoom 13) so the label never clips;
+the compact-island fit gained lighter top headroom too (`{top:76,…}`). `tsc` +
+284 tests green.
+
 **v1205 — "Start endgame" timer button appears only after 3 questions.** The
 seeker `HiderTimer`'s "Start endgame" entry no longer shows from the start of
 seeking — it now also gates on the seekers having ASKED at least 3 questions (a
