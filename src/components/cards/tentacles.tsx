@@ -1,6 +1,5 @@
 import { useStore } from "@nanostores/react";
-import * as turf from "@turf/turf";
-import React, { Suspense, use } from "react";
+import React from "react";
 
 import { LatitudeLongitude } from "@/components/LatLngPicker";
 import PresetsDialog from "@/components/PresetsDialog";
@@ -14,16 +13,14 @@ import {
 import { UnitSelect } from "@/components/UnitSelect";
 import {
     drawingQuestionKey,
-    hiderMode,
     isLoading,
     isQuestionEditable,
     questionModified,
     questions,
-    triggerLocalRefresh,
 } from "@/lib/context";
 import { gameSize } from "@/lib/gameSetup";
 import { cleanDescription, isSubtypeAllowed } from "@/lib/subtypes";
-import { cn, mapToObj } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 import { findTentacleLocations } from "@/maps/api";
 import {
     determineUnionizedStrings,
@@ -33,7 +30,7 @@ import {
     type TraditionalTentacleQuestion,
 } from "@/maps/schema";
 
-import { ManualAnswerDisclosure,QuestionCard } from "./base";
+import { QuestionCard } from "./base";
 
 export const TentacleQuestionComponent = ({
     data,
@@ -285,137 +282,6 @@ export const TentacleQuestionComponent = ({
                 impactType={data.locationType}
                 tentacleRadiusKm={data.radius}
             />
-            <ManualAnswerDisclosure compact={compactAnswer}>
-                <SidebarMenuItem className={MENU_ITEM_CLASSNAME}>
-                    <Suspense
-                        fallback={
-                            <div className="flex items-center justify-center w-full h-8">
-                                <svg
-                                    xmlns="http://www.w3.org/2000/svg"
-                                    width="24"
-                                    height="24"
-                                    viewBox="0 0 24 24"
-                                    fill="none"
-                                    stroke="currentColor"
-                                    strokeWidth="2"
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                    className="animate-spin"
-                                >
-                                    <path d="M21 12a9 9 0 1 1-6.219-8.56" />
-                                </svg>
-                            </div>
-                        }
-                    >
-                        <TentacleLocationSelector
-                            data={data}
-                            promise={
-                                data.locationType === "custom"
-                                    ? Promise.resolve(
-                                          turf.featureCollection(data.places),
-                                      )
-                                    : data.locationType === "metro"
-                                      ? // v343: metro tentacle uses its own
-                                        // data path (see tentacles.ts). The
-                                        // card preview hint is fine resolving
-                                        // to an empty FC — the planning
-                                        // pipeline + answer flow do the real
-                                        // fetch via findMetroTentacleCandidates.
-                                        Promise.resolve(
-                                            turf.featureCollection([]),
-                                        )
-                                      : findTentacleLocations(data as any)
-                            }
-                            disabled={!isQuestionEditable(data) || $isLoading}
-                        />
-                    </Suspense>
-                </SidebarMenuItem>
-            </ManualAnswerDisclosure>
         </QuestionCard>
-    );
-};
-
-const TentacleLocationSelector = ({
-    data,
-    promise,
-    disabled,
-}: {
-    data: TentacleQuestion;
-    promise: Promise<any>;
-    disabled: boolean;
-}) => {
-    useStore(triggerLocalRefresh);
-    const $hiderMode = useStore(hiderMode);
-    const locations = use(promise);
-
-    // Filter locations to only those within the radius of the primary location
-    const filteredFeatures = (() => {
-        if (
-            data.lat === null ||
-            data.lng === null ||
-            data.radius === undefined ||
-            data.radius === null
-        ) {
-            return locations.features;
-        }
-
-        const center = turf.point([data.lng, data.lat]);
-
-        return locations.features.filter((feature: any) => {
-            const coords =
-                feature?.geometry?.coordinates ??
-                (feature?.properties?.lon && feature?.properties?.lat
-                    ? [feature.properties.lon, feature.properties.lat]
-                    : null);
-
-            if (!coords) return false;
-
-            const pt = turf.point(coords);
-            const dist = turf.distance(center, pt, { units: data.unit });
-
-            return dist <= data.radius;
-        });
-    })();
-
-    // If the currently selected location is no longer within radius, clear it.
-    const _selectedLocationName = data.location
-        ? data.location.properties?.name
-        : null;
-    if (
-        _selectedLocationName &&
-        !filteredFeatures.find(
-            (f: any) => f.properties.name === _selectedLocationName,
-        )
-    ) {
-        data.location = false;
-        questionModified();
-    }
-
-    return (
-        <Select
-            trigger="Location"
-            options={{
-                false: "Not Within",
-                ...mapToObj(filteredFeatures, (feature: any) => [
-                    feature.properties.name,
-                    feature.properties.name,
-                ]),
-            }}
-            value={data.location ? data.location.properties.name : "false"}
-            onValueChange={(value) => {
-                if (value === "false") {
-                    data.location = false;
-                } else {
-                    data.location = filteredFeatures.find(
-                        (feature: any) => feature.properties.name === value,
-                    );
-                }
-                // Picking a location is the hider's answer — commit so the
-                // map applies the resulting elimination.
-                data.drag = false;
-                questionModified();
-            }}
-            disabled={!!$hiderMode || disabled}
-        />
     );
 };

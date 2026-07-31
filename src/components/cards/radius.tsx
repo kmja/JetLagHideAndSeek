@@ -5,12 +5,10 @@ import React from "react";
 import { LatitudeLongitude } from "@/components/LatLngPicker";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import {
     MENU_ITEM_CLASSNAME,
     SidebarMenuItem,
 } from "@/components/ui/sidebar-l";
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import {
     hiderMode,
     isLoading,
@@ -31,7 +29,7 @@ import {
 import { cn } from "@/lib/utils";
 import type { RadiusQuestion, Units } from "@/maps/schema";
 
-import { ManualAnswerDisclosure,QuestionCard } from "./base";
+import { QuestionCard } from "./base";
 
 /** Rulebook radar size tiers, in display order — the METRIC distance
  *  (in meters) + a stable, unit-independent `sig` used for uniqueness
@@ -466,46 +464,6 @@ export const RadiusQuestionComponent = ({
                           : data.radius * 1000
                 }
             />
-            <ManualAnswerDisclosure compact={compactAnswer}>
-                <div className="flex gap-2 items-center p-2">
-                    <Label
-                        className={cn(
-                            "font-semibold text-lg",
-                            $isLoading && "text-muted-foreground",
-                        )}
-                    >
-                        Result
-                    </Label>
-                    <ToggleGroup
-                        className="grow"
-                        type="single"
-                        // Show no preselected answer while the question is
-                        // still a draft (`drag: true`). Once the user picks
-                        // Inside/Outside we both record the answer AND
-                        // commit the question (drag:false) — this single
-                        // tap is the seeker's "the hider says ..." action.
-                        value={
-                            data.drag
-                                ? ""
-                                : data.within
-                                  ? "inside"
-                                  : "outside"
-                        }
-                        onValueChange={(value: "inside" | "outside") => {
-                            if (!value) return;
-                            data.within = value === "inside";
-                            data.drag = false;
-                            questionModified();
-                        }}
-                        disabled={!!$hiderMode || $isLoading}
-                    >
-                        <ToggleGroupItem value="outside">
-                            Outside
-                        </ToggleGroupItem>
-                        <ToggleGroupItem value="inside">Inside</ToggleGroupItem>
-                    </ToggleGroup>
-                </div>
-            </ManualAnswerDisclosure>
         </QuestionCard>
     );
 };

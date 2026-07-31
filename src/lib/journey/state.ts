@@ -134,10 +134,6 @@ export const SEEKER_ETA_RANK: Record<SeekerEtaTone, number> = {
 
 /* ─────────────────────── Seeker trip planner ─────────────────────── */
 
-/** Volatile open/closed state for the seeker's trip-planner drawer.
- *  Not persisted — closing the app resets it. */
-export const seekerTripPlannerOpen = atom<boolean>(false);
-
 /**
  * Current on-screen height (px) of the station transit card's drawer —
  * 0 when closed. Published by `StationTransitCard` via a ResizeObserver.

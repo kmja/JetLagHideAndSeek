@@ -7,8 +7,6 @@ import { COPY_FAILED, SHARE_FAILED } from "@/lib/toastMessages";
 
 import { LatitudeLongitude } from "@/components/LatLngPicker";
 import { Button } from "@/components/ui/button";
-import { Label } from "@/components/ui/label";
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { defaultUnit, mapContext } from "@/lib/context";
 import {
     hiderMode,
@@ -29,7 +27,7 @@ import { resolvedUnits } from "@/lib/units";
 import { cn } from "@/lib/utils";
 import type { ThermometerQuestion } from "@/maps/schema";
 
-import { ManualAnswerDisclosure, QuestionCard } from "./base";
+import { QuestionCard } from "./base";
 
 export const ThermometerQuestionComponent = ({
     data,
@@ -258,43 +256,6 @@ export const ThermometerQuestionComponent = ({
                 </div>
             )}
 
-            <ManualAnswerDisclosure compact={compactAnswer}>
-                <div className="flex gap-2 items-center p-2">
-                    <Label
-                        className={cn(
-                            "font-semibold text-lg",
-                            $isLoading && "text-muted-foreground",
-                        )}
-                    >
-                        Result
-                    </Label>
-                    <ToggleGroup
-                        className="grow"
-                        type="single"
-                        value={
-                            data.drag
-                                ? ""
-                                : data.warmer
-                                  ? "warmer"
-                                  : "colder"
-                        }
-                        onValueChange={(value: "warmer" | "colder") => {
-                            if (!value) return;
-                            data.warmer = value === "warmer";
-                            data.drag = false;
-                            questionModified();
-                        }}
-                        disabled={!!$hiderMode || $isLoading}
-                    >
-                        <ToggleGroupItem color="red" value="colder">
-                            Colder
-                        </ToggleGroupItem>
-                        <ToggleGroupItem value="warmer">
-                            Warmer
-                        </ToggleGroupItem>
-                    </ToggleGroup>
-                </div>
-            </ManualAnswerDisclosure>
         </QuestionCard>
     );
 };

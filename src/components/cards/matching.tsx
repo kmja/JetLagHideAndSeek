@@ -12,13 +12,11 @@ import NearestReferencePreview, {
 import PresetsDialog from "@/components/PresetsDialog";
 import { TransitRoutePicker } from "@/components/TransitRoutePicker";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import {
     MENU_ITEM_CLASSNAME,
     SidebarMenuItem,
 } from "@/components/ui/sidebar-l";
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import {
     customInitPreference,
     displayHidingZones,
@@ -46,7 +44,7 @@ import {
     NO_GROUP,
 } from "@/maps/schema";
 
-import { ManualAnswerDisclosure,QuestionCard } from "./base";
+import { QuestionCard } from "./base";
 
 export const MatchingQuestionComponent = ({
     data,
@@ -354,46 +352,6 @@ export const MatchingQuestionComponent = ({
                     }}
                 />
             )}
-            <ManualAnswerDisclosure compact={compactAnswer}>
-                <div
-                    className={cn(
-                        "flex gap-2 items-center p-2",
-                    )}
-                >
-                    <Label
-                        className={cn(
-                            "font-semibold text-lg",
-                            $isLoading && "text-muted-foreground",
-                        )}
-                    >
-                        Result
-                    </Label>
-                    <ToggleGroup
-                        className="grow"
-                        type="single"
-                        value={
-                            data.drag ? "" : data.same ? "same" : "different"
-                        }
-                        onValueChange={(value) => {
-                            if (value === "same") {
-                                data.same = true;
-                            } else if (value === "different") {
-                                data.same = false;
-                            } else {
-                                return;
-                            }
-                            data.drag = false;
-                            questionModified();
-                        }}
-                        disabled={!!$hiderMode || $isLoading}
-                    >
-                        <ToggleGroupItem value="different">
-                            Different
-                        </ToggleGroupItem>
-                        <ToggleGroupItem value="same">Same</ToggleGroupItem>
-                    </ToggleGroup>
-                </div>
-            </ManualAnswerDisclosure>
         </QuestionCard>
     );
 };

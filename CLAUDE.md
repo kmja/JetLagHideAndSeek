@@ -432,6 +432,30 @@ bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
 build stamp. Current: `v1069`. Use `git log` for the per-version detail;
 
+**v1185 — dead-code purge (font-size audit fallout).** A reachability audit of
+the app's hard-coded copy surfaced several strings tied to removed/disabled
+mechanics that never render; four dead-code clusters were deleted (tsc + eslint
+hooks + 284 tests still green): (1) **`SeekerTripPlannerSheet`** — the whole
+"Plan a trip" sheet. It was mounted in `SeekerPage` but its open atom
+`seekerTripPlannerOpen` was never set `true` (the launcher pill was removed in
+v617), so the sheet + its atom were unreachable — deleted the component, its
+mount/import, and the atom. (2) **`multiplayer/InviteSheet`** — the pre-lobby
+invite/roster UI, superseded by `GameLobbyDialog` and imported nowhere — file
+deleted. (3) **`ManualReferenceControl`** (`cards/measuring.tsx`) — the measuring
+"set the reference by hand" fallback (removed from the card UI in v611); defined
+but never rendered as JSX — function + its now-orphaned `MapPinned`/`X` imports
+removed. (4) **`ManualAnswerDisclosure`** — a `return null` stub (the seeker's
+manual-verdict override, replaced by auto-grading in v825) wrapping dead JSX at
+five card call-sites (matching/measuring/radius/thermometer/tentacles); the stub
++ all five wrapped blocks + their now-orphaned imports were removed. Removing the
+tentacle block also orphaned the local `TentacleLocationSelector` component (its
+only use was inside the dead wrapper), which was deleted along with its
+now-unused `turf`/`Suspense`/`use`/`hiderMode`/`triggerLocalRefresh`/`mapToObj`
+imports. One legacy string was left in place (renders only for pre-v339 /
+imported save-games): the `!target` "Legacy thermometer …" hint in
+`ThermometerOverlay`. No behaviour change — every removed path was already
+unreachable in a current game.
+
 **v1184 — configure/preview dialog polish (header, nearest-ref alignment,
 matching map framing).** (1) The dialog header is always **"New question"** now
 (matches the bottom-nav CTA + intent), dropping the v1178 "Configure/Preview"

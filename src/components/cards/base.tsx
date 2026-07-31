@@ -615,16 +615,4 @@ function ShareQuestionRow({ question }: { question: Question }) {
     );
 }
 
-/**
- * Suppressed manual-answer disclosure. The app now trusts that a real
- * hider will reply via share-link or multiplayer — so the seeker
- * never needs to override the answer locally. Renders nothing for
- * every question type. The component is kept (rather than ripped
- * out at every callsite) so the wiring stays simple if we ever want
- * to bring a debug-only manual mode back.
- */
-export const ManualAnswerDisclosure = (
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    _props: { compact?: boolean; children: React.ReactNode },
-) => null;
 

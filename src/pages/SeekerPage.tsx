@@ -35,7 +35,6 @@ import { PendingAnswerOverlay } from "@/components/PendingAnswerOverlay";
 import { QuestionSidebar } from "@/components/QuestionSidebar";
 import { SeekerFrozenBanner } from "@/components/SeekerFrozenBanner";
 import { SeekerTopBar } from "@/components/SeekerTopBar";
-import { SeekerTripPlannerSheet } from "@/components/SeekerTripPlannerSheet";
 import { StationTransitCard } from "@/components/StationTransitCard";
 import { ThermometerOverlay } from "@/components/ThermometerOverlay";
 import {
@@ -324,10 +323,6 @@ export function SeekerPage() {
                         <SeekingStartWatcher />
                         <EndOfRoundDialog />
                     </Suspense>
-                    {/* Trip planner sheet — opened from the launcher
-                        in the top-right cluster. Self-renders null
-                        when its open atom is false. */}
-                    <SeekerTripPlannerSheet />
                     <SeekerFrozenBanner />
                     <LocationPauseWatcher />
                     <HidingZoneOptionsSync />
