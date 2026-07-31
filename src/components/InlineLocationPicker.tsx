@@ -2006,12 +2006,16 @@ function zoomToFitRadius(
     viewportMinPx: number,
     padding: number,
 ): number {
-    const EARTH_CIRCUM = 156543.03392; // metres/pixel at zoom 0, equator
+    // Metres/pixel at zoom 0 on the equator. MapLibre GL uses 512-pixel tiles,
+    // so the world is 512·2^zoom px wide → 40075016.686 / 512 ≈ 78271.5 (NOT
+    // the 256-tile 156543 constant, which would make every zoom one level too
+    // tight — 2× too zoomed in at every radius, the reported bug).
+    const M_PER_PX_Z0 = 78271.5169;
     const usable = Math.max(50, viewportMinPx - 2 * padding);
     // The circle's DIAMETER (2r) must span `usable` px.
     const metersPerPixel = (2 * radiusMeters) / usable;
     const cosLat = Math.cos((lat * Math.PI) / 180) || 1e-6;
-    const z = Math.log2((EARTH_CIRCUM * cosLat) / metersPerPixel);
+    const z = Math.log2((M_PER_PX_Z0 * cosLat) / metersPerPixel);
     // Clamp to sane bounds so a degenerate value can't blow up the camera.
     return Math.max(1, Math.min(20, z));
 }

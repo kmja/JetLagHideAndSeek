@@ -448,6 +448,13 @@ SMALL piece (`area < 5 km²`): the big ocean is left to the chunking (buffering 
 whole is the perf hit the grid exists to avoid, and it already tests in-result).
 `tsc` + 284 tests green.
 
+**v1209 — radar reframe zoom fix (512-tile constant).** The v1208 `zoomToFitRadius`
+used the 256-pixel-tile zoom-0 resolution (156543 m/px), but MapLibre GL uses
+512-pixel tiles (world = 512·2^zoom px), so every computed zoom was ONE level too
+high → the map framed the radius 2× too tight regardless of size (the reported
+"too zoomed in regardless of radius"). Fixed to the 512-tile constant
+(≈78271.5 m/px). Framing now matches the pre-v1208 `fitBounds(padding 32)` reframe.
+
 **v1208 — radar preview: circle overlay + map reframe animate together, smooth.**
 The radar configure map's radius-overlay grow/shrink and the camera reframe ran
 as two SEPARATE animations (v1202: circle live, camera debounced ~150 ms), so
