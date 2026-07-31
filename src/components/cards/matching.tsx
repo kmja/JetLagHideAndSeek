@@ -12,7 +12,6 @@ import NearestReferencePreview, {
 import PresetsDialog from "@/components/PresetsDialog";
 import { TransitRoutePicker } from "@/components/TransitRoutePicker";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Select } from "@/components/ui/select";
 import {
     MENU_ITEM_CLASSNAME,
     SidebarMenuItem,
@@ -24,12 +23,10 @@ import {
     hiderMode,
     isLoading,
     isQuestionEditable,
-    mapGeoLocation,
     questionModified,
     questions,
     triggerLocalRefresh,
 } from "@/lib/context";
-import { adminDivisionName } from "@/lib/adminDivisions";
 import { gameSize } from "@/lib/gameSetup";
 import { cleanDescription, isSubtypeAllowed } from "@/lib/subtypes";
 import { cn } from "@/lib/utils";
@@ -69,10 +66,6 @@ export const MatchingQuestionComponent = ({
     const $isLoading = useStore(isLoading);
     const $customInitPref = useStore(customInitPreference);
     const $gameSize = useStore(gameSize);
-    // v355: subscribe so the admin-zone dropdown labels refresh when the
-    // play area's country changes (e.g. switching from a Germany game
-    // to a Japan game without a reload).
-    const $mapGeo = useStore(mapGeoLocation);
     // v477: ONE nearest-reference lookup, shared by the "Your nearest
     // reference" header and the configure-dialog map below, so they can
     // never disagree (header showing the resolved park while the map
@@ -118,60 +111,21 @@ export const MatchingQuestionComponent = ({
     switch (data.type) {
         case "zone":
         case "letter-zone":
-            questionSpecific = (
-                <>
-                    <SidebarMenuItem className={MENU_ITEM_CLASSNAME}>
-                        <Select
-                            trigger="Admin division"
-                            options={(() => {
-                                // v355: per-country admin labels so a
-                                // German player sees "Bundesland" instead
-                                // of "OSM Zone 4". Falls back to the
-                                // generic Nth-order description when the
-                                // play area is in a country we haven't
-                                // tabled yet — see lib/adminDivisions.ts.
-                                const iso = $mapGeo?.properties?.countrycode;
-                                const labelFor = (n: number) =>
-                                    `${adminDivisionName(iso, n)} (OSM ${n})`;
-                                return {
-                                    2: "Country (OSM 2)",
-                                    3: "Region (OSM 3)",
-                                    4: labelFor(4),
-                                    5: labelFor(5),
-                                    6: labelFor(6),
-                                    7: labelFor(7),
-                                    8: labelFor(8),
-                                    9: labelFor(9),
-                                    10: labelFor(10),
-                                };
-                            })()}
-                            value={data.cat.adminLevel.toString()}
-                            onValueChange={(value) =>
-                                questionModified(
-                                    (data.cat.adminLevel = parseInt(value) as
-                                        | 2
-                                        | 3
-                                        | 4
-                                        | 5
-                                        | 6
-                                        | 7
-                                        | 8
-                                        | 9
-                                        | 10),
-                                )
-                            }
-                            disabled={!isQuestionEditable(data) || $isLoading}
-                        />
-                    </SidebarMenuItem>
-                    {data.type === "letter-zone" && (
-                        <span className="px-2 text-center text-orange-500">
-                            Warning: The zone data has been simplified by
-                            &plusmn;360 feet (100 meters) in order for the
-                            browser to not crash.
-                        </span>
-                    )}
-                </>
-            );
+            // v1207: the admin level is a SEPARATE question chosen in the
+            // subtype picker (each admin tier is its own tile) and named in
+            // the card header, so the configure card no longer offers an admin-
+            // division dropdown. Only the letter-zone simplification warning
+            // remains.
+            questionSpecific =
+                data.type === "letter-zone" ? (
+                    <span className="px-2 text-center text-orange-500">
+                        Warning: The zone data has been simplified by
+                        &plusmn;360 feet (100 meters) in order for the browser
+                        to not crash.
+                    </span>
+                ) : (
+                    <></>
+                );
             break;
         case "aquarium":
         case "hospital":

@@ -448,6 +448,20 @@ SMALL piece (`area < 5 km²`): the big ocean is left to the chunking (buffering 
 whole is the perf hit the grid exists to avoid, and it already tests in-result).
 `tsc` + 284 tests green.
 
+**v1207 — admin-division ("zone") matching questions named by level, dropdown
+gone.** The admin-division matching question showed a generic "Zone" header + an
+admin-level dropdown in the configure card — but each admin tier is picked as its
+OWN tile in the subtype picker (v839/v870), so the level is fixed at pick time.
+Now (1) the card header names the level ("Matching · County" / "State" / "Region
+(Län)" — locale-aware via `adminDivisionName(iso, cat.adminLevel)`, mirroring the
+picker tile) instead of "Zone", via a new `adminZoneLabel` branch in
+`summarizeQuestion` (`questionOverlayCard.tsx`, covering `zone` + `letter-zone`),
+and (2) the admin-division `Select` dropdown was removed from `cards/matching.tsx`
+(only the `letter-zone` simplification warning remains), along with its now-unused
+`Select`/`adminDivisionName`/`mapGeoLocation` imports. The level is still the
+schema's `cat.adminLevel`; only the redundant in-card editor is gone. `tsc` + 284
+tests green.
+
 **v1206 — matching split frame: show more non-match + fit the reference label.**
 The v1204 split frame (reference + seeker + nearest divider point) was too tight
 — it barely reached the non-matching side and clipped the reference label

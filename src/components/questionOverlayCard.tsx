@@ -86,6 +86,31 @@ function adminBorderLabel(value: string): string {
     return tier === 1 ? "1st admin border" : "2nd admin border";
 }
 
+/** Locale-specific label for a matching admin-division ("zone") question —
+ *  names the OSM admin level ("State", "County", "Region (Län)") for the play
+ *  area's country, mirroring the subtype-picker tile (v1207). Falls back to the
+ *  generic wording when the country is unknown/untabled. `isLetter` marks the
+ *  "same first letter of the division name" variant. */
+function adminZoneLabel(
+    adminLevel: number | undefined,
+    isLetter: boolean,
+): string {
+    let base = "Admin division";
+    if (adminLevel != null) {
+        const iso = (
+            mapGeoLocation.get()?.properties as
+                | { countrycode?: string }
+                | undefined
+        )?.countrycode;
+        const name = iso ? adminDivisionName(iso, adminLevel) : "";
+        base =
+            name && !name.startsWith("OSM") && !name.includes("admin division")
+                ? name.replace(/\s*\(.*\)\s*$/, "")
+                : `Admin division ${adminLevel}`;
+    }
+    return isLetter ? `${base} letter` : base;
+}
+
 /* ────────────────── Summary ────────────────── */
 
 export interface QuestionSummary {
@@ -183,6 +208,27 @@ export function summarizeQuestion(q: {
         }
         case "matching": {
             const subType = d.type ? String(d.type) : undefined;
+            // v1207: admin-division ("zone") matching questions are named by
+            // their admin level ("Matching · County"), mirroring the picker,
+            // instead of a generic "Zone" — the level is fixed at pick time.
+            if (subType === "zone" || subType === "letter-zone") {
+                const adminLevel = (
+                    d.cat as { adminLevel?: number } | undefined
+                )?.adminLevel;
+                const zoneLabel = adminZoneLabel(
+                    adminLevel,
+                    subType === "letter-zone",
+                );
+                return {
+                    category: categoryLabel,
+                    icon: getSubtypeIcon(subType) ?? undefined,
+                    bigLabel: `${categoryLabel} · ${zoneLabel}`,
+                    detail:
+                        subType === "letter-zone"
+                            ? "Same first letter as you?"
+                            : "Same one as you?",
+                };
+            }
             const subLabel = subtypeLabel(subType) ?? undefined;
             return {
                 category: categoryLabel,
