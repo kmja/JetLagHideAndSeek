@@ -688,11 +688,17 @@ export function bufferWaterGridImpl(
         }
     }
 
-    // GLOBAL nearest-water distance (km) over the buffer targets.
+    // GLOBAL nearest-water distance (km) over the buffer targets. Also track the
+    // NEAREST piece itself — the one that SETS r — so we can guarantee it's in
+    // the result even if the per-cell clip/simplify drops it (v1193).
     let minKm = Infinity;
+    let nearestTarget: Feature | null = null;
     for (const f of targets) {
         const d = distanceToFeatureKm(seeker, f);
-        if (Number.isFinite(d) && d < minKm) minKm = d;
+        if (Number.isFinite(d) && d < minKm) {
+            minKm = d;
+            nearestTarget = f;
+        }
     }
     const r = Number.isFinite(minKm) ? Math.max(minKm, 0.01) : 0;
     // If there are no buffer targets (only water-areas), fall back to the
@@ -894,6 +900,32 @@ export function bufferWaterGridImpl(
                 }
             } catch {
                 cellRegions.push(cellUnion);
+            }
+        }
+    }
+    // v1193: GUARANTEE the seeker's nearest water is buffered into the result.
+    // The per-cell clip (`intersect`) can reject an invalid raw tile-fragment, so
+    // the specific small piece that SET r (the seeker's nearest water — the
+    // labelled reference sits on it) can be absent from every cell → the seeker's
+    // own vicinity reads "further" (ref-in=N) even though it set r. Buffer that
+    // nearest piece DIRECTLY (un-chunked) and union it in. Gated to a SMALL piece:
+    // the big ocean is handled by the chunking (buffering it whole is exactly the
+    // perf hit the grid avoids, and it already tests in-result).
+    if (nearestTarget && r > 0) {
+        let smallEnough = true;
+        try {
+            smallEnough = area(nearestTarget as never) < 5_000_000; // < 5 km²
+        } catch {
+            smallEnough = true; // a line / un-measurable → treat as small
+        }
+        if (smallEnough) {
+            try {
+                const b = turfBuffer(nearestTarget as never, r, {
+                    units: "kilometers",
+                }) as Feature<Polygon | MultiPolygon> | undefined;
+                if (b && b.geometry && area(b) > 0) cellRegions.push(b);
+            } catch {
+                /* skip — the grid result stands */
             }
         }
     }

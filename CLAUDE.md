@@ -432,6 +432,22 @@ bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
 build stamp. Current: `v1069`. Use `git log` for the per-version detail;
 
+**v1193 — body-of-water: GUARANTEE the seeker's nearest water is buffered (the
+residual `ref-in=N`).** With v1192 making the label + elimination read ONE
+deterministic snapshot, the reading came back clean but STILL
+`ref@40.691,-73.980(440m)-in=N seeker-in=N` (ocean `Y`): the small `kind=water`
+piece that SETS `r=440m` (the seeker's nearest water, with the labelled reference
+on it) was genuinely absent from the buffered region — a per-cell clip artifact
+in `bufferWaterGridImpl` (the strict `intersect` clip rejects an invalid raw
+tile-fragment, so that specific piece is dropped from every cell) that v1191's
+keep-collapsed-piece fix didn't cover. Rather than chase each clip edge case, the
+grid now TRACKS `nearestTarget` (the piece that set `r`) and, after the cell loop,
+buffers it DIRECTLY (un-chunked) by `r` and unions it in — guaranteeing the
+seeker's own vicinity + the reference are always covered (`ref-in=Y`). Gated to a
+SMALL piece (`area < 5 km²`): the big ocean is left to the chunking (buffering it
+whole is the perf hit the grid exists to avoid, and it already tests in-result).
+`tsc` + 284 tests green.
+
 **v1192 — body-of-water label≠elimination ROOT CAUSE: the label read a
 non-deterministic water snapshot.** The real bug behind "different reference each
 time" + "a band of 'further' between me and the reference" (and the same on
