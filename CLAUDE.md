@@ -432,6 +432,25 @@ bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
 build stamp. Current: `v1069`. Use `git log` for the per-version detail;
 
+**v1191 — body-of-water chunking artifact FIXED (small water piece dropped by
+simplify).** The v1190 diagnostic settled it: a live NYC reading came back
+`ref@40.691,-73.980(440m)-in=N seeker-in=N` — the labelled nearest water (ON
+water, distance 0 < r) was NOT in the computed closer region, i.e. a
+`bufferWaterGrid` chunking artifact near the seeker. Root cause: `globalPieces`
+in `bufferWaterGridImpl` (`geometry/worker.ts`) mapped each water polygon through
+`gentleSimplify(p, ~55 m tol)` then `filter(area > 0)` — a SMALL `kind=water`
+piece (a dock / inlet / pond, not the big ocean) COLLAPSES to zero area under
+that tolerance and was DROPPED. But the global buffer radius `r` is computed over
+the UN-simplified `targets`, so the seeker's actual nearest water set `r=440m`
+yet was then absent from the buffered set → its area got no buffer → the seeker's
+own vicinity (and the reference on it) read "further" (`ref-in=N`). Fix: keep the
+ORIGINAL un-simplified piece whenever the simplified one degenerates to ≤0 area,
+so no water is ever dropped (downstream clip/buffer are try/catch-guarded, so a
+raw piece can only be skipped, never make things worse). Small collapsing pieces
+are few-vertex, so buffering the originals is cheap — the v1150 perf win (simplify
+the big pieces) is preserved. `tsc` + 284 tests green (incl. the "many separate
+small ponds" water-buffer case).
+
 **v1190 — body-of-water DECISIVE diagnostic (`ref-in`/`seeker-in`).** A live NYC
 `[bow]` reading proved the buffer is correct (`src=basemap-water feats=344 …
 biggest=ocean/62km² → bufferWaterGrid ok (5x5) area=3438km² ocean@…-in-result=Y`)

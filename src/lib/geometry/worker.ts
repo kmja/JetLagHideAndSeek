@@ -736,7 +736,25 @@ export function bufferWaterGridImpl(
     // common z12 case the input is already ONE dissolved feature, so this is a
     // single simplified piece — identical to v1149.)
     const globalPieces = polyTargets
-        .map((p) => gentleSimplify(p, tol))
+        .map((p) => {
+            // v1191: a SMALL water piece (a dock / inlet / pond — `kind=water`,
+            // not the big ocean) can COLLAPSE to zero area under the ~tol-km
+            // simplify, and the `area > 0` filter below then DROPS it. That's the
+            // confirmed `ref-in=N` chunking artifact: the seeker's actual nearest
+            // water sets the global `r` (computed over the UN-simplified targets)
+            // but is then dropped from the buffered set, so its area never gets a
+            // buffer and the seeker's own vicinity reads "further". Keep the
+            // ORIGINAL un-simplified piece whenever the simplified one degenerates
+            // — downstream clip/buffer are try/catch-guarded, so a raw piece can
+            // at worst be skipped, never make things worse than dropping it.
+            const s = gentleSimplify(p, tol);
+            try {
+                if (area(s) > 0) return s;
+            } catch {
+                /* fall through to the original */
+            }
+            return p;
+        })
         .filter((p) => {
             try {
                 return area(p) > 0;
