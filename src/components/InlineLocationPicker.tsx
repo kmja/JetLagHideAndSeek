@@ -947,33 +947,49 @@ export function InlineLocationPicker({
             const alpha = 1 - Math.exp(-dt / TAU_MS);
             cur = cur + (tgt - cur) * alpha;
             // Settle when within 0.2% (or 1 m) so the loop stops cleanly.
-            if (Math.abs(tgt - cur) <= Math.max(1, tgt * 0.002)) cur = tgt;
+            const settled = Math.abs(tgt - cur) <= Math.max(1, tgt * 0.002);
+            if (settled) cur = tgt;
             displayRadiusRef.current = cur;
-            setAnimatedRadius(cur);
             const map = mapRef.current?.getMap();
             if (map && cur > 0) {
                 try {
+                    // Drive the overlay circle IMPERATIVELY via setData rather
+                    // than React state — a per-frame setState re-renders the
+                    // whole picker + map subtree and tanked the frame rate
+                    // (v1210). The declarative <Source> is synced once at settle.
+                    const src = map.getSource("radius") as
+                        | maplibregl.GeoJSONSource
+                        | undefined;
+                    src?.setData(
+                        turfCircle(
+                            [pinRef.current.lng, pinRef.current.lat],
+                            cur / 1000,
+                            { steps: 64, units: "kilometers" },
+                        ) as GeoJSON.Feature,
+                    );
                     const el = map.getContainer();
                     const minPx =
                         Math.min(el.clientWidth, el.clientHeight) || 300;
-                    const z = zoomToFitRadius(
-                        cur,
-                        pinRef.current.lat,
-                        minPx,
-                        32,
-                    );
                     map.jumpTo({
                         center: [pinRef.current.lng, pinRef.current.lat],
-                        zoom: z,
+                        zoom: zoomToFitRadius(
+                            cur,
+                            pinRef.current.lat,
+                            minPx,
+                            32,
+                        ),
                     });
                 } catch {
                     /* map not ready — next frame retries */
                 }
             }
-            if (cur !== tgt) {
+            if (!settled) {
                 chaseRafRef.current = requestAnimationFrame(tick);
             } else {
                 chaseRafRef.current = undefined;
+                // Sync React state ONCE to the final geometry so the
+                // declarative <Source data={radiusCircle}> matches.
+                setAnimatedRadius(tgt);
             }
         };
         chaseRafRef.current = requestAnimationFrame(tick);
