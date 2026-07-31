@@ -448,6 +448,21 @@ SMALL piece (`area < 5 km²`): the big ocean is left to the chunking (buffering 
 whole is the perf hit the grid exists to avoid, and it already tests in-result).
 `tsc` + 284 tests green.
 
+**v1203 — endgame-trigger button fixes (seeker `HiderTimer` + `EndgameOverlay`).**
+Four fixes to the v1189 "Start endgame" button beside the seeker timer. (1) The
+button now sits to the **LEFT** of the timer (a `flex items-end gap-2` row with
+the button + a timer column), instead of stacked above it. (2) The confirm
+dialog **names the nearest station** — `handleStartEndgame` reads
+`lastKnownPosition` + `findZonesNearPoint(lat, lng, {allowed: allowedTransit,
+radiusMeters: 1500})` and phrases the prompt as "Declare you've arrived and are
+off transit at <station> — the hider's station…" (endgame = the seekers reach
+and exit transit at the hider's station); falls back to generic copy when no
+station resolves. (3) The success `EndgameOverlay` body no longer tells seekers
+to "get off transit" — reworded to "You've reached the hider's station — the
+endgame is on. Search on foot to find them." (they've already arrived + exited
+transit by declaring). (4) Removed the `Sparkles` (magic-star) icon from the
+overlay's "Let's go" button (+ dropped the import). `tsc` + 284 tests green.
+
 **v1202 — radar custom-slider polish + smoother map radius animation.** Five
 tweaks: (1) the slider **thumb is vertically centred** on the track — the input is
 now as tall as the thumb (`h-7`) with the visible track a `h-3` pseudo-element

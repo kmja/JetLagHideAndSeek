@@ -4,7 +4,9 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import { useNow } from "@/hooks/useNow";
 import { appConfirm } from "@/lib/confirm";
+import { lastKnownPosition } from "@/lib/context";
 import {
+    allowedTransit,
     effectiveHiddenDebitMs,
     endgameConfirmedAt,
     endgameStartedAt,
@@ -16,6 +18,7 @@ import {
     setupCompleted,
 } from "@/lib/gameSetup";
 import { roundFoundAt, roundLog } from "@/lib/hiderRole";
+import { findZonesNearPoint } from "@/lib/journey/stations";
 import {
     displayName,
     multiplayerEnabled,
@@ -89,10 +92,28 @@ export function HiderTimer({ preview }: { preview?: HiderTimerPreview } = {}) {
         // GPS against the hider's actual zone (a wrong claim is denied outright
         // via the EndgameOverlay; a correct one arms the endgame + flips this
         // timer to "In the zone"). Solo/offline arms locally.
+        // Name the seeker's NEAREST station — the endgame is defined as the
+        // seekers arriving and exiting transit at the hider's station, so the
+        // claim is "I'm at this station". (The hider's actual station is secret;
+        // the server checks the seeker's GPS against it.)
+        let stationName: string | null = null;
+        const pos = lastKnownPosition.get();
+        if (pos) {
+            try {
+                const zones = await findZonesNearPoint(pos.lat, pos.lng, {
+                    allowed: allowedTransit.get(),
+                    radiusMeters: 1500,
+                });
+                stationName = zones[0]?.name ?? null;
+            } catch {
+                /* couldn't resolve a nearby station — confirm generically */
+            }
+        }
         const ok = await appConfirm({
             title: "Start the endgame?",
-            description:
-                "Declare you've reached the hider's zone. We'll check your location against the hider's — if it's right, the endgame begins and the hider locks to a final spot.",
+            description: stationName
+                ? `Declare you've arrived and are off transit at ${stationName} — the hider's station. The server checks your location against the hider's; if it matches, the endgame begins and the hider locks to a final spot.`
+                : "Declare you've arrived and are off transit at the hider's station. The server checks your location against the hider's; if it matches, the endgame begins and the hider locks to a final spot.",
             confirmLabel: "Start endgame",
         });
         if (!ok) return;
@@ -273,10 +294,10 @@ export function HiderTimer({ preview }: { preview?: HiderTimerPreview } = {}) {
                 // forced the old bottom-7/8 raise) moved to top-left in
                 // v616, so that vertical margin was dead space.
                 "bottom-2 md:bottom-3",
-                "flex flex-col gap-2",
-                inHidingPeriod
-                    ? "left-2 md:left-4 items-start"
-                    : "right-2 md:right-4 items-end",
+                // v1203: a ROW so the "Start endgame" button sits to the LEFT of
+                // the timer (bottoms aligned) instead of stacked above it.
+                "flex items-end gap-2",
+                inHidingPeriod ? "left-2 md:left-4" : "right-2 md:right-4",
             )}
         >
             {/* Round-end action surface. The endgame is triggered from the
@@ -288,31 +309,33 @@ export function HiderTimer({ preview }: { preview?: HiderTimerPreview } = {}) {
                   • the "Mark hider found" button.
                 Nothing renders before the endgame is armed or after the
                 hider is found (the FoundSummary lives in the lobby). */}
-            {/* Before the endgame is armed: a "Start endgame" entry beside the
-                timer — a second way in, in addition to tapping the hider's zone
-                on the map. Shows once the hiding period is over and until a
+            {/* Before the endgame is armed: a "Start endgame" entry to the LEFT
+                of the timer — a second way in, in addition to tapping the hider's
+                zone on the map. Shows once the hiding period is over and until a
                 claim is armed / the hider is found. */}
             {!inHidingPeriod && !$foundAt && $endgameStartedAt === null && (
-                <div className="animate-in fade-in slide-in-from-bottom-2 duration-300">
-                    <button
-                        type="button"
-                        onClick={handleStartEndgame}
-                        title="Start the endgame — declare you've reached the hider's zone"
-                        className={cn(
-                            "flex items-center justify-center w-full",
-                            "px-3 py-2 rounded-md",
-                            "bg-primary text-primary-foreground",
-                            "hover:bg-primary/90 active:bg-primary/80",
-                            "border-2 border-primary shadow-md transition-colors",
-                            "text-xs font-poppins font-bold uppercase tracking-wider",
-                            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                        )}
-                    >
-                        Start endgame
-                    </button>
-                </div>
+                <button
+                    type="button"
+                    onClick={handleStartEndgame}
+                    title="Start the endgame — declare you've reached the hider's station"
+                    className={cn(
+                        "flex shrink-0 items-center justify-center",
+                        "px-3 py-2 rounded-md",
+                        "bg-primary text-primary-foreground",
+                        "hover:bg-primary/90 active:bg-primary/80",
+                        "border-2 border-primary shadow-md transition-colors",
+                        "text-xs font-poppins font-bold uppercase tracking-wider",
+                        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                        "animate-in fade-in slide-in-from-bottom-2 duration-300",
+                    )}
+                >
+                    Start endgame
+                </button>
             )}
 
+            {/* The timer + (once armed) the "In the zone" badge + "Mark hider
+                found", stacked in a column to the RIGHT of the endgame button. */}
+            <div className="flex flex-col items-end gap-2">
             {!inHidingPeriod && !$foundAt && $endgameStartedAt !== null && (
                 <div className="flex flex-col items-end gap-1.5 animate-in fade-in slide-in-from-bottom-2 duration-300">
                     {/* v950: the server only arms the endgame for a CORRECT
@@ -461,6 +484,7 @@ export function HiderTimer({ preview }: { preview?: HiderTimerPreview } = {}) {
                     ))}
                 </div>
             )}
+            </div>
         </div>
     );
 }

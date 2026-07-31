@@ -1,5 +1,5 @@
 import { useStore } from "@nanostores/react";
-import { MapPinOff, Sparkles, Target } from "lucide-react";
+import { MapPinOff, Target } from "lucide-react";
 import { type CSSProperties, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 
@@ -150,7 +150,7 @@ export function EndgameOverlay() {
     const body = success
         ? isHider
             ? "The seekers reached your zone and the endgame has started. Lock down your final spot — you can't move now."
-            : "You've reached the hider's zone — the endgame is on. Get off transit and search on foot to find them."
+            : "You've reached the hider's station — the endgame is on. Search on foot to find them."
         : transitDenied
           ? isHider
               ? "The seekers reached your zone but are still on transit — the endgame hasn't started. Stay ready."
@@ -277,7 +277,6 @@ export function EndgameOverlay() {
                         "font-display font-extrabold uppercase tracking-[0.02em]",
                     )}
                 >
-                    <Sparkles className="w-5 h-5" />
                     {success ? "Let's go" : "Keep searching"}
                 </Button>
             </div>
