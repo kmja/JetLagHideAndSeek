@@ -137,7 +137,7 @@ const CustomRadiusInput = ({
         if (clamped !== data.radius) questionModified((data.radius = clamped));
     };
     return (
-        <div className="flex items-end justify-center gap-2">
+        <div className="flex items-end justify-center gap-1.5">
             <input
                 type="number"
                 inputMode="decimal"
@@ -161,7 +161,7 @@ const CustomRadiusInput = ({
                     setText(fmt(data.radius));
                 }}
                 className={cn(
-                    "w-32 text-center text-4xl font-poppins font-bold text-primary tabular-nums leading-none",
+                    "w-24 text-center text-3xl font-poppins font-bold text-primary tabular-nums leading-none",
                     "bg-transparent outline-none",
                     "border-b-2 border-primary/40 focus:border-primary transition-colors",
                     // Hide the native spinner buttons — the field reads as the big
@@ -170,7 +170,7 @@ const CustomRadiusInput = ({
                     "disabled:opacity-50 disabled:cursor-not-allowed",
                 )}
             />
-            <span className="text-xl font-poppins font-semibold text-muted-foreground pb-1">
+            <span className="text-lg font-poppins font-semibold text-muted-foreground pb-0.5">
                 {unitLabel}
             </span>
         </div>
@@ -367,7 +367,11 @@ export const RadiusQuestionComponent = ({
                                 };
                                 const navBtn = cn(
                                     "h-20 w-16 shrink-0 flex items-center justify-center rounded-md",
-                                    "bg-secondary text-foreground hover:bg-accent transition-colors",
+                                    // A visible border + a stronger surface so the
+                                    // chevrons read clearly in dark mode (bg-secondary
+                                    // alone was too low-contrast against the card).
+                                    "border border-border bg-secondary text-foreground",
+                                    "hover:bg-accent hover:text-accent-foreground transition-colors",
                                     "disabled:opacity-30 disabled:cursor-not-allowed",
                                 );
                                 const canCycle =
@@ -392,12 +396,7 @@ export const RadiusQuestionComponent = ({
                                         >
                                             <ChevronLeft className="w-8 h-8" />
                                         </button>
-                                        <div
-                                            className={cn(
-                                                "relative flex-1 h-20 flex flex-col items-center justify-center rounded-md px-4 py-3",
-                                                "ring-2 ring-primary bg-primary/15",
-                                            )}
-                                        >
+                                        <div className="relative flex-1 h-20 flex flex-col items-center justify-center px-4">
                                             {showRepeat && (
                                                 <span
                                                     title={`Repeat: hider runs the draw-keep cycle ${repeatMult}× (rulebook p65)`}
@@ -406,14 +405,30 @@ export const RadiusQuestionComponent = ({
                                                     {repeatMult}×
                                                 </span>
                                             )}
-                                            <span className="text-3xl font-poppins font-bold text-primary tabular-nums leading-none">
-                                                {data.useCustom
-                                                    ? "Custom"
-                                                    : currentPreset?.label ??
-                                                      "Custom"}
-                                            </span>
+                                            {data.useCustom ? (
+                                                // The custom radius is edited RIGHT
+                                                // HERE (fine control), so the main
+                                                // selector both shows AND edits it.
+                                                <CustomRadiusInput
+                                                    data={data}
+                                                    disabled={
+                                                        !isQuestionEditable(
+                                                            data,
+                                                        ) || $isLoading
+                                                    }
+                                                    min={sliderConfig.min}
+                                                    max={sliderConfig.max}
+                                                />
+                                            ) : (
+                                                <span className="text-3xl font-poppins font-bold text-primary tabular-nums leading-none">
+                                                    {currentPreset?.label ??
+                                                        "Custom"}
+                                                </span>
+                                            )}
                                             <span className="text-xs uppercase tracking-wider text-muted-foreground mt-2">
-                                                Radar size
+                                                {data.useCustom
+                                                    ? "Custom size"
+                                                    : "Radar size"}
                                             </span>
                                         </div>
                                         <button
@@ -453,7 +468,7 @@ export const RadiusQuestionComponent = ({
                                         "ring-2 ring-primary bg-primary/20 text-primary",
                                 )}
                             >
-                                {data.useCustom ? "Using custom size" : "Custom size"}
+                                Custom size
                             </button>
 
                             {/* Custom slider — only when Custom is active. v747:
@@ -463,15 +478,6 @@ export const RadiusQuestionComponent = ({
                                 track. */}
                             {data.useCustom && (
                                 <div className="flex flex-col gap-3 pt-1">
-                                    <CustomRadiusInput
-                                        data={data}
-                                        disabled={
-                                            !isQuestionEditable(data) ||
-                                            $isLoading
-                                        }
-                                        min={sliderConfig.min}
-                                        max={sliderConfig.max}
-                                    />
                                     <input
                                         type="range"
                                         min={0}
@@ -491,7 +497,9 @@ export const RadiusQuestionComponent = ({
                                         }
                                         className={cn(
                                             "w-full appearance-none cursor-pointer",
-                                            "h-3 rounded-full bg-muted ring-1 ring-inset ring-border",
+                                            // Higher-contrast track — bg-muted was
+                                            // nearly invisible in dark mode.
+                                            "h-3 rounded-full bg-foreground/20 ring-1 ring-inset ring-foreground/25",
                                             "accent-primary",
                                             "[&::-webkit-slider-thumb]:appearance-none",
                                             "[&::-webkit-slider-thumb]:h-7 [&::-webkit-slider-thumb]:w-7",

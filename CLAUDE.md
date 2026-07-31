@@ -448,6 +448,21 @@ SMALL piece (`area < 5 km²`): the big ocean is left to the chunking (buffering 
 whole is the perf hit the grid exists to avoid, and it already tests in-result).
 `tsc` + 284 tests green.
 
+**v1199 — radar configure-card polish (dark-mode contrast + custom-size layout).**
+Five tweaks to `cards/radius.tsx` from a dark-mode screenshot: (1) the custom
+radius is now edited RIGHT IN the main carousel selector — when custom is active
+the selector renders the editable `CustomRadiusInput` (and the subtitle reads
+"Custom size" instead of "Radar size"), so there's ONE big number that both shows
+and edits the value (the separate editable field below the slider was removed);
+(2) the selector dropped its `bg-primary/15` + `ring-primary` background plate —
+just the number + subtitle between the chevrons; (3) the prev/next chevron buttons
+gained a `border-border` outline + hover text so they read clearly in dark mode
+(`bg-secondary` alone was too low-contrast — the general dark-mode fix); (4) the
+custom slider track is `bg-foreground/20` + `ring-foreground/25` (was `bg-muted`,
+nearly invisible on the dark card); (5) the Custom toggle button always reads
+"Custom size" (dropped the redundant "Using custom size" active label — the ring
+styling already shows it's on). `tsc` + 284 tests green.
+
 **v1198 — custom radar distance is an editable number (finer than the slider).**
 The custom-size slider snaps to "nice" steps (`snapToNiceStep` — 10/50/100 m,
 0.1/0.25/0.5/1 km), so it can't express e.g. 637 m or 1.35 km. The big number
