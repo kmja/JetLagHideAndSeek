@@ -432,6 +432,40 @@ bug-button tooltip. **Bump `APP_VERSION` on every meaningful change/deploy**
 so the live build is identifiable at a glance — there's no other visible
 build stamp. Current: `v1069`. Use `git log` for the per-version detail;
 
+**v1187 — reconnecting is a non-blocking on-map PILL + central write-gate
+(replaces the full-screen curtain).** The v935 "Reconnecting…" curtain dimmed +
+blocked the WHOLE app while the socket was down — but the two things people
+reopen to check (the map + the timers) are already correct offline (the
+countdown runs off the absolute `hidingPeriodEndsAt`, and the map/questions/zone
+render from last-synced local state), so freezing everything to protect a
+read-only view was overkill. Now: **`src/lib/multiplayer/connectionGate.ts`** owns
+a single `reconnectActive` atom (true only in a REAL online game whose socket has
+been non-open past a 1.5 s grace; `installConnectionGate()` from `main.tsx` drives
+it off `transportStatus`/`currentGameCode`/`multiplayerEnabled`/`demoMode`).
+`ReconnectingBanner` was rebuilt from the blocking curtain into a compact
+**pointer-events-none** status PILL near the top of the map ("Reconnecting…" +
+a spinner + a held-back "Retry"), so the rest of the app stays fully interactive.
+**The v935 anti-desync guarantee moves to a central WRITE-GATE** (`guardOnlineAction()`):
+`transport.send` QUEUES to an outbox while the socket is closed and flushes on
+reconnect, but the reconnect `welcome` snapshot is authoritative and OVERWRITES
+local state — so a mutation composed against stale local state would be clobbered
+or delivered stale. The gate returns false (with a deduped toast) while the pill
+is up, so a user-initiated mutating action ABORTS before any local mutation or
+send; it's a no-op in solo/offline and during the sub-grace blip. Gated at the
+first-mover cross-player actions (`store.ts`: `seekerAddQuestion`,
+`seekerUpdateQuestion`, `seekerResendQuestion`, `hiderAnswerQuestion`,
+`seekerMarkFound`, `seekerStartEndgame`, `hiderConfirmEndgame`,
+`hiderCancelEndgame`, `seekerRotateHider`, `hiderCastCurse`) PLUS the compound
+flows at their UI entry — the cast dialog (`CastCurseDialog.cast`), the quick-cast
+(`curseCast.performNoActionCurseCast`), and the Move powerup
+(`roundActions.playMovePowerup`) — gated BEFORE their local side effects (card
+discards / period re-anchor) so a blocked cast/play can't leave a half-done state.
+Deliberately LEFT to queue-and-deliver (idempotent follow-ons / hider-authoritative
+data where losing the action is worse than a stale send): `sendCurseCleared`/
+`sendCurseProof`/`reportCurseFail`, the hangman sends, and the hider's own
+**zone commit** (the bridge queues `setHideZone`, delivered on reconnect, so the
+hider's committed zone isn't lost to a blip). tsc + eslint-hooks + 284 tests green.
+
 **v1186 — sub-`text-xs` copy bumped to `text-xs` app-wide (readability pass).**
 Follow-up to the v1185 audit: every hard-coded `text-[8px]`/`[9px]`/`[10px]`/
 `[11px]` class on USER-FACING COPY (sentences, labels, headings, button text,

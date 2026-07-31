@@ -24,6 +24,7 @@ import {
     armFreeQuestion,
     discardCard,
 } from "@/lib/hiderRole";
+import { guardOnlineAction } from "@/lib/multiplayer/connectionGate";
 import { hiderCastCurse } from "@/lib/multiplayer/store";
 import { recordCastCurse } from "@/lib/seekerInbound";
 import { encodeCurseLink, shareOrCopy } from "@/lib/shareLinks";
@@ -98,6 +99,9 @@ export async function performNoActionCurseCast(
     multiplayer: boolean,
     discardIds: string[],
 ): Promise<boolean> {
+    // Gate before any local mutation (free-question arm, discards) so a
+    // disconnected quick-cast can't spend cards for a curse that never lands.
+    if (multiplayer && !guardOnlineAction()) return false;
     const payload = {
         name: card.name,
         description: card.description,

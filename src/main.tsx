@@ -6,6 +6,7 @@ import { createRoot } from "react-dom/client";
 
 import { installDebugSecretTap } from "@/hooks/useDebugSecretTap";
 import { installBodyPointerEventsGuard } from "@/lib/bodyPointerEventsGuard";
+import { installConnectionGate } from "@/lib/multiplayer/connectionGate";
 import { installSoundUnlock } from "@/lib/sound";
 import { installTheme } from "@/lib/theme";
 // Side-effect import: registers the `beforeinstallprompt` listener at
@@ -38,6 +39,11 @@ installDebugSecretTap();
 // block audio until the first user gesture; this resumes the shared
 // AudioContext on it. Installed once, outside React, so it survives routes.
 installSoundUnlock();
+
+// Drive the reconnection gate (the on-map "Reconnecting…" pill + the central
+// write-gate that pauses mutating actions while the socket is down). Installed
+// once, outside React, so it survives every route change.
+installConnectionGate();
 
 const root = document.getElementById("root");
 if (!root) throw new Error("#root element missing from index.html");

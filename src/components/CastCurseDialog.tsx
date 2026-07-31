@@ -82,6 +82,7 @@ import {
     participants,
     seekerLocations,
 } from "@/lib/multiplayer/session";
+import { guardOnlineAction } from "@/lib/multiplayer/connectionGate";
 import { hiderCastCurse, sendHangmanStart } from "@/lib/multiplayer/store";
 import { recordCastCurse } from "@/lib/seekerInbound";
 import { encodeCurseLink, shareOrCopy } from "@/lib/shareLinks";
@@ -901,6 +902,9 @@ export function CastCurseDialog({
 
     const cast = async () => {
         if (!canCast) return;
+        // Gate the WHOLE compound cast (discards + wire send) up front so a
+        // disconnected cast can't spend cards for a curse that never lands.
+        if (!guardOnlineAction()) return;
 
         // Fizzled curse: spend the card without sharing.
         if (fizzles) {

@@ -35,8 +35,10 @@ import {
     roundFoundAt,
     roundLog,
 } from "@/lib/hiderRole";
+import { guardOnlineAction } from "@/lib/multiplayer/connectionGate";
 import {
     displayName as displayNameAtom,
+    multiplayerEnabled,
     participants,
 } from "@/lib/multiplayer/session";
 import { hostPushSetup, leaveGame } from "@/lib/multiplayer/store";
@@ -109,6 +111,11 @@ export function playMovePowerup(): boolean {
     const endsAt = hidingPeriodEndsAt.get();
     if (endsAt === null) return false;
     if (endgameStartedAt.get() !== null) return false;
+    // Move re-anchors the whole hiding period + reveals the station to the
+    // seekers via hostPushSetup. Gate before any local mutation so a
+    // disconnected play can't silently desync (local period reset, peers never
+    // told). Solo/offline is unaffected.
+    if (multiplayerEnabled.get() && !guardOnlineAction()) return false;
 
     const now = Date.now();
     // Bank time already survived (only counts once the initial hiding

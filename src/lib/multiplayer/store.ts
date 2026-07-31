@@ -138,6 +138,7 @@ import {
     transportStatus,
     transportReconnectAttempt,
 } from "./session";
+import { guardOnlineAction } from "./connectionGate";
 import { getTransport } from "./transport";
 import { stopDemoGame } from "./demoBroker";
 import type { GameState, ServerMessage, SetupState } from "./types";
@@ -381,6 +382,9 @@ export function leaveGame() {
  * a queued resend on reconnect.
  */
 export function seekerAddQuestion(partial: Parameters<typeof localAddQuestion>[0]) {
+    // Gate BEFORE the local add so a disconnected send doesn't leave a phantom
+    // question that the reconnect snapshot then wipes.
+    if (!guardOnlineAction()) return;
     // Run the local logic first so the seeker's UI updates instantly.
     localAddQuestion(partial);
     if (!multiplayerEnabled.get()) return;
@@ -399,6 +403,7 @@ export function seekerUpdateQuestion(key: number, data: Record<string, unknown>)
     // store (existing thermometer flow does so directly). We just
     // notify peers.
     if (!multiplayerEnabled.get()) return;
+    if (!guardOnlineAction()) return;
     getTransport().send({ t: "updateQ", key, data });
 }
 
@@ -413,6 +418,7 @@ export function seekerUpdateQuestion(key: number, data: Record<string, unknown>)
  */
 export function seekerResendQuestion(key: number): boolean {
     if (!multiplayerEnabled.get()) return false;
+    if (!guardOnlineAction()) return false;
     const q = questions.get().find((x) => x.key === key);
     if (!q) return false;
     getTransport().send({ t: "addQ", question: q });
@@ -427,6 +433,7 @@ export function seekerResendQuestion(key: number): boolean {
  */
 export function hiderAnswerQuestion(key: number, answer: Record<string, unknown>) {
     if (!multiplayerEnabled.get()) return;
+    if (!guardOnlineAction()) return;
     getTransport().send({ t: "answerQ", key, answer });
 }
 
@@ -466,6 +473,7 @@ export async function uploadGamePhoto(blob: Blob): Promise<string> {
  */
 export function seekerMarkFound(foundAt: number, force = false) {
     if (!multiplayerEnabled.get()) return;
+    if (!guardOnlineAction()) return;
     getTransport().send({ t: "found", foundAt, force });
 }
 
@@ -622,6 +630,7 @@ export function seekerStartEndgame(
         if (zone) endgameZone.set(zone);
         return;
     }
+    if (!guardOnlineAction()) return;
     // v950: DON'T optimistically arm in multiplayer — the server validates the
     // claim against the hider's zone and either arms it (correct, via
     // `setupChanged`) or replies `endgameDenied` (wrong). Setting it locally
@@ -642,6 +651,7 @@ export function seekerStartEndgame(
 export function hiderConfirmEndgame() {
     if (endgameStartedAt.get() === null) return;
     if (endgameConfirmedAt.get() != null) return;
+    if (multiplayerEnabled.get() && !guardOnlineAction()) return;
     endgameConfirmedAt.set(Date.now());
     if (!multiplayerEnabled.get()) return;
     getTransport().send({ t: "confirmEndgame" });
@@ -657,6 +667,7 @@ export function hiderConfirmEndgame() {
  */
 export function hiderCancelEndgame() {
     if (endgameStartedAt.get() === null) return;
+    if (multiplayerEnabled.get() && !guardOnlineAction()) return;
     endgameStartedAt.set(null);
     endgameConfirmedAt.set(null);
     if (!multiplayerEnabled.get()) return;
@@ -723,6 +734,7 @@ export function seekerRotateHider(
     coHiderIds?: string[],
 ) {
     if (!multiplayerEnabled.get()) return;
+    if (!guardOnlineAction()) return;
     getTransport().send({
         t: "rotateHider",
         to: toParticipantId,
@@ -739,6 +751,7 @@ export function seekerRotateHider(
 /** Hider broadcasts a curse to all seekers in the room. */
 export function hiderCastCurse(curse: CursePayload) {
     if (!multiplayerEnabled.get()) return;
+    if (!guardOnlineAction()) return;
     getTransport().send({ t: "castCurse", curse });
 }
 
