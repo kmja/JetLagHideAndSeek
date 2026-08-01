@@ -448,6 +448,25 @@ SMALL piece (`area < 5 km²`): the big ocean is left to the chunking (buffering 
 whole is the perf hit the grid exists to avoid, and it already tests in-result).
 `tsc` + 284 tests green.
 
+**v1234 — metro tentacle uses REAL line geometry (nearest-LINE partition), not
+centroids.** Follow-up to v1233's centroid filtering: a metro line is a curved
+polyline, and its nearest point to you can be far from its centroid — so a
+centroid Voronoi mispartitions the reach AND the elimination graded on nearest
+centroid, not nearest line (the v343 documented approximation). Rebuilt around
+the actual geometry: `tentacles.ts` now `fetchReachableMetroLines` (name + full
+coords), `metroSamplePoints` (dense points ALONG each line, tagged with the line
+name, bounded by a 600-point budget), and a shared `computeMetroReachCells` that
+builds a Voronoi over ALL sample points and UNIONs the cells by line name → ONE
+region per LINE (the nearest-line partition, converging as density rises), each
+clipped to the reach circle. That ONE producer feeds the configure preview,
+the elimination (`adjustPerTentacle` picks the answer line's region), and the
+draft planning overlay (`tentaclesPlanningPolygon` draws the per-line boundaries)
+— so all three agree. The hider's answer (`hiderifyTentacles`) picks the nearest
+SAMPLE POINT (→ nearest LINE) via `findMetroTentacleCandidates`, now dense
+sample points, and its line name selects the matching region. `useQuestionImpact`
+stores the per-line cells (no centroid dots) and gates the veil on the fetch
+settling. `tsc` + 284 tests green.
+
 **v1233 — metro tentacle overlay: draw the per-line cells (was reach circle
 only).** Follow-up to v1232: the reach circle appeared but no per-line segments
 because `candidates` came out empty. A metro "candidate" is a whole subway line

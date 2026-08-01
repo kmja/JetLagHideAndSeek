@@ -52,7 +52,7 @@ import {
 import { seaLevelRegion } from "@/maps/api/elevation";
 import { matchingDraftRegion } from "@/maps/questions/matching";
 import { measuringDraftBuffer } from "@/maps/questions/measuring";
-import { findMetroTentacleCandidates } from "@/maps/questions/tentacles";
+import { computeMetroReachCells } from "@/maps/questions/tentacles";
 import { arcBufferToPoint } from "@/maps/geo-utils";
 import { pointInPlayArea } from "@/maps/geo-utils/playAreaIndex";
 import { geoSpatialVoronoi } from "@/maps/geo-utils/voronoi";
@@ -425,16 +425,19 @@ export function useQuestionImpact(
         void prefetchCategory(family.family).then(() => setTick((t) => t + 1));
     }, [family?.kind, (family as any)?.family]);
 
-    // v1232: async metro-line candidate fetch for the tentacle overlay. Reads
-    // the SAME representative-point set the answer grades against
-    // (findMetroTentacleCandidates → prewarmed /api/metro, live Overpass on a
-    // cold miss). Settles even on failure (empty candidates) so the veil never
-    // stalls; the tentacle branch then draws the reach circle + per-line cells.
+    // v1233: async metro reach cells for the tentacle overlay — the per-LINE
+    // regions (nearest-LINE Voronoi) from the SAME producer the elimination +
+    // draft overlay use (computeMetroReachCells → prewarmed /api/metro, live
+    // Overpass on a cold miss). Settles even on failure (empty) so the veil
+    // never stalls.
     const [metroState, setMetroState] = useState<{
         key: string;
         lat: number;
         lng: number;
-        candidates: Array<{ lat: number; lng: number; name: string }>;
+        cells: Array<{
+            cell: Feature<Polygon | MultiPolygon>;
+            name: string;
+        }>;
     } | null>(null);
     useEffect(() => {
         if (mode !== "tentacles") return;
@@ -443,26 +446,12 @@ export function useQuestionImpact(
         if (!tentacleRadiusKm) return;
         let cancelled = false;
         const key = `metro:${lat}:${lng}:${tentacleRadiusKm}`;
-        findMetroTentacleCandidates(lat, lng, tentacleRadiusKm, "kilometers")
-            .then((fc) => {
-                if (cancelled) return;
-                const candidates = (fc.features ?? [])
-                    .map((f) => {
-                        const c = f.geometry?.coordinates;
-                        const name = (f.properties as { name?: string })?.name;
-                        return Array.isArray(c) && typeof name === "string"
-                            ? { lat: c[1], lng: c[0], name }
-                            : null;
-                    })
-                    .filter(
-                        (x): x is { lat: number; lng: number; name: string } =>
-                            x !== null,
-                    );
-                setMetroState({ key, lat, lng, candidates });
+        computeMetroReachCells(lat, lng, tentacleRadiusKm, "kilometers")
+            .then((cells) => {
+                if (!cancelled) setMetroState({ key, lat, lng, cells });
             })
             .catch(() => {
-                if (!cancelled)
-                    setMetroState({ key, lat, lng, candidates: [] });
+                if (!cancelled) setMetroState({ key, lat, lng, cells: [] });
             });
         return () => {
             cancelled = true;
@@ -790,9 +779,11 @@ export function useQuestionImpact(
                       lat: la,
                       lng: ln,
                   }))
-                : // v1232: metro candidates come from the async fetch state.
+                : // v1233: metro has no point candidates — its overlay is the
+                  // per-line regions (metroState.cells), used in the tentacle
+                  // branch below. No dots.
                   family.kind === "metro"
-                  ? (metroReady && metroState ? metroState.candidates : [])
+                  ? []
                   : noPointSet
                     ? []
                     : (getCachedCategory(
@@ -974,21 +965,25 @@ export function useQuestionImpact(
             } catch {
                 reach = null;
             }
-            if (reach) {
+            if (reach && family.kind === "metro") {
+                // v1233: metro's reach cells are the per-LINE regions computed
+                // by the shared nearest-LINE partition (computeMetroReachCells),
+                // NOT a centroid Voronoi. Use them directly.
+                out.reachCircle = reach;
+                if (metroReady && metroState && metroState.cells.length) {
+                    out.reachCells = metroState.cells.map((c) => ({
+                        cell: c.cell,
+                        name: c.name,
+                    }));
+                }
+            } else if (reach) {
                 out.reachCircle = reach;
                 // Partition the reach into one Voronoi cell per reachable
                 // candidate ("if the hider is here, this is the nearest
                 // one"), each clipped to the circle, so the seeker can read
                 // which slice of the reach corresponds to which reference.
-                // v1232: metro candidates are LINE CENTROIDS already filtered to
-                // reachable-by-real-geometry, and a reachable line's centroid can
-                // sit OUTSIDE the reach circle — so use the full set as Voronoi
-                // seeds (the cells are clipped to the circle anyway). POI
-                // families keep the centroid-in-circle filter.
                 const inReach =
-                    family.kind === "metro"
-                        ? candidates
-                        : candidates.filter((c) => {
+                    candidates.filter((c) => {
                               try {
                                   return turf.booleanPointInPolygon(
                                       turf.point([c.lng, c.lat]),

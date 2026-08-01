@@ -136,14 +136,102 @@ async function fetchMetroRoutesData(): Promise<any> {
     return await getOverpassData(metroRoutesQuery(tuple), "Loading metro lines...");
 }
 
-/**
- * Fetch metro-line tentacle candidates as a FeatureCollection of
- * representative points (one per route), filtered to those whose
- * closest point on the line sits within `radius` of the seeker.
+/* ── Metro lines are CURVED LINES, not points (v1233) ────────────────── *
  *
- * Exported (v1232) so the configure-dialog impact overlay
- * (`useQuestionImpact`) can draw the metro reach circle + per-line
- * Voronoi cells from the SAME candidate set the answer grades against.
+ * The old approach represented each line by its CENTROID and built a Voronoi
+ * over those centroids — so "which line is nearest" reflected centroid
+ * proximity, not real line proximity (a curved line's nearest point can be far
+ * from its centroid). We now sample points ALONG each line, tag them with the
+ * line name, build a Voronoi over ALL sample points, and UNION the cells by
+ * name → one region per LINE. That IS the nearest-LINE partition (it converges
+ * to the exact line-Voronoi as sampling density rises). `computeMetroReachCells`
+ * is the single producer used by the configure preview, the elimination
+ * (adjustPerTentacle), and the draft planning overlay, so all three agree; the
+ * hider's answer (hiderifyTentacles) picks the nearest sample point, whose line
+ * name selects the matching region.
+ */
+const METRO_SAMPLE_BUDGET = 600;
+const METRO_SAMPLE_MAX_PER_LINE = 24;
+
+interface MetroLine {
+    name: string;
+    coords: [number, number][];
+}
+
+/** Fetch the reachable metro LINES (name + full coords) — "reachable" = the
+ *  closest point on the line sits within `radius` of the seeker. */
+async function fetchReachableMetroLines(
+    centerLat: number,
+    centerLng: number,
+    radius: number,
+    unit: Units,
+): Promise<MetroLine[]> {
+    let data: any;
+    try {
+        data = await fetchMetroRoutesData();
+    } catch {
+        return [];
+    }
+    if (!data) return [];
+    const radiusMeters = turf.convertLength(radius, unit, "meters");
+    const seen = new Set<string>();
+    const lines: MetroLine[] = [];
+    for (const el of data.elements ?? []) {
+        if (el.type !== "relation") continue;
+        const name = el.tags?.["name:en"] ?? el.tags?.name;
+        if (!name || typeof name !== "string" || seen.has(name)) continue;
+        const coords: [number, number][] = [];
+        for (const m of el.members ?? []) {
+            if (m.type !== "way" || !Array.isArray(m.geometry)) continue;
+            for (const p of m.geometry) {
+                if (typeof p.lat === "number" && typeof p.lon === "number") {
+                    coords.push([p.lon, p.lat]);
+                }
+            }
+        }
+        if (coords.length < 2) continue;
+        // Distance constraint = seeker → CLOSEST point on the line (real
+        // geometry). Inline haversine — a metro line has hundreds of vertices.
+        let closest = Infinity;
+        for (const c of coords) {
+            const d = haversineMeters(centerLat, centerLng, c[1], c[0]);
+            if (d < closest) closest = d;
+        }
+        if (closest > radiusMeters) continue;
+        seen.add(name);
+        lines.push({ name, coords });
+    }
+    return lines;
+}
+
+/** Dense sample points ALONG each line, tagged with the line name — the seed
+ *  set for the nearest-LINE Voronoi. Bounded by a global budget so a dense
+ *  metro (Tokyo) stays tractable. */
+function metroSamplePoints(
+    lines: MetroLine[],
+): GeoJSON.FeatureCollection<GeoJSON.Point> {
+    const perLine = Math.min(
+        METRO_SAMPLE_MAX_PER_LINE,
+        Math.max(6, Math.floor(METRO_SAMPLE_BUDGET / Math.max(1, lines.length))),
+    );
+    const feats: GeoJSON.Feature<GeoJSON.Point>[] = [];
+    for (const { name, coords } of lines) {
+        const n = coords.length;
+        const step = Math.max(1, Math.floor(n / perLine));
+        for (let i = 0; i < n; i += step) {
+            feats.push(turf.point(coords[i], { name }));
+        }
+        if ((n - 1) % step !== 0) {
+            feats.push(turf.point(coords[n - 1], { name }));
+        }
+    }
+    return turf.featureCollection(feats);
+}
+
+/**
+ * Metro tentacle candidates as dense sample points (tagged with the line name).
+ * The hider's answer (hiderifyTentacles) picks the nearest sample point → its
+ * line is the nearest LINE. Exported for that grading path.
  */
 export async function findMetroTentacleCandidates(
     centerLat: number,
@@ -151,59 +239,110 @@ export async function findMetroTentacleCandidates(
     radius: number,
     unit: Units,
 ): Promise<GeoJSON.FeatureCollection<GeoJSON.Point>> {
-    let data: any;
-    try {
-        data = await fetchMetroRoutesData();
-    } catch {
-        return turf.featureCollection([]);
+    const lines = await fetchReachableMetroLines(centerLat, centerLng, radius, unit);
+    return metroSamplePoints(lines);
+}
+
+/** Group Voronoi cells by their site's line name and union each group into one
+ *  region — the dense per-sample-point Voronoi collapses to one polygon per
+ *  metro LINE. */
+function unionVoronoiByName(
+    voronoi: GeoJSON.FeatureCollection<GeoJSON.Polygon | GeoJSON.MultiPolygon>,
+): Map<string, GeoJSON.Feature<GeoJSON.Polygon | GeoJSON.MultiPolygon>> {
+    const groups = new Map<
+        string,
+        GeoJSON.Feature<GeoJSON.Polygon | GeoJSON.MultiPolygon>[]
+    >();
+    for (const f of voronoi.features) {
+        const name = (f.properties as any)?.site?.properties?.name;
+        if (typeof name !== "string") continue;
+        const arr = groups.get(name);
+        if (arr) arr.push(f);
+        else groups.set(name, [f]);
     }
-    if (!data) return turf.featureCollection([]);
-    // Compare in metres with an inline haversine (below) instead of turf —
-    // a metro network has hundreds of vertices per route and this runs per
-    // route on every metro-line question, so allocating a turf point +
-    // running turf.distance per vertex was pure churn.
-    const radiusMeters = turf.convertLength(radius, unit, "meters");
-    const seen = new Set<string>();
-    const candidates: GeoJSON.Feature<GeoJSON.Point>[] = [];
-    for (const el of data.elements ?? []) {
-        if (el.type !== "relation") continue;
-        const name = el.tags?.["name:en"] ?? el.tags?.name;
-        if (!name || typeof name !== "string") continue;
-        if (seen.has(name)) continue;
-        // Collect all member-way vertices for centroid + distance.
-        const coords: [number, number][] = [];
-        for (const m of el.members ?? []) {
-            if (m.type !== "way" || !Array.isArray(m.geometry)) continue;
-            for (const p of m.geometry) {
-                if (
-                    typeof p.lat === "number" &&
-                    typeof p.lon === "number"
-                ) {
-                    coords.push([p.lon, p.lat]);
-                }
+    const out = new Map<
+        string,
+        GeoJSON.Feature<GeoJSON.Polygon | GeoJSON.MultiPolygon>
+    >();
+    for (const [name, group] of groups) {
+        let region: GeoJSON.Feature<GeoJSON.Polygon | GeoJSON.MultiPolygon> | null =
+            group[0];
+        if (group.length > 1) {
+            try {
+                region =
+                    (safeUnion(
+                        turf.featureCollection(group),
+                    ) as GeoJSON.Feature<GeoJSON.Polygon | GeoJSON.MultiPolygon>) ??
+                    group[0];
+            } catch {
+                region = group[0];
             }
         }
-        if (coords.length < 2) continue;
-        // Distance constraint = seeker → CLOSEST point on the line.
-        // Real geometry, not centroid — the centroid is only used as
-        // the Voronoi seed below.
-        let closestMeters = Infinity;
-        for (const c of coords) {
-            const d = haversineMeters(centerLat, centerLng, c[1], c[0]);
-            if (d < closestMeters) closestMeters = d;
-        }
-        if (closestMeters > radiusMeters) continue;
-        // Centroid as Voronoi seed. multiPoint avoids the LineString-
-        // closed-loop assumption of turf.centroid for lines.
-        const centroid = turf.centroid(turf.multiPoint(coords));
-        seen.add(name);
-        candidates.push(
-            turf.point(centroid.geometry.coordinates as [number, number], {
-                name,
-            }),
-        );
+        if (region) out.set(name, region);
     }
-    return turf.featureCollection(candidates);
+    return out;
+}
+
+/**
+ * The metro reach partitioned into ONE region per LINE (nearest-line Voronoi),
+ * each clipped to the reach circle. The SINGLE producer used by the configure
+ * preview, the elimination, and the draft planning overlay — so all three agree.
+ */
+export async function computeMetroReachCells(
+    centerLat: number,
+    centerLng: number,
+    radius: number,
+    unit: Units,
+): Promise<
+    Array<{
+        cell: GeoJSON.Feature<GeoJSON.Polygon | GeoJSON.MultiPolygon>;
+        name: string;
+    }>
+> {
+    const lines = await fetchReachableMetroLines(centerLat, centerLng, radius, unit);
+    if (lines.length === 0) return [];
+    let reach: GeoJSON.Feature<GeoJSON.Polygon>;
+    try {
+        reach = turf.circle([centerLng, centerLat], radius, {
+            units: unit,
+            steps: 64,
+        }) as GeoJSON.Feature<GeoJSON.Polygon>;
+    } catch {
+        return [];
+    }
+    if (lines.length === 1) return [{ cell: reach, name: lines[0].name }];
+    const pts = metroSamplePoints(lines);
+    if (pts.features.length < 2) return [];
+    let voronoi: GeoJSON.FeatureCollection<
+        GeoJSON.Polygon | GeoJSON.MultiPolygon
+    >;
+    try {
+        voronoi = geoSpatialVoronoi(pts);
+    } catch {
+        return [];
+    }
+    const regionByName = unionVoronoiByName(voronoi);
+    const cells: Array<{
+        cell: GeoJSON.Feature<GeoJSON.Polygon | GeoJSON.MultiPolygon>;
+        name: string;
+    }> = [];
+    for (const [name, region] of regionByName) {
+        try {
+            const clipped = turf.intersect(
+                turf.featureCollection([region as any, reach as any]),
+            );
+            if (clipped)
+                cells.push({
+                    cell: clipped as GeoJSON.Feature<
+                        GeoJSON.Polygon | GeoJSON.MultiPolygon
+                    >,
+                    name,
+                });
+        } catch {
+            /* skip this line's cell */
+        }
+    }
+    return cells;
 }
 
 const filterPointsWithinRadius = (
@@ -249,17 +388,29 @@ export const adjustPerTentacle = async (
         throw new Error("Must have a location");
     }
 
+    // v1233: metro uses the nearest-LINE partition — pick the answer line's
+    // region (already clipped to the reach circle) and keep it. Same producer
+    // as the preview + planning overlay, so the cut matches what the seeker saw.
+    if (question.locationType === "metro") {
+        const cells = await computeMetroReachCells(
+            question.lat,
+            question.lng,
+            question.radius,
+            question.unit,
+        );
+        const answerName = (question.location as any)?.properties?.name;
+        const region = cells.find((c) => c.name === answerName)?.cell;
+        if (!region) return mapData;
+        return turf.intersect(
+            turf.featureCollection([safeUnion(mapData), region as any]),
+        );
+    }
+
+    // (metro handled above)
     const rawPoints =
         question.locationType === "custom"
             ? turf.featureCollection(question.places)
-            : question.locationType === "metro"
-              ? await findMetroTentacleCandidates(
-                    question.lat,
-                    question.lng,
-                    question.radius,
-                    question.unit,
-                )
-              : await findTentacleLocations(question);
+            : await findTentacleLocations(question);
 
     const points =
         question.locationType === "custom"
@@ -361,17 +512,28 @@ export const hiderifyTentacles = async (question: TentacleQuestion) => {
 };
 
 export const tentaclesPlanningPolygon = async (question: TentacleQuestion) => {
+    // v1233: metro draft overlay draws the per-LINE region boundaries (from the
+    // shared nearest-line partition), not a mesh of centroid cells.
+    if (question.locationType === "metro") {
+        const cells = await computeMetroReachCells(
+            question.lat,
+            question.lng,
+            question.radius,
+            question.unit,
+        );
+        if (cells.length === 0) return null;
+        const lineFeats = cells.flatMap((c) => {
+            const l = turf.polygonToLine(c.cell as any);
+            return l.type === "FeatureCollection" ? l.features : [l];
+        });
+        return turf.combine(turf.featureCollection(lineFeats as any));
+    }
+
+    // (metro handled above)
     const rawPoints =
         question.locationType === "custom"
             ? turf.featureCollection(question.places)
-            : question.locationType === "metro"
-              ? await findMetroTentacleCandidates(
-                    question.lat,
-                    question.lng,
-                    question.radius,
-                    question.unit,
-                )
-              : await findTentacleLocations(question);
+            : await findTentacleLocations(question);
 
     const points =
         question.locationType === "custom"
