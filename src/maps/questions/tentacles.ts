@@ -460,61 +460,6 @@ function metroSamplePoints(
 
 let lastMetroSampleInfo = "";
 
-/**
- * Metro tentacle candidates as dense sample points (tagged with the line name).
- * The hider's answer (hiderifyTentacles) picks the nearest sample point → its
- * line is the nearest LINE. Exported for that grading path.
- */
-export async function findMetroTentacleCandidates(
-    centerLat: number,
-    centerLng: number,
-    radius: number,
-    unit: Units,
-): Promise<GeoJSON.FeatureCollection<GeoJSON.Point>> {
-    const lines = await fetchReachableMetroLines(centerLat, centerLng, radius, unit);
-    return metroSamplePoints(lines);
-}
-
-/** Group Voronoi cells by their site's line name and union each group into one
- *  region — the dense per-sample-point Voronoi collapses to one polygon per
- *  metro LINE. */
-function unionVoronoiByName(
-    voronoi: GeoJSON.FeatureCollection<GeoJSON.Polygon | GeoJSON.MultiPolygon>,
-): Map<string, GeoJSON.Feature<GeoJSON.Polygon | GeoJSON.MultiPolygon>> {
-    const groups = new Map<
-        string,
-        GeoJSON.Feature<GeoJSON.Polygon | GeoJSON.MultiPolygon>[]
-    >();
-    for (const f of voronoi.features) {
-        const name = (f.properties as any)?.site?.properties?.name;
-        if (typeof name !== "string") continue;
-        const arr = groups.get(name);
-        if (arr) arr.push(f);
-        else groups.set(name, [f]);
-    }
-    const out = new Map<
-        string,
-        GeoJSON.Feature<GeoJSON.Polygon | GeoJSON.MultiPolygon>
-    >();
-    for (const [name, group] of groups) {
-        let region: GeoJSON.Feature<GeoJSON.Polygon | GeoJSON.MultiPolygon> | null =
-            group[0];
-        if (group.length > 1) {
-            try {
-                region =
-                    (safeUnion(
-                        turf.featureCollection(group),
-                    ) as GeoJSON.Feature<GeoJSON.Polygon | GeoJSON.MultiPolygon>) ??
-                    group[0];
-            } catch {
-                region = group[0];
-            }
-        }
-        if (region) out.set(name, region);
-    }
-    return out;
-}
-
 export interface MetroReachCell {
     cell: GeoJSON.Feature<GeoJSON.Polygon | GeoJSON.MultiPolygon>;
     name: string;
@@ -571,18 +516,58 @@ export async function computeMetroReachCells(
         };
     const pts = metroSamplePoints(lines);
     if (pts.features.length < 2) return { cells: [], lines: drawLines };
-    let voronoi: GeoJSON.FeatureCollection<
-        GeoJSON.Polygon | GeoJSON.MultiPolygon
-    >;
+    // v1244: PLANAR `turf.voronoi` (not the spherical `geoSpatialVoronoi`). The
+    // spherical one doesn't produce a clean partition at ~2500 points — its
+    // cells OVERLAP (the v1243 diagnostic read sum/circle=18.58, 18 giant cells,
+    // multiple lines each covering 100% of the circle). At city scale a planar
+    // Voronoi is accurate and IS a proper partition. `turf.voronoi` returns one
+    // cell per input point IN THE SAME ORDER, so we map each cell to its line
+    // name by index (no `site.properties` needed). bbox must contain all points
+    // (the lines extend beyond the reach circle), so use the padded point bbox.
+    const bb = turf.bbox(pts);
+    const padX = (bb[2] - bb[0]) * 0.05 + 0.01;
+    const padY = (bb[3] - bb[1]) * 0.05 + 0.01;
+    let voronoi: GeoJSON.FeatureCollection<GeoJSON.Polygon>;
     try {
-        voronoi = geoSpatialVoronoi(pts);
+        voronoi = turf.voronoi(pts, {
+            bbox: [bb[0] - padX, bb[1] - padY, bb[2] + padX, bb[3] + padY],
+        });
     } catch (e) {
         setMetroDiag(
             `${lastMetroDiagBase} | pts=${pts.features.length} voronoi THREW: ${String(e).slice(0, 80)}`,
         );
         return { cells: [], lines: drawLines };
     }
-    const regionByName = unionVoronoiByName(voronoi);
+    // Group cells by line name (index-mapped to the input points).
+    const groups = new Map<string, GeoJSON.Feature<GeoJSON.Polygon>[]>();
+    voronoi.features.forEach((cell, i) => {
+        if (!cell?.geometry) return;
+        const name = (pts.features[i]?.properties as { name?: string })?.name;
+        if (typeof name !== "string") return;
+        const arr = groups.get(name);
+        if (arr) arr.push(cell);
+        else groups.set(name, [cell]);
+    });
+    const regionByName = new Map<
+        string,
+        GeoJSON.Feature<GeoJSON.Polygon | GeoJSON.MultiPolygon>
+    >();
+    for (const [name, group] of groups) {
+        let region: GeoJSON.Feature<GeoJSON.Polygon | GeoJSON.MultiPolygon> =
+            group[0];
+        if (group.length > 1) {
+            try {
+                region =
+                    (safeUnion(
+                        turf.featureCollection(group),
+                    ) as GeoJSON.Feature<GeoJSON.Polygon | GeoJSON.MultiPolygon>) ??
+                    group[0];
+            } catch {
+                region = group[0];
+            }
+        }
+        regionByName.set(name, region);
+    }
     const cells: MetroReachCell[] = [];
     for (const [name, region] of regionByName) {
         try {
@@ -752,17 +737,51 @@ export const hiderifyTentacles = async (question: TentacleQuestion) => {
         return question;
     }
 
+    // v1244: metro uses the SAME turf.voronoi partition as the preview +
+    // elimination (computeMetroReachCells) — find the region containing the
+    // hider and answer with its line name, so the answer matches the drawn cut.
+    if (question.locationType === "metro") {
+        const hider = turf.point([$hiderMode.longitude, $hiderMode.latitude]);
+        const location = turf.point([question.lng, question.lat]);
+        if (
+            turf.distance(hider, location, { units: question.unit }) >
+            question.radius
+        ) {
+            question.location = false;
+            return question;
+        }
+        const { cells } = await computeMetroReachCells(
+            question.lat,
+            question.lng,
+            question.radius,
+            question.unit,
+        );
+        let foundName: string | null = null;
+        for (const c of cells) {
+            try {
+                if (turf.booleanPointInPolygon(hider, c.cell as any)) {
+                    foundName = c.name;
+                    break;
+                }
+            } catch {
+                /* skip malformed cell */
+            }
+        }
+        if (!foundName) {
+            question.location = false;
+            return question;
+        }
+        question.location = turf.point(
+            [$hiderMode.longitude, $hiderMode.latitude],
+            { name: foundName },
+        ) as any;
+        return question;
+    }
+
     const rawPoints =
         question.locationType === "custom"
             ? turf.featureCollection(question.places)
-            : question.locationType === "metro"
-              ? await findMetroTentacleCandidates(
-                    question.lat,
-                    question.lng,
-                    question.radius,
-                    question.unit,
-                )
-              : await findTentacleLocations(question);
+            : await findTentacleLocations(question);
 
     const points =
         question.locationType === "custom"

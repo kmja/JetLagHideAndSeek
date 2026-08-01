@@ -448,6 +448,21 @@ SMALL piece (`area < 5 km²`): the big ocean is left to the chunking (buffering 
 whole is the perf hit the grid exists to avoid, and it already tests in-result).
 `tsc` + 284 tests green.
 
+**v1244 — metro tentacle ROOT CAUSE: `geoSpatialVoronoi` overlaps at scale → use
+planar `turf.voronoi`.** The v1243 measurement settled it: `vCells≈pts` (Voronoi
+didn't collapse) but `sum/circle=18.58 giants=18 top=[M=100%,B=100%,…]` — the 32
+line regions each covered ~the whole circle and overlapped 18×, compounding into
+the "brown blob". The spherical `geoSpatialVoronoi` (fine for a handful of
+reference points) does NOT return a clean partition at ~2500 points — its cells
+overlap. The WORKING tentacle reach cells already use planar `turf.voronoi`, so
+metro now does too: one cell per input point in order → map each to its line name
+by INDEX (no `site.properties` needed), union by name, clip to the circle. At city
+scale a planar Voronoi is accurate AND a true partition, so `sum/circle` returns to
+~1. `hiderifyTentacles` (metro) routes through the same `computeMetroReachCells`
+partition (find the region containing the hider) so the answer matches the drawn
+cut. Removed the now-dead `findMetroTentacleCandidates` + `unionVoronoiByName`.
+`tsc` + 284 tests green.
+
 **v1243 — metro tentacle: MEASURE the output geometry (stop guessing the brown
 blob).** Instead of inferring from screenshots, `computeMetroReachCells` now reports
 the decisive numbers: `sum/circle` (sum of cell areas ÷ reach-circle area — ~1.0
