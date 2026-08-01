@@ -448,6 +448,17 @@ SMALL piece (`area < 5 km²`): the big ocean is left to the chunking (buffering 
 whole is the perf hit the grid exists to avoid, and it already tests in-result).
 `tsc` + 284 tests green.
 
+**v1226 — hider POI field clipped to the committed zone (was whole-map).** The
+hider map showed the basemap's native `pois` field across the ENTIRE viewport
+(v894/v895's plain visibility toggle), not just inside the committed hiding zone —
+the reported clutter; the ORIGINAL v888 intent was zone-clipped. `HiderBackgroundMap`
+now sets a MapLibre `["within", <zone circle>]` filter on the `pois` layer
+(AND-ed onto the style's own captured base filter so kind/zoom filtering is
+preserved), so POIs render ONLY inside the committed zone's radius circle; no
+committed zone → the field is hidden. The apply is idempotent (skips a no-op
+set) so its own `styledata` event can't re-enter into a loop. `tsc` + 284 tests
+green.
+
 **v1225 — metro-line tentacle: gzip-parse the prewarmed endpoint (was going live
 even for warm NYC).** `fetchMetroRoutesData` (`tentacles.ts`) read the prewarmed
 `GET /api/metro/<relationId>` with plain `resp.json()` — which THROWS at the

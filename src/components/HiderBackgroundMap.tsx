@@ -8,6 +8,7 @@ import {
 } from "@turf/turf";
 import { HelpCircle, MapPin } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import type { FilterSpecification } from "maplibre-gl";
 import Map, {
     AttributionControl,
     Layer,
@@ -206,28 +207,72 @@ export function HiderBackgroundMap() {
     }, [$followMe, $gps]);
 
     // v894: toggle the basemap's NATIVE `pois` layer (kept in the style via
-    // `keepPois`) to show/hide the hider's in-zone points-of-interest field.
-    // Re-applies on style (re)load since a new style resets layer visibility.
+    // `keepPois`) to show/hide the hider's points-of-interest field.
+    // v1226: CLIP the field to the COMMITTED hiding zone via a `within` filter,
+    // so POIs render ONLY inside the zone circle (the original v888 intent) —
+    // the plain whole-viewport toggle scattered them across the whole map (the
+    // reported clutter). No committed zone → nothing to be "within" → hidden.
+    // The clip is AND-ed onto the basemap's own kind/zoom filter (captured once)
+    // so we don't clobber which POIs the style shows.
     const $hiderPoiShow = useStore(hiderPoiShow);
+    const basePoisFilterRef = useRef<unknown>(null);
+    const basePoisCapturedRef = useRef(false);
     useEffect(() => {
         const map = mapRef.current?.getMap();
         if (!map) return;
+        const zone = $zone;
+        const zoneCircle =
+            zone &&
+            Number.isFinite(zone.stationLat) &&
+            Number.isFinite(zone.stationLng) &&
+            zone.radiusMeters > 0
+                ? turfCircle(
+                      [zone.stationLng, zone.stationLat],
+                      zone.radiusMeters / 1000,
+                      { units: "kilometers", steps: 64 },
+                  )
+                : null;
+        const show = $hiderPoiShow && zoneCircle != null;
         const apply = () => {
             if (!map.getLayer("pois")) return;
-            map.setLayoutProperty(
-                "pois",
-                "visibility",
-                $hiderPoiShow ? "visible" : "none",
-            );
+            // Capture the style's ORIGINAL pois filter once (before we ever
+            // override it) so we can AND our zone clip onto it.
+            if (!basePoisCapturedRef.current) {
+                basePoisFilterRef.current = map.getFilter("pois") ?? null;
+                basePoisCapturedRef.current = true;
+            }
+            const base = basePoisFilterRef.current;
+            const desiredVis = show ? "visible" : "none";
+            const desiredFilter = (
+                show
+                    ? base
+                        ? ["all", base, ["within", zoneCircle]]
+                        : ["within", zoneCircle]
+                    : (base ?? null)
+            ) as FilterSpecification | null;
+            // Idempotent: skip a no-op set so our own setFilter's `styledata`
+            // event doesn't re-enter this handler in a loop.
+            if (
+                (map.getLayoutProperty("pois", "visibility") ?? "visible") !==
+                desiredVis
+            ) {
+                map.setLayoutProperty("pois", "visibility", desiredVis);
+            }
+            if (
+                JSON.stringify(map.getFilter("pois") ?? null) !==
+                JSON.stringify(desiredFilter)
+            ) {
+                map.setFilter("pois", desiredFilter);
+            }
         };
         apply();
         // `styledata` fires when the style finishes loading (initial mount)
-        // and on every theme/style swap — re-apply so the toggle survives.
+        // and on every theme/style swap — re-apply so the clip survives.
         map.on("styledata", apply);
         return () => {
             map.off("styledata", apply);
         };
-    }, [$hiderPoiShow]);
+    }, [$hiderPoiShow, $zone]);
 
     // Play-area boundary fetch — shared with the seeker map via
     // usePlayAreaBoundary (was a thinner single-attempt copy here,
