@@ -459,6 +459,73 @@ function metroSamplePoints(
 }
 
 let lastMetroSampleInfo = "";
+let lastMetroConvergedInfo = "";
+
+// v1246: distance (m) under which two DIFFERENT lines are treated as
+// "virtually indistinguishable" (a shared corridor / stacked tunnels). A
+// seeker there can't reliably tell which line is nearest, so points that
+// close to another line shouldn't seed the nearest-line partition.
+const METRO_CONVERGENCE_M = 250;
+
+/** Drop metro sample points that lie within METRO_CONVERGENCE_M of a point
+ *  belonging to a DIFFERENT line. O(n) via a spatial grid keyed at the
+ *  convergence cell size, checking only the 3×3 neighbourhood. Points from the
+ *  SAME line near each other are kept (a line running near itself is still
+ *  distinguishable as that line). */
+function filterConvergedPoints(
+    feats: GeoJSON.Feature<GeoJSON.Point>[],
+    centerLat: number,
+): GeoJSON.Feature<GeoJSON.Point>[] {
+    const cos = Math.cos((centerLat * Math.PI) / 180) || 1e-6;
+    const cellLat = METRO_CONVERGENCE_M / 111320;
+    const cellLng = METRO_CONVERGENCE_M / (111320 * cos);
+    interface P {
+        lng: number;
+        lat: number;
+        name: string;
+    }
+    const grid = new Map<string, P[]>();
+    const keyOf = (lng: number, lat: number) =>
+        `${Math.floor(lng / cellLng)},${Math.floor(lat / cellLat)}`;
+    const items: P[] = feats.map((f) => ({
+        lng: f.geometry.coordinates[0],
+        lat: f.geometry.coordinates[1],
+        name: (f.properties as { name?: string })?.name ?? "",
+    }));
+    items.forEach((p) => {
+        const k = keyOf(p.lng, p.lat);
+        const arr = grid.get(k);
+        if (arr) arr.push(p);
+        else grid.set(k, [p]);
+    });
+    const converged = new Array<boolean>(items.length).fill(false);
+    const thr2 = METRO_CONVERGENCE_M * METRO_CONVERGENCE_M;
+    for (let i = 0; i < items.length; i++) {
+        const p = items[i];
+        const gx = Math.floor(p.lng / cellLng);
+        const gy = Math.floor(p.lat / cellLat);
+        let near = false;
+        for (let dx = -1; dx <= 1 && !near; dx++) {
+            for (let dy = -1; dy <= 1 && !near; dy++) {
+                const cell = grid.get(`${gx + dx},${gy + dy}`);
+                if (!cell) continue;
+                for (const q of cell) {
+                    if (q.name === p.name) continue;
+                    const my = (q.lat - p.lat) * 111320;
+                    const mx = (q.lng - p.lng) * 111320 * cos;
+                    if (mx * mx + my * my <= thr2) {
+                        near = true;
+                        break;
+                    }
+                }
+            }
+        }
+        converged[i] = near;
+    }
+    const kept = feats.filter((_, i) => !converged[i]);
+    lastMetroConvergedInfo = `conv=${feats.length - kept.length}`;
+    return kept;
+}
 
 export interface MetroReachCell {
     cell: GeoJSON.Feature<GeoJSON.Polygon | GeoJSON.MultiPolygon>;
@@ -532,7 +599,18 @@ export async function computeMetroReachCells(
         seenCoord.add(key);
         dedup.push(f);
     }
-    const pts = turf.featureCollection(dedup);
+    // v1246: drop CONVERGED sections. Where lines from DIFFERENT lines run so
+    // close they're virtually indistinguishable (shared tunnels/corridors near
+    // a hub), a seeker can't tell which is nearest — so those points shouldn't
+    // seed the partition (they produced the shattered thin wedges in the dense
+    // core). Drop a point when another line's point sits within CONVERGENCE_M;
+    // the distinguishable outer stretches keep their cells and the converged
+    // corridor is absorbed into whichever adjacent line's region is nearest.
+    // Spatial grid → O(n). Fall back to the un-filtered set if it thins to <2.
+    const distinct = filterConvergedPoints(dedup, centerLat);
+    const pts = turf.featureCollection(
+        distinct.length >= 2 ? distinct : dedup,
+    );
     if (pts.features.length < 2) return { cells: [], lines: drawLines };
     // v1244: PLANAR `turf.voronoi` (not the spherical `geoSpatialVoronoi`). The
     // spherical one doesn't produce a clean partition at ~2500 points — its
@@ -642,7 +720,7 @@ export async function computeMetroReachCells(
         )
         .join(",");
     setMetroDiag(
-        `${lastMetroDiagBase} | ${lastMetroSampleInfo} pts=${rawPts.features.length}→${pts.features.length} vCells=${voronoi.features.length} named=${regionByName.size} drawn=${cells.length} sum/circle=${ratio.toFixed(2)} giants=${giants} colors=${colors.size} top=[${top}]`,
+        `${lastMetroDiagBase} | ${lastMetroSampleInfo} pts=${rawPts.features.length}→${dedup.length}→${pts.features.length} ${lastMetroConvergedInfo} vCells=${voronoi.features.length} named=${regionByName.size} drawn=${cells.length} sum/circle=${ratio.toFixed(2)} giants=${giants} colors=${colors.size} top=[${top}]`,
     );
     return { cells, lines: drawLines };
 }

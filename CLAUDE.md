@@ -448,6 +448,19 @@ SMALL piece (`area < 5 km²`): the big ocean is left to the chunking (buffering 
 whole is the perf hit the grid exists to avoid, and it already tests in-result).
 `tsc` + 284 tests green.
 
+**v1246 — metro tentacle: EXCLUDE converged (indistinguishable) line sections
+from the partition.** With v1245's clean partition (`sum/circle=0.98`), the dense
+core still shattered into thin wedges because many lines share tunnels/corridors
+near a hub — where a seeker genuinely can't tell which line is nearest, so those
+coincident-ish sections shouldn't seed the nearest-line Voronoi. New
+`filterConvergedPoints` (O(n) spatial grid) drops a sample point when another
+LINE's point sits within `METRO_CONVERGENCE_M` (250 m); the distinguishable outer
+stretches keep their cells and the converged corridor is absorbed into whichever
+adjacent line's region is nearest. Same-line neighbours are kept (a line near
+itself is still distinguishable as that line). Falls back to the un-filtered set
+if it thins below 2 points. Diagnostic now shows `pts=raw→dedup→distinct` +
+`conv=N`. `tsc` + 284 tests green.
+
 **v1245 — metro tentacle: DEDUP coincident sample points before `turf.voronoi`.**
 v1244's switch to planar `turf.voronoi` threw `TypeError: Cannot read properties of
 null (reading '0')` (`pts=2516 voronoi THREW`). Root cause: both directions of each
