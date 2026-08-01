@@ -448,6 +448,20 @@ SMALL piece (`area < 5 km²`): the big ocean is left to the chunking (buffering 
 whole is the perf hit the grid exists to avoid, and it already tests in-result).
 `tsc` + 284 tests green.
 
+**v1233 — metro tentacle overlay: draw the per-line cells (was reach circle
+only).** Follow-up to v1232: the reach circle appeared but no per-line segments
+because `candidates` came out empty. A metro "candidate" is a whole subway line
+represented by its CENTROID, which routinely lands in water or just outside the
+boundary (NYC lines spanning boroughs) — so `useQuestionImpact`'s in-area point
+filter (`pointInPlayArea`, correct for POIs per rulebook p17) wrongly dropped
+valid lines, and the tentacle-radius centroid re-filter could drop a long line
+whose nearest point is close but centroid is >25 km away. `findMetroTentacleCandidates`
+already reach-filters by REAL line geometry, so metro now bypasses BOTH filters
+(fed straight through), and the reach-cell Voronoi uses the full candidate set as
+seeds (a reachable line's centroid can sit outside the circle; cells are clipped
+to the circle anyway). So the reach now partitions into per-line cells like every
+other tentacle. `tsc` + 284 tests green.
+
 **v1232 — metro-line tentacle configure dialog no longer stalls-then-collapses
 (the veil never lifted).** Follow-up to v1225 (which fixed the metro gzip-parse so
 it stopped erroring). The configure dialog then "loaded for a bit and collapsed to

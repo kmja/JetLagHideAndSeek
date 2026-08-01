@@ -818,8 +818,15 @@ export function useQuestionImpact(
         // neighbour's cell = "not matching" (the consulate bug, v868). The
         // drawn regions are still CLIPPED to the masked `playArea` below.
         const siteArea = fullPlayArea ?? playArea;
+        // v1232: metro candidates are LINE CENTROIDS (representative points of a
+        // whole subway line), not POIs — a centroid routinely lands in water or
+        // just outside the boundary (NYC lines spanning boroughs), so the
+        // in-area point filter wrongly dropped valid lines (the reported "reach
+        // circle but no segments"). findMetroTentacleCandidates already reach-
+        // filtered by REAL line geometry, so feed metro candidates straight
+        // through — no in-area / re-radius filtering.
         const inAreaCandidates =
-            siteArea && family.kind !== "city"
+            siteArea && family.kind !== "city" && family.kind !== "metro"
                 ? rawCandidates.filter((c) =>
                       pointInPlayArea(siteArea, c.lng, c.lat),
                   )
@@ -827,9 +834,13 @@ export function useQuestionImpact(
         // Tentacles: the question is "of the references WITHIN your reach,
         // which are you nearest to" — so only plot the ones inside the
         // tentacle radius, not the whole play area's POI field (v869). Other
-        // modes keep the full in-area set.
+        // modes keep the full in-area set. (Metro is already reach-filtered by
+        // real line geometry — a centroid re-filter would drop a long line
+        // whose nearest point is close but whose centroid is >radius away.)
         const candidates =
-            mode === "tentacles" && tentacleRadiusKm
+            mode === "tentacles" &&
+            tentacleRadiusKm &&
+            family.kind !== "metro"
                 ? inAreaCandidates.filter(
                       (c) =>
                           turf.distance(
@@ -969,16 +980,24 @@ export function useQuestionImpact(
                 // candidate ("if the hider is here, this is the nearest
                 // one"), each clipped to the circle, so the seeker can read
                 // which slice of the reach corresponds to which reference.
-                const inReach = candidates.filter((c) => {
-                    try {
-                        return turf.booleanPointInPolygon(
-                            turf.point([c.lng, c.lat]),
-                            reach as any,
-                        );
-                    } catch {
-                        return false;
-                    }
-                });
+                // v1232: metro candidates are LINE CENTROIDS already filtered to
+                // reachable-by-real-geometry, and a reachable line's centroid can
+                // sit OUTSIDE the reach circle — so use the full set as Voronoi
+                // seeds (the cells are clipped to the circle anyway). POI
+                // families keep the centroid-in-circle filter.
+                const inReach =
+                    family.kind === "metro"
+                        ? candidates
+                        : candidates.filter((c) => {
+                              try {
+                                  return turf.booleanPointInPolygon(
+                                      turf.point([c.lng, c.lat]),
+                                      reach as any,
+                                  );
+                              } catch {
+                                  return false;
+                              }
+                          });
                 if (inReach.length === 1) {
                     out.reachCells = [
                         { cell: reach as Feature<Polygon>, name: inReach[0].name },
