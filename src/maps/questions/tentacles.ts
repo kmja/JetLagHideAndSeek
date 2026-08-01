@@ -635,9 +635,21 @@ export async function computeMetroReachCells(
     // multiple lines each covering 100% of the circle). At city scale a planar
     // Voronoi is accurate and IS a proper partition. `turf.voronoi` returns one
     // cell per input point IN THE SAME ORDER, so we map each cell to its line
-    // name by index (no `site.properties` needed). bbox must contain all points
-    // (the lines extend beyond the reach circle), so use the padded point bbox.
-    const bb = turf.bbox(pts);
+    // name by index (no `site.properties` needed).
+    // v1256: the Voronoi bbox must contain the POINTS *and* the whole REACH
+    // CIRCLE. The metro network doesn't extend to every edge of the circle (no
+    // subway up in Yonkers / out east), so a points-only bbox left the circle's
+    // outer edges outside the Voronoi → no cell there → uncovered after clipping
+    // (the top/right coverage gap, sum/circle 0.83). Unioning in the reach bbox
+    // makes the outermost cells expand to fill the whole circle → ~full coverage.
+    const pb = turf.bbox(pts);
+    const rb = turf.bbox(reach);
+    const bb: [number, number, number, number] = [
+        Math.min(pb[0], rb[0]),
+        Math.min(pb[1], rb[1]),
+        Math.max(pb[2], rb[2]),
+        Math.max(pb[3], rb[3]),
+    ];
     const padX = (bb[2] - bb[0]) * 0.05 + 0.01;
     const padY = (bb[3] - bb[1]) * 0.05 + 0.01;
     let voronoi: GeoJSON.FeatureCollection<GeoJSON.Polygon>;

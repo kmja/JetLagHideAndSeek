@@ -1203,9 +1203,11 @@ export function InlineLocationPicker({
         // v1176: colour by spatial adjacency (greedy graph colouring) so no two
         // touching cells share a shade — index-cycling put similar shades side
         // by side because the list index is unrelated to the map position.
-        // v1250: use the category's PURPLE adjacency shades like every other
-        // tentacle question (the v1238 real-OSM-line-colour path was dropped —
-        // real line colours belong on a dedicated subway overlay, not here).
+        // v1256: for METRO, colour each cell by its line's REAL colour (rc.color,
+        // the OSM `colour` tag) so ALL of a line's regions share one colour and
+        // you can track them (the purple adjacency shades made a single line's
+        // separate regions look unrelated). Fall back to the adjacency purple
+        // shade where a line has no colour tag.
         const fills = assignCellColors(
             cells.map((rc) => rc.cell as GeoJSON.Feature),
         );
@@ -1215,7 +1217,7 @@ export function InlineLocationPicker({
                 ...(rc.cell as GeoJSON.Feature),
                 properties: {
                     ...((rc.cell as GeoJSON.Feature).properties ?? {}),
-                    fill: fills[i],
+                    fill: rc.color ?? fills[i],
                     cellName: rc.name,
                 },
             })),

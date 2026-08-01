@@ -448,6 +448,19 @@ SMALL piece (`area < 5 km²`): the big ocean is left to the chunking (buffering 
 whole is the perf hit the grid exists to avoid, and it already tests in-result).
 `tsc` + 284 tests green.
 
+**v1256 — metro tentacle: full circle coverage + colour cells by real line
+colour.** Two fixes. (1) COVERAGE — the Voronoi bbox was the POINTS bbox, but the
+metro network doesn't reach every edge of the reach circle (no subway in the far
+suburbs), so the circle's outer edges fell outside the Voronoi and got no cell
+(the top/right gaps, `sum/circle` 0.83). `computeMetroReachCells` now unions the
+reach-circle bbox into the Voronoi bbox, so the outermost cells expand to fill the
+whole circle → ~full coverage. (2) TRACKABILITY — the purple adjacency shades made
+a single line's separate regions look unrelated (can't tell which regions are all
+"A"). Cells are now coloured by the line's REAL OSM `colour` (`rc.color`), so ALL
+of a line's regions share one colour and you can follow it, falling back to the
+adjacency purple shade where a line has no colour tag. The drawn lines stay neutral
+(v1253 — locators). `tsc` + 284 tests green.
+
 **v1255 — metro express-variant fold covers the diamond GLYPH too.** Broadened
 `normalizeMetroLabel` to strip the actual diamond glyphs (◇/◆/♦) as well as ASCII
 `<>`, since OSM encodes NYC's express-diamond either way. Deliberately NOT more
