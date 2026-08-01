@@ -448,6 +448,18 @@ SMALL piece (`area < 5 km²`): the big ocean is left to the chunking (buffering 
 whole is the perf hit the grid exists to avoid, and it already tests in-result).
 `tsc` + 284 tests green.
 
+**v1225 — metro-line tentacle: gzip-parse the prewarmed endpoint (was going live
+even for warm NYC).** `fetchMetroRoutesData` (`tentacles.ts`) read the prewarmed
+`GET /api/metro/<relationId>` with plain `resp.json()` — which THROWS at the
+`0x1f` gzip magic byte on a gzip-tagged / double-gzipped R2 body (the v738/v739
+class), and the `catch` swallowed it → it fell through to LIVE Overpass even for a
+fully-prewarmed city, then failed under Overpass congestion ("Loading metro
+lines…" → "Couldn't load map data", configure dialog stuck on "Loading map").
+metro was the ONE relation-endpoint reader missed by the v1116/v1124 hardening
+sweep; now it parses via `safeJsonFromCachedResponse` (peels every gzip layer)
+like every sibling reader, so a warm city serves the metro set from R2 and never
+touches live Overpass. `tsc` + 284 tests green.
+
 **v1224 — role-picker even spacing around the role buttons.** The gap below the
 Seeker/Hider tiles (`pb-2`) was smaller than the gap above (input `pb-1` + tiles
 `pt-3` = 1rem); bumped the tiles block to `pb-4` so the space below matches the

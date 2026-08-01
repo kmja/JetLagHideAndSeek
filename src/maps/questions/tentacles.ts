@@ -6,6 +6,7 @@ import {
     mapGeoLocation,
 } from "@/lib/context";
 import { haversineMeters } from "@/lib/geo";
+import { safeJsonFromCachedResponse } from "@/maps/api/cache";
 import { METRO_BY_RELATION_BASE } from "@/maps/api/constants";
 import { referenceExtent } from "@/maps/api/playAreaPrefetch";
 import { findTentacleLocations, getOverpassData } from "@/maps/api";
@@ -109,7 +110,17 @@ async function fetchMetroRoutesData(): Promise<any> {
         try {
             const resp = await fetch(`${METRO_BY_RELATION_BASE}/${relId}`);
             if (resp.ok) {
-                const json = (await resp.json()) as { elements?: unknown[] };
+                // v1225: parse with the gzip-PEELING reader, NOT plain
+                // `resp.json()`. A prewarmed `/api/metro/<id>` R2 body can be
+                // served gzip-tagged / double-gzipped (the v738/v739 class);
+                // `resp.json()` throws on the `0x1f` magic byte, the catch
+                // swallowed it, and we fell through to LIVE Overpass even for a
+                // fully-prewarmed city (NYC) — the reported metro-line failure.
+                // (metro was the one relation-endpoint reader missed by the
+                // v1116/v1124 hardening sweep.)
+                const json = (await safeJsonFromCachedResponse(resp)) as {
+                    elements?: unknown[];
+                } | null;
                 const els = json?.elements;
                 if (Array.isArray(els) && els.length > 0) return json;
                 // Empty = miss/no-boundary. Warm in the background and fall
