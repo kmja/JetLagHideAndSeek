@@ -448,6 +448,22 @@ SMALL piece (`area < 5 km²`): the big ocean is left to the chunking (buffering 
 whole is the perf hit the grid exists to avoid, and it already tests in-result).
 `tsc` + 284 tests green.
 
+**v1227 — hider answer dialog no longer false-reports "can't find your location"
+under a GPS spoof.** The hider answer dialog (`HiderView`) correctly snapshots
+`lastKnownPosition` (spoof-aware, same as the main map) and passes it to
+`HiderMap` as `overridePos` — but `HiderMap` ALSO ran its own device
+`watchPosition`, which fails on a spoofed desktop ("permission denied"), and its
+error callback UNCONDITIONALLY set `geoError` + fired `onGeoError` → the "Location
+permission denied. Showing seeker's point only." banner AND `HiderView`'s
+manual-entry fallback ("Couldn't get your GPS location"), even though the spoofed
+NYC position was available and the answer graded fine ("You · 18th Street", "No
+match"). Now the device-GPS failure is IGNORED whenever an `overridePos` (spoof /
+known-position snapshot / manual override) exists: `HiderMap`'s watch error is
+gated on `overridePosRef`, the error banner renders only when `!overridePos`, an
+arriving override clears a stale `geoError`, and `HiderView`'s `onGeoError` only
+trips `geoFailed` when there's no snapshot/manual position. `tsc` + 284 tests
+green.
+
 **v1226 — hider POI field clipped to the committed zone (was whole-map).** The
 hider map showed the basemap's native `pois` field across the ENTIRE viewport
 (v894/v895's plain visibility toggle), not just inside the committed hiding zone —

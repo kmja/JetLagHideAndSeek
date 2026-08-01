@@ -66,15 +66,29 @@ export function HiderMap({
     } | null>(null);
     const [geoError, setGeoError] = useState<string | null>(null);
 
+    // v1227: the latest `overridePos` for the watch callbacks (which capture
+    // props at mount). When an override position is supplied (a GPS SPOOF or
+    // the app's known `lastKnownPosition` snapshot — the SAME one the main map
+    // shows), the device's own GPS is irrelevant, so a device-GPS failure must
+    // NOT surface as an error. Reading the real device GPS still fails on a
+    // spoofed desktop ("permission denied"), which used to trip the error
+    // banner + the manual-entry fallback even though a valid position exists.
+    const overridePosRef = useRef(overridePos);
+    useEffect(() => {
+        overridePosRef.current = overridePos;
+    }, [overridePos]);
+
     // Watch position throughout the hider's session so the dot follows
     // them. If `overridePos` is supplied we still kick off the watch in
     // case the user later switches back to GPS, but the displayed pin
     // prefers override.
     useEffect(() => {
         if (typeof navigator === "undefined" || !navigator.geolocation) {
-            const msg = "Geolocation not supported";
-            setGeoError(msg);
-            onGeoError?.(msg);
+            if (!overridePosRef.current) {
+                const msg = "Geolocation not supported";
+                setGeoError(msg);
+                onGeoError?.(msg);
+            }
             return;
         }
         const watchId = navigator.geolocation.watchPosition(
@@ -91,6 +105,9 @@ export function HiderMap({
                 }
             },
             (err) => {
+                // We have a valid position (spoof / known) → a device-GPS
+                // failure is not an error worth surfacing.
+                if (overridePosRef.current) return;
                 const msg =
                     err.code === err.PERMISSION_DENIED
                         ? "Location permission denied"
@@ -107,6 +124,9 @@ export function HiderMap({
     // Push override into the parent stream so distance calcs use it.
     useEffect(() => {
         if (overridePos) {
+            // A valid override position clears any device-GPS error that fired
+            // before it arrived (v1227).
+            setGeoError(null);
             onHiderLocationChange?.(overridePos.lat, overridePos.lng, 0);
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -569,7 +589,7 @@ export function HiderMap({
                 )}
             </Map>
 
-            {geoError && (
+            {geoError && !overridePos && (
                 <div className="absolute top-2 left-2 right-2 z-[1100] bg-destructive/90 text-destructive-foreground text-xs px-3 py-2 rounded-md">
                     {geoError}. Showing seeker's point only.
                 </div>

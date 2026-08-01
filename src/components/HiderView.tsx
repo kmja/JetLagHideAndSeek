@@ -374,7 +374,15 @@ function HiderQuestionAnswer({ question }: { question: Question }) {
                                 if (posLockedRef.current) return;
                                 setHiderPos({ lat, lng, accuracy });
                             }}
-                            onGeoError={() => setGeoFailed(true)}
+                            onGeoError={() => {
+                                // v1227: a device-GPS failure only matters when
+                                // we DON'T already have a position. With a GPS
+                                // SPOOF / known-position snapshot (openSnapshot)
+                                // or a manual override, the answer grades fine —
+                                // don't fall back to the manual-entry UI.
+                                if (!openSnapshot && !manualPos)
+                                    setGeoFailed(true);
+                            }}
                             onMapReady={() => setMapReady(true)}
                         />
                     </div>
