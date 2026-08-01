@@ -407,9 +407,12 @@ export function QuestionOverlayCard({
                 // block on the LEFT, a big bold coloured label, and the
                 // live status on the RIGHT. Light card in light mode, dark
                 // card in dark mode — themed via CSS vars (NOT `dark:`
-                // variants) so the gallery can preview both. Sharp corners,
-                // fixed height so the icon block resolves to a square.
-                "pointer-events-auto relative flex items-stretch overflow-hidden h-[4.5rem]",
+                // variants) so the gallery can preview both. Sharp corners.
+                // v1220: MIN-height (was a fixed `h-[4.5rem]`) so larger text
+                // grows the card instead of overflowing + clipping under
+                // `overflow-hidden`; the icon block stays square via
+                // `items-stretch` + `aspect-square` at any height.
+                "pointer-events-auto relative flex items-stretch overflow-hidden min-h-[4.5rem]",
                 flat ? "border" : "shadow-xl border",
                 "bg-[var(--overlay-card)] text-[color:var(--overlay-card-fg)] border-[color:var(--overlay-card-border)]",
                 interactive &&

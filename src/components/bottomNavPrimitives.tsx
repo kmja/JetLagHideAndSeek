@@ -29,9 +29,12 @@ export const NAV_PRIMARY_CLASS = cn(
 );
 
 // v1183: bigger nav labels — the old 10px read cramped.
-export const NAV_LABEL_CLASS = "text-xs font-poppins font-semibold";
+// v1220: `whitespace-nowrap` so a label never wraps to a second line when the
+// base font size is scaled up (the slot is narrow — a wrap breaks the row).
+export const NAV_LABEL_CLASS =
+    "text-xs font-poppins font-semibold whitespace-nowrap";
 export const NAV_PRIMARY_LABEL_CLASS =
-    "text-xs font-bold uppercase tracking-wider";
+    "text-xs font-bold uppercase tracking-wider whitespace-nowrap";
 
 /**
  * The small count pill in a nav slot's top-right corner. Base geometry is

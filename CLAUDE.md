@@ -448,6 +448,19 @@ SMALL piece (`area < 5 km²`): the big ocean is left to the chunking (buffering 
 whole is the perf hit the grid exists to avoid, and it already tests in-result).
 `tsc` + 284 tests green.
 
+**v1220 — larger-text robustness: overlay card grows, nav labels don't wrap,
+"New question" → "Ask".** Fixes the breaks the font-size lab surfaced at bigger
+sizes. (1) `QuestionOverlayCard` (the pending-answer / hider / collapsed-question
+card chrome) was a FIXED `h-[4.5rem]` + `overflow-hidden`, so larger text
+overflowed and clipped; changed to `min-h-[4.5rem]` so the card grows with its
+content — the icon block stays square at any height via `items-stretch` +
+`aspect-square`. (2) The seeker bottom-nav "New question" label wrapped to two
+lines when scaled up; the shared nav-label classes (`NAV_LABEL_CLASS` /
+`NAV_PRIMARY_LABEL_CLASS`) gained `whitespace-nowrap`. (3) Shortened the seeker
+primary CTA label from "New question" to **"Ask"** (the rulebook verb — seekers
+*ask* questions; the `+` icon carries the "new"), which also fits the narrow slot
+at any size. `aria-label` stays "Add question". `tsc` + 284 tests green.
+
 **v1219 — font-size lab gains an "Overall scale" (type + spacing together).**
 Bumping a single font-size class in the v1218 lab left the padding/gaps fixed, so
 bigger text just looked cramped. Added an **Overall scale** slider (80–170%) that
