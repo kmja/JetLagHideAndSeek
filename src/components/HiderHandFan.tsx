@@ -1009,12 +1009,14 @@ function CardActions({
                 return;
             }
             case "veto":
-                discardCard(c.id);
+                // v1229: Veto is a RESPONSE card (like Randomize) — it marks the
+                // question you're answering as vetoed. Playing it standalone from
+                // the hand used to just discard it for no game effect (a footgun).
+                // Redirect the hider to the question instead.
                 toast.info(
-                    "Veto played. Tell the seeker no answer is coming and earn no reward — they can still ask their next question.",
+                    "Veto is played in response to a question — open the question you want to veto and play it from there.",
                     { autoClose: 5000 },
                 );
-                onActionTaken();
                 return;
             case "randomize":
                 // v887: Randomize is a RESPONSE card — it swaps the question

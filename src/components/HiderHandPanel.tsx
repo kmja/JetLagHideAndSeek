@@ -162,9 +162,11 @@ export function HiderHandPanel() {
                 return;
             }
             case "veto":
-                discardCard(card.id);
+                // v1229: Veto is a RESPONSE card (like Randomize) — playing it
+                // standalone from the hand discarded it for no game effect.
+                // Redirect to the question instead of burning the card.
                 toast.info(
-                    "Veto played. Tell the seeker no answer is coming and earn no reward — they can still ask their next question.",
+                    "Veto is played in response to a question — open the question you want to veto and play it from there.",
                     { autoClose: 5000 },
                 );
                 return;

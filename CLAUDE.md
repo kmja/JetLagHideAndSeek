@@ -448,6 +448,31 @@ SMALL piece (`area < 5 km²`): the big ocean is left to the chunking (buffering 
 whole is the perf hit the grid exists to avoid, and it already tests in-result).
 `tsc` + 284 tests green.
 
+**v1229 — pre-ship stability pass: seeker UI can no longer freeze on the
+hiding-zones compute + Veto hand-play redirect.** Two fixes from the pre-ship
+review (the app is being sent to the Jet Lag creators to play a live game).
+(1) **The hiding-zones compute could strand the seeker UI ("can't tap anything"
+until reload).** `ZoneSidebar.initializeHidingZones` (async) sets three loading
+flags (`isLoading`, `hidingZonesRendering`, `zoneComputingRef`) and cleared them
+only at the very end; a bare `return toast.error(NO_ENGLISH_NAME)` inside it —
+reached when a Transit-line / Station-length matching question's nearest station
+has no English name (unnamed platform nodes are kept since v1115) — skipped the
+cleanup, and the outer `.catch` only runs on a THROW, so a resolved early return
+left all three flags stuck true → every control gating on them was frozen. Fixed
+two ways: the early return became a graceful skip (toast + paint the unfiltered
+zones instead of stranding — same-train-line already filtered by stops and never
+needed the name), AND the whole compute body is now wrapped in a `try/finally`
+that ALWAYS clears `isLoading`/`zoneComputingRef` (and clears
+`hidingZonesRendering` only if stations were never set, preserving the v848
+paint-bridge) — so no future path can freeze the UI. (2) **Veto hand-play
+footgun.** Playing Veto standalone from the hand fan/panel discarded the card for
+no game effect — but Veto is a RESPONSE card (like Randomize, v887): the answer
+dialog's `playVeto` marks the specific question `vetoed`. Both hand-play sites now
+redirect ("open the question you want to veto and play it from there") without
+burning the card. Also confirmed for ship: the debug launchers stay hidden
+(`debugLauncherHidden` defaults true) so the panel is reachable only via the
+5-tap top-centre gesture. `tsc` + 284 tests green.
+
 **v1228 — draw-picker centred card drops the red selected tint/ring.** The
 centred (active) card in the `DrawPickerDialog` carousel was passed
 `selected`/`selectionIndicator="ring"`, so it wore the app's red selected tint +

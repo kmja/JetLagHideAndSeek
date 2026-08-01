@@ -218,7 +218,13 @@ export const ZoneSidebar = () => {
             // render effect below still has to STYLE + paint them; this flag
             // bridges that gap and the render effect clears it after paint.
             hidingZonesRendering.set(true);
-
+            // v1229: guarantee the loading flags are ALWAYS cleared, even on an
+            // unexpected early return — a stranded `isLoading`/`zoneComputingRef`
+            // froze the seeker UI mid-game. The render effect clears
+            // `hidingZonesRendering` after it paints freshly-set stations, so
+            // only clear it here if we never reached that point.
+            let didSetStations = false;
+            try {
             const needsDefault = !useCustomStations || includeDefaultStations;
             // v822: never hard-error on an empty option list. These options
             // are persistent across games, so a stuck `[]` from a past session
@@ -388,10 +394,20 @@ export const ZoneSidebar = () => {
 
                     const englishName = extractStationName(nearestTrainStation);
 
-                    if (!englishName)
-                        return toast.error(NO_ENGLISH_NAME);
-
-                    if (question.data.type === "same-first-letter-station") {
+                    // v1229: DON'T early-return here. This runs inside the
+                    // async compute; a bare `return` skipped the cleanup block
+                    // below, leaving `isLoading` / `hidingZonesRendering` /
+                    // `zoneComputingRef` stuck true — the seeker UI froze ("can't
+                    // tap anything") until reload. (same-train-line already did
+                    // its own stop-based filter above and doesn't need a name.)
+                    // If there's no English name, just skip the letter/length
+                    // filter and paint the unfiltered zones — a graceful degrade,
+                    // not a strand.
+                    if (!englishName) {
+                        toast.error(NO_ENGLISH_NAME);
+                    } else if (
+                        question.data.type === "same-first-letter-station"
+                    ) {
                         const letter = englishName[0].toUpperCase();
 
                         circles = circles.filter((circle) => {
@@ -462,12 +478,16 @@ export const ZoneSidebar = () => {
             }
 
             setStations(circles);
+            didSetStations = true;
             // Remember what this result was computed from so a plain
             // off→on toggle can skip straight to the render.
             lastComputeSigRef.current = computeSig;
             lastAreaRef.current = $questionFinishedMapData;
-            zoneComputingRef.current = false;
-            isLoading.set(false);
+            } finally {
+                zoneComputingRef.current = false;
+                isLoading.set(false);
+                if (!didSetStations) hidingZonesRendering.set(false);
+            }
         };
 
         // Skip only if a zone computation is ALREADY running (re-entrancy),
