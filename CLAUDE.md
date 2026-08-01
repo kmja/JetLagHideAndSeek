@@ -448,6 +448,20 @@ SMALL piece (`area < 5 km²`): the big ocean is left to the chunking (buffering 
 whole is the perf hit the grid exists to avoid, and it already tests in-result).
 `tsc` + 284 tests green.
 
+**v1259 — metro tentacle ROOT CAUSE of "a line runs through another's region":
+sparse sampling.** A point ON the red NWK–WTC line rendered inside yellow/purple
+wedges — because the partition is nearest-SAMPLE-POINT and at `spacing=1742 m`
+(2500-point budget over NYC's 4355 km) a point between two red samples was nearer
+a DIFFERENT line's sample. Two fixes: (1) `METRO_SAMPLE_BUDGET` 2500→12000
+(~360 m spacing over NYC) so a point on a line is genuinely nearest to its own
+line's sample; (2) `METRO_CONVERGENCE_M` 400→150 — the v1258 raise over-dropped,
+emptying near-parallel corridors so a neighbour's wedge expanded across a line's
+track; with dense sampling, near-parallel lines (PATH tubes, 200–400 m apart) now
+get a clean midline boundary from their own samples, so convergence only needs to
+catch genuinely-STACKED tunnels (A/C/E). Added `union=Nms` to the diagnostic to
+watch the per-line union cost at the higher density (single sweep-line pass, so
+expected to stay tractable). `tsc` + 284 tests green.
+
 **v1258 — metro tentacle: widen the convergence threshold (250→400 m) to absorb
 parallel-corridor slivers.** With v1256 coverage at 1.0, a complex junction (the
 PATH lines fanning out through Journal Square / Hoboken) still zigzagged into thin

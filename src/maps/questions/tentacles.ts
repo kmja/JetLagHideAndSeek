@@ -162,11 +162,16 @@ async function fetchMetroRoutesData(): Promise<any> {
  * hider's answer (hiderifyTentacles) picks the nearest sample point, whose line
  * name selects the matching region.
  */
-// v1241: budget + min spacing for the evenly-spaced line sampling. ~2500 points
-// over NYC's subway gives crisp nearest-line boundaries while keeping the
-// Voronoi + per-line union tractable for a one-shot preview compute.
-const METRO_SAMPLE_BUDGET = 2500;
-const METRO_SAMPLE_MIN_SPACING_M = 150;
+// v1241/v1259: budget + min spacing for the evenly-spaced line sampling. The
+// partition is nearest-SAMPLE-POINT, which only converges to nearest-LINE when
+// spacing is small relative to the gaps between distinct lines — at 2500 points
+// NYC's ~4355 km of route gave ~1742 m spacing, so a point ON a line could be
+// nearer a DIFFERENT line's sample and get miscoloured (the red NWK–WTC line
+// running through yellow/purple wedges). Raised to 12000 (~360 m spacing over
+// NYC) so a point on a line is genuinely nearest to that line's own sample. The
+// per-line union is a single sweep-line pass, so it stays tractable.
+const METRO_SAMPLE_BUDGET = 12000;
+const METRO_SAMPLE_MIN_SPACING_M = 120;
 
 interface MetroLine {
     name: string;
@@ -478,14 +483,16 @@ function metroSamplePoints(
 let lastMetroSampleInfo = "";
 let lastMetroConvergedInfo = "";
 
-// v1246/v1258: distance (m) under which two DIFFERENT lines are treated as
-// "virtually indistinguishable" (a shared corridor / stacked tunnels / near-
-// parallel tubes like the PATH lines through Journal Square). A seeker there
-// can't reliably tell which line is nearest, so points that close to another
-// line shouldn't seed the nearest-line partition — otherwise the boundary
-// zigzags into thin alternating wedges. Raised 250→400 m (≈5 min walk) to
-// absorb the parallel-corridor case that 250 m left as noisy slivers.
-const METRO_CONVERGENCE_M = 400;
+// v1246/v1259: distance (m) under which two DIFFERENT lines are treated as
+// "virtually indistinguishable" (only truly STACKED tunnels — e.g. NYC's A/C/E
+// sharing 8th Ave). Those points are dropped so a stacked corridor doesn't
+// shatter. Kept SMALL (150 m): the v1258 raise to 400 m over-dropped, emptying
+// near-parallel corridors so a neighbouring line's wedge expanded across a
+// line's own track (the red-line-through-yellow bug). With the v1259 dense
+// sampling, near-parallel lines (200–400 m apart, PATH tubes) now get a clean
+// midline boundary from their own dense samples instead of needing to be
+// dropped — so this only needs to catch the genuinely-stacked case.
+const METRO_CONVERGENCE_M = 150;
 
 /** Drop metro sample points that lie within METRO_CONVERGENCE_M of a point
  *  belonging to a DIFFERENT line. O(n) via a spatial grid keyed at the
@@ -680,6 +687,8 @@ export async function computeMetroReachCells(
         string,
         GeoJSON.Feature<GeoJSON.Polygon | GeoJSON.MultiPolygon>
     >();
+    const unionStart =
+        typeof performance !== "undefined" ? performance.now() : 0;
     for (const [name, group] of groups) {
         let region: GeoJSON.Feature<GeoJSON.Polygon | GeoJSON.MultiPolygon> =
             group[0];
@@ -712,6 +721,10 @@ export async function computeMetroReachCells(
         }
         regionByName.set(name, region);
     }
+    const unionMs =
+        typeof performance !== "undefined"
+            ? Math.round(performance.now() - unionStart)
+            : 0;
     const cells: MetroReachCell[] = [];
     for (const [name, region] of regionByName) {
         try {
@@ -768,7 +781,7 @@ export async function computeMetroReachCells(
         )
         .join(",");
     setMetroDiag(
-        `${lastMetroDiagBase} | ${lastMetroSampleInfo} pts=${rawPts.features.length}→${dedup.length}→${pts.features.length} ${lastMetroConvergedInfo} vCells=${voronoi.features.length} named=${regionByName.size} drawn=${cells.length} sum/circle=${ratio.toFixed(2)} giants=${giants} colors=${colors.size} top=[${top}]`,
+        `${lastMetroDiagBase} | ${lastMetroSampleInfo} pts=${rawPts.features.length}→${dedup.length}→${pts.features.length} ${lastMetroConvergedInfo} vCells=${voronoi.features.length} named=${regionByName.size} drawn=${cells.length} union=${unionMs}ms sum/circle=${ratio.toFixed(2)} giants=${giants} colors=${colors.size} top=[${top}]`,
     );
     return { cells, lines: drawLines };
 }
