@@ -1655,6 +1655,10 @@ export function InlineLocationPicker({
                                     type="geojson"
                                     data={reachLinesFC}
                                 >
+                                    {/* v1253: NEUTRAL line (a locator, not a
+                                        colour with meaning) — a contrasting halo
+                                        casing + a neutral core, basemap-aware so
+                                        it stays legible on light and dark tiles. */}
                                     <Layer
                                         id="impact-reach-lines-casing"
                                         type="line"
@@ -1663,7 +1667,9 @@ export function InlineLocationPicker({
                                             "line-join": "round",
                                         }}
                                         paint={{
-                                            "line-color": "#ffffff",
+                                            "line-color": darkBasemap
+                                                ? "#000000"
+                                                : "#ffffff",
                                             "line-width": 4,
                                             "line-opacity": 0.9,
                                         }}
@@ -1676,10 +1682,9 @@ export function InlineLocationPicker({
                                             "line-join": "round",
                                         }}
                                         paint={{
-                                            "line-color": [
-                                                "get",
-                                                "lineColor",
-                                            ] as any,
+                                            "line-color": darkBasemap
+                                                ? "hsl(0, 0%, 90%)"
+                                                : "hsl(0, 0%, 20%)",
                                             "line-width": 2,
                                         }}
                                     />

@@ -448,6 +448,12 @@ SMALL piece (`area < 5 km²`): the big ocean is left to the chunking (buffering 
 whole is the perf hit the grid exists to avoid, and it already tests in-result).
 `tsc` + 284 tests green.
 
+**v1253 — metro tentacle drawn lines are NEUTRAL (were category purple).** The
+purple line over the purple-shaded cells read like it carried meaning; the drawn
+line is now a neutral basemap-aware locator (contrasting halo casing + a neutral
+core — light-on-dark / dark-on-light), so the cells' shades are the only colour
+signal. `tsc` + 284 tests green.
+
 **v1252 — metro tentacle labels back to the tentacle PILL style, line-anchored.**
 Restored the same `<Marker>` pill the other tentacle questions plot on each
 reference (`max-w-[104px] truncate … bg-background/85`), replacing the v1249
