@@ -478,11 +478,14 @@ function metroSamplePoints(
 let lastMetroSampleInfo = "";
 let lastMetroConvergedInfo = "";
 
-// v1246: distance (m) under which two DIFFERENT lines are treated as
-// "virtually indistinguishable" (a shared corridor / stacked tunnels). A
-// seeker there can't reliably tell which line is nearest, so points that
-// close to another line shouldn't seed the nearest-line partition.
-const METRO_CONVERGENCE_M = 250;
+// v1246/v1258: distance (m) under which two DIFFERENT lines are treated as
+// "virtually indistinguishable" (a shared corridor / stacked tunnels / near-
+// parallel tubes like the PATH lines through Journal Square). A seeker there
+// can't reliably tell which line is nearest, so points that close to another
+// line shouldn't seed the nearest-line partition — otherwise the boundary
+// zigzags into thin alternating wedges. Raised 250→400 m (≈5 min walk) to
+// absorb the parallel-corridor case that 250 m left as noisy slivers.
+const METRO_CONVERGENCE_M = 400;
 
 /** Drop metro sample points that lie within METRO_CONVERGENCE_M of a point
  *  belonging to a DIFFERENT line. O(n) via a spatial grid keyed at the

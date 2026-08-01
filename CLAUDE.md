@@ -448,6 +448,16 @@ SMALL piece (`area < 5 km²`): the big ocean is left to the chunking (buffering 
 whole is the perf hit the grid exists to avoid, and it already tests in-result).
 `tsc` + 284 tests green.
 
+**v1258 — metro tentacle: widen the convergence threshold (250→400 m) to absorb
+parallel-corridor slivers.** With v1256 coverage at 1.0, a complex junction (the
+PATH lines fanning out through Journal Square / Hoboken) still zigzagged into thin
+alternating wedges — near-parallel tubes 250–400 m apart, where a seeker can't
+tell which line is nearest, that the 250 m `METRO_CONVERGENCE_M` didn't catch.
+Raised to 400 m (≈5 min walk) so those corridors are dropped from the seed set and
+absorbed into the nearest region instead of seeding noisy slivers. Genuine
+junction fan-out is somewhat inherent; this is the tunable dial for it. `tsc` +
+284 tests green.
+
 **v1257 — metro tentacle: distinguish same-trunk lines by lightness shade.** NYC
 groups several services onto ONE trunk colour (A/C/E blue, 4/5/6 green, 1/2/3
 red…), so v1256's real-colour cells made two different same-trunk lines the same
