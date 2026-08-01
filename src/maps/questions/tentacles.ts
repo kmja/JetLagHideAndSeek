@@ -514,7 +514,25 @@ export async function computeMetroReachCells(
             ],
             lines: drawLines,
         };
-    const pts = metroSamplePoints(lines);
+    const rawPts = metroSamplePoints(lines);
+    // v1245: DEDUP coincident points before `turf.voronoi`. Both directions of
+    // each subway line trace the SAME physical track, so metroSamplePoints emits
+    // many EXACT duplicate coordinates — and d3-voronoi (turf.voronoi) THROWS
+    // `Cannot read properties of null (reading '0')` on coincident sites. Keep
+    // the first occurrence of each rounded coordinate (~1 m grid). The first
+    // line to sample a shared segment claims that point's cell, which is fine —
+    // a point shared by two directions of the same line is the same name anyway,
+    // and two genuinely different lines can't run through the identical metre.
+    const seenCoord = new Set<string>();
+    const dedup: GeoJSON.Feature<GeoJSON.Point>[] = [];
+    for (const f of rawPts.features) {
+        const c = f.geometry.coordinates;
+        const key = `${c[0].toFixed(5)},${c[1].toFixed(5)}`;
+        if (seenCoord.has(key)) continue;
+        seenCoord.add(key);
+        dedup.push(f);
+    }
+    const pts = turf.featureCollection(dedup);
     if (pts.features.length < 2) return { cells: [], lines: drawLines };
     // v1244: PLANAR `turf.voronoi` (not the spherical `geoSpatialVoronoi`). The
     // spherical one doesn't produce a clean partition at ~2500 points — its
@@ -624,7 +642,7 @@ export async function computeMetroReachCells(
         )
         .join(",");
     setMetroDiag(
-        `${lastMetroDiagBase} | ${lastMetroSampleInfo} pts=${pts.features.length} vCells=${voronoi.features.length} named=${regionByName.size} drawn=${cells.length} sum/circle=${ratio.toFixed(2)} giants=${giants} colors=${colors.size} top=[${top}]`,
+        `${lastMetroDiagBase} | ${lastMetroSampleInfo} pts=${rawPts.features.length}→${pts.features.length} vCells=${voronoi.features.length} named=${regionByName.size} drawn=${cells.length} sum/circle=${ratio.toFixed(2)} giants=${giants} colors=${colors.size} top=[${top}]`,
     );
     return { cells, lines: drawLines };
 }

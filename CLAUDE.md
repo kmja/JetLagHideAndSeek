@@ -448,6 +448,18 @@ SMALL piece (`area < 5 km²`): the big ocean is left to the chunking (buffering 
 whole is the perf hit the grid exists to avoid, and it already tests in-result).
 `tsc` + 284 tests green.
 
+**v1245 — metro tentacle: DEDUP coincident sample points before `turf.voronoi`.**
+v1244's switch to planar `turf.voronoi` threw `TypeError: Cannot read properties of
+null (reading '0')` (`pts=2516 voronoi THREW`). Root cause: both directions of each
+subway line trace the SAME physical track, so `metroSamplePoints` emits many EXACT
+duplicate coordinates, and d3-voronoi (turf.voronoi) chokes on coincident sites.
+`computeMetroReachCells` now dedups `pts` by rounded coordinate (~1 m grid, keep
+first occurrence) before the Voronoi — a point shared by two directions of the same
+line carries the same name anyway, and two different lines can't run through the
+identical metre, so the index→name mapping stays correct. Diagnostic now shows
+`pts=raw→deduped`; expect `sum/circle≈1.0` (clean partition) once regions draw.
+`tsc` + 284 tests green.
+
 **v1244 — metro tentacle ROOT CAUSE: `geoSpatialVoronoi` overlaps at scale → use
 planar `turf.voronoi`.** The v1243 measurement settled it: `vCells≈pts` (Voronoi
 didn't collapse) but `sum/circle=18.58 giants=18 top=[M=100%,B=100%,…]` — the 32
