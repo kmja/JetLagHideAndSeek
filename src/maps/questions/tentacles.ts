@@ -162,8 +162,11 @@ async function fetchMetroRoutesData(): Promise<any> {
  * hider's answer (hiderifyTentacles) picks the nearest sample point, whose line
  * name selects the matching region.
  */
-const METRO_SAMPLE_BUDGET = 600;
-const METRO_SAMPLE_MAX_PER_LINE = 24;
+// v1241: budget + min spacing for the evenly-spaced line sampling. ~2500 points
+// over NYC's subway gives crisp nearest-line boundaries while keeping the
+// Voronoi + per-line union tractable for a one-shot preview compute.
+const METRO_SAMPLE_BUDGET = 2500;
+const METRO_SAMPLE_MIN_SPACING_M = 150;
 
 interface MetroLine {
     name: string;
@@ -386,25 +389,60 @@ function setMetroDiag(msg: string): void {
     }
 }
 
-/** Dense sample points ALONG each line, tagged with the line name — the seed
- *  set for the nearest-LINE Voronoi. Bounded by a global budget so a dense
- *  metro (Tokyo) stays tractable. */
+/** EVENLY-spaced sample points ALONG each line (by DISTANCE, on the real
+ *  per-way segments), tagged with the line name — the seed set for the
+ *  nearest-LINE Voronoi. Even spacing is what makes the nearest-SAMPLE-POINT
+ *  partition converge to the nearest-LINE partition: the old vertex-subsampling
+ *  (every k-th vertex) left ~1.5 km gaps, so between two of a line's samples a
+ *  point could be nearer ANOTHER line's sample → the region boundary diverged
+ *  from the line (v1241). Spacing is chosen to fill the budget: dense enough for
+ *  crisp boundaries, bounded so a big metro stays tractable. */
 function metroSamplePoints(
     lines: MetroLine[],
 ): GeoJSON.FeatureCollection<GeoJSON.Point> {
-    const perLine = Math.min(
-        METRO_SAMPLE_MAX_PER_LINE,
-        Math.max(6, Math.floor(METRO_SAMPLE_BUDGET / Math.max(1, lines.length))),
-    );
-    const feats: GeoJSON.Feature<GeoJSON.Point>[] = [];
-    for (const { name, coords } of lines) {
-        const n = coords.length;
-        const step = Math.max(1, Math.floor(n / perLine));
-        for (let i = 0; i < n; i += step) {
-            feats.push(turf.point(coords[i], { name }));
+    // Total line length → spacing that keeps the point count under budget.
+    let totalLen = 0;
+    for (const { segments } of lines) {
+        for (const seg of segments) {
+            for (let i = 1; i < seg.length; i++) {
+                totalLen += haversineMeters(
+                    seg[i - 1][1],
+                    seg[i - 1][0],
+                    seg[i][1],
+                    seg[i][0],
+                );
+            }
         }
-        if ((n - 1) % step !== 0) {
-            feats.push(turf.point(coords[n - 1], { name }));
+    }
+    const spacing = Math.max(
+        METRO_SAMPLE_MIN_SPACING_M,
+        totalLen / METRO_SAMPLE_BUDGET,
+    );
+
+    const feats: GeoJSON.Feature<GeoJSON.Point>[] = [];
+    for (const { name, segments } of lines) {
+        for (const seg of segments) {
+            if (seg.length < 1) continue;
+            feats.push(turf.point(seg[0], { name }));
+            let acc = 0; // distance since the last placed sample
+            for (let i = 1; i < seg.length; i++) {
+                const a = seg[i - 1];
+                const b = seg[i];
+                const d = haversineMeters(a[1], a[0], b[1], b[0]);
+                if (d === 0) continue;
+                let pos = spacing - acc; // first sample offset within this edge
+                while (pos <= d) {
+                    const f = pos / d;
+                    feats.push(
+                        turf.point(
+                            [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f],
+                            { name },
+                        ),
+                    );
+                    pos += spacing;
+                }
+                acc = d - (pos - spacing); // leftover carried to the next edge
+            }
         }
     }
     return turf.featureCollection(feats);

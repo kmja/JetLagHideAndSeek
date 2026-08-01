@@ -448,6 +448,18 @@ SMALL piece (`area < 5 km²`): the big ocean is left to the chunking (buffering 
 whole is the perf hit the grid exists to avoid, and it already tests in-result).
 `tsc` + 284 tests green.
 
+**v1241 — metro tentacle regions now FOLLOW the lines (dense even-spaced
+sampling).** The drawn lines didn't match the region boundaries — the nearest-LINE
+Voronoi was seeded by sampling every ~k-th VERTEX (`pts=638` over 32 lines ≈
+1.5 km gaps), so between two of a line's samples a point could be nearer ANOTHER
+line's sample → the boundary diverged from the line (a blue line running through a
+green region). `metroSamplePoints` now samples EVENLY BY DISTANCE along the real
+per-way `segments` (interpolating along each edge), at a spacing chosen to fill a
+~2500-point budget (≥150 m). Even, dense spacing is what makes the
+nearest-sample-point partition converge to the true nearest-LINE partition, so the
+coloured regions hug their lines. `METRO_SAMPLE_MAX_PER_LINE` → `METRO_SAMPLE_MIN_SPACING_M`.
+`tsc` + 284 tests green. (Heavier one-shot preview compute — the veil covers it.)
+
 **v1240 — metro tentacle draws the LINE GEOMETRY on the preview (like other
 tentacles plot their reference points).** The segmentation is based on the metro
 lines, so the preview now draws them: `MetroLine` carries per-way `segments` (kept
