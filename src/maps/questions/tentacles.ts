@@ -10,6 +10,7 @@ import { haversineMeters } from "@/lib/geo";
 import { safeJsonFromCachedResponse } from "@/maps/api/cache";
 import { METRO_BY_RELATION_BASE } from "@/maps/api/constants";
 import { referenceExtent } from "@/maps/api/playAreaPrefetch";
+import { fetchSubwayRouteRelations } from "@/maps/api/transitRoutes";
 import { findTentacleLocations, getOverpassData } from "@/maps/api";
 import { arcBuffer, safeUnion } from "@/maps/geo-utils";
 import { geoSpatialVoronoi } from "@/maps/geo-utils";
@@ -70,15 +71,14 @@ function playAreaBboxTuple(): string | null {
  *  worker (`metroRoutesQuery` in overpass-cache/src/index.ts) AND the laptop
  *  prewarmer byte-for-byte so the R2 cache hits.
  *
- *  v1236: `out geom` (NOT `out tags geom`). `out tags geom` uses "tags"
- *  verbosity, which for a RELATION omits the `members` array entirely — so the
- *  payload had the route relations but ZERO line geometry (the diagnostic read
- *  `withMembers=0`), and every metro tentacle came up empty. `out geom` is
- *  "body" verbosity + geometry → each relation includes its way members with
- *  inline `geometry`. This changes the query string → new R2 key, so existing
- *  prewarmed metro entries orphan and re-warm (self-heals on first use). */
+ *  This reads line NAMES + relation ids only (`out tags geom` → no members, so
+ *  no geometry — that's fine). The metro tentacle sources the LINE GEOMETRY
+ *  from the prewarmed transit subway shard instead (v1236,
+ *  `fetchSubwayRouteRelations`), joined to these names by relation id — so we
+ *  never needed member geometry here and this query is UNCHANGED (no cache
+ *  orphan / re-warm). */
 function metroRoutesQuery(bboxTuple: string): string {
-    return `\n[out:json][timeout:180][bbox:${bboxTuple}];\nrelation["route"="subway"]["name"];\nout geom;\n`;
+    return `\n[out:json][timeout:180][bbox:${bboxTuple}];\nrelation["route"="subway"]["name"];\nout tags geom;\n`;
 }
 
 const metroWarmRequested = new Set<number>();
@@ -128,24 +128,15 @@ async function fetchMetroRoutesData(): Promise<any> {
                 // (metro was the one relation-endpoint reader missed by the
                 // v1116/v1124 hardening sweep.)
                 const json = (await safeJsonFromCachedResponse(resp)) as {
-                    elements?: Array<{ members?: unknown[] }>;
+                    elements?: unknown[];
                 } | null;
                 const els = json?.elements;
-                // v1236: require MEMBER GEOMETRY, not just non-empty elements —
-                // a stale `out tags geom` prewarm serves route relations with NO
-                // `members` (the withMembers=0 bug), which would otherwise be
-                // returned as usable data and block the live fallback. If no
-                // element carries members, treat it as a miss: warm the new-key
-                // entry and fall through to the live `out geom` query.
-                const hasMembers =
-                    Array.isArray(els) &&
-                    els.some(
-                        (e) =>
-                            Array.isArray(e?.members) && e.members.length > 0,
-                    );
-                if (hasMembers) return json;
-                // Empty / member-less = miss/no-boundary/stale. Warm in the
-                // background and fall through to the live bbox query.
+                // Names only — the metro endpoint carries the line names +
+                // relation ids (no geometry; geometry comes from the transit
+                // shard, joined by id). Non-empty = usable.
+                if (Array.isArray(els) && els.length > 0) return json;
+                // Empty = miss/no-boundary. Warm in the background and fall
+                // through to the live bbox query so the user still gets names.
                 requestWarmMetro(relId);
             }
         } catch {
@@ -179,42 +170,64 @@ interface MetroLine {
     coords: [number, number][];
 }
 
-/** Fetch the reachable metro LINES (name + full coords) — "reachable" = the
- *  closest point on the line sits within `radius` of the seeker. */
+/**
+ * Fetch the reachable metro LINES (name + full coords) — "reachable" = the
+ * closest point on the line sits within `radius` of the seeker.
+ *
+ * v1236: JOIN two prewarmed datasets by relation id, since the metro endpoint
+ * (`out tags geom`) carries the line NAMES + relation ids but NO geometry:
+ *   - `/api/metro/<id>`        → relation id → line NAME
+ *   - transit subway shard     → relation id → member way GEOMETRY
+ * Both are already cached for a warm city, so this needs no re-warm and no live
+ * metro query. Coords are merged BY NAME (a line's two directions are separate
+ * relations sharing a name).
+ */
 async function fetchReachableMetroLines(
     centerLat: number,
     centerLng: number,
     radius: number,
     unit: Units,
 ): Promise<MetroLine[]> {
-    let data: any;
+    // Names: relation id → line name (metro endpoint, no geometry).
+    let metroData: any;
     try {
-        data = await fetchMetroRoutesData();
+        metroData = await fetchMetroRoutesData();
     } catch {
-        return [];
+        metroData = null;
     }
-    if (!data) {
-        setMetroDiag("no data (fetch returned null)");
-        return [];
-    }
-    const radiusMeters = turf.convertLength(radius, unit, "meters");
-    const seen = new Set<string>();
-    const lines: MetroLine[] = [];
-    // v1235 diagnostic counters — surfaced so an on-device tester can see WHERE
-    // the metro overlay drops to zero.
-    let relations = 0;
-    let withMembers = 0;
-    let withGeom = 0;
-    let outOfRange = 0;
-    for (const el of data.elements ?? []) {
-        if (el.type !== "relation") continue;
-        relations++;
+    const nameById = new Map<number, string>();
+    let metroRel = 0;
+    for (const el of metroData?.elements ?? []) {
+        if (el?.type !== "relation" || typeof el.id !== "number") continue;
+        metroRel++;
         const name = el.tags?.["name:en"] ?? el.tags?.name;
-        if (!name || typeof name !== "string" || seen.has(name)) continue;
-        if (Array.isArray(el.members) && el.members.length) withMembers++;
+        if (typeof name === "string" && name) nameById.set(el.id, name);
+    }
+
+    // Geometry: relation id → member coords (transit subway shard). Joined to
+    // the names above by relation id.
+    let subwayRels: Array<{
+        id?: number;
+        members?: Array<{
+            type?: string;
+            geometry?: Array<{ lat: number; lon: number }>;
+        }>;
+    }> = [];
+    try {
+        subwayRels = await fetchSubwayRouteRelations();
+    } catch {
+        subwayRels = [];
+    }
+
+    const coordsByName = new Map<string, [number, number][]>();
+    let joined = 0;
+    for (const rel of subwayRels) {
+        if (typeof rel?.id !== "number") continue;
+        const name = nameById.get(rel.id);
+        if (!name) continue;
         const coords: [number, number][] = [];
-        for (const m of el.members ?? []) {
-            if (m.type !== "way" || !Array.isArray(m.geometry)) continue;
+        for (const m of rel.members ?? []) {
+            if (m?.type !== "way" || !Array.isArray(m.geometry)) continue;
             for (const p of m.geometry) {
                 if (typeof p.lat === "number" && typeof p.lon === "number") {
                     coords.push([p.lon, p.lat]);
@@ -222,9 +235,17 @@ async function fetchReachableMetroLines(
             }
         }
         if (coords.length < 2) continue;
-        withGeom++;
-        // Distance constraint = seeker → CLOSEST point on the line (real
-        // geometry). Inline haversine — a metro line has hundreds of vertices.
+        joined++;
+        const arr = coordsByName.get(name);
+        if (arr) arr.push(...coords);
+        else coordsByName.set(name, coords);
+    }
+
+    // Reach-filter per line: seeker → CLOSEST point on the line within radius.
+    const radiusMeters = turf.convertLength(radius, unit, "meters");
+    const lines: MetroLine[] = [];
+    let outOfRange = 0;
+    for (const [name, coords] of coordsByName) {
         let closest = Infinity;
         for (const c of coords) {
             const d = haversineMeters(centerLat, centerLng, c[1], c[0]);
@@ -234,11 +255,10 @@ async function fetchReachableMetroLines(
             outOfRange++;
             continue;
         }
-        seen.add(name);
         lines.push({ name, coords });
     }
     setMetroDiag(
-        `elems=${(data.elements ?? []).length} rel=${relations} withMembers=${withMembers} withGeom=${withGeom} outOfRange=${outOfRange} lines=${lines.length}`,
+        `metroRel=${metroRel} names=${nameById.size} subwayRel=${subwayRels.length} joined=${joined} outOfRange=${outOfRange} lines=${lines.length}`,
     );
     return lines;
 }

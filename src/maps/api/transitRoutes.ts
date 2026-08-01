@@ -283,6 +283,37 @@ async function fetchTransitRelations(
 }
 
 /**
+ * v1236: RAW subway ROUTE relations (id + member way geometry) from the
+ * prewarmed transit subway shard (`out skel geom`), for the metro-line
+ * tentacle. The `/api/metro/<id>` endpoint has line NAMES + relation ids but no
+ * geometry; this shard has the GEOMETRY (keyed by the SAME relation ids) but no
+ * names — so the tentacle JOINS them by relation id, sourcing line geometry
+ * from data we ALREADY cache (no re-warm, no live metro query). Cache-first via
+ * the same relation-endpoint path the transit overlay uses; live fallback on a
+ * cold city.
+ */
+export async function fetchSubwayRouteRelations(): Promise<
+    Array<{
+        id?: number;
+        members?: Array<{
+            type?: string;
+            geometry?: Array<{ lat: number; lon: number }>;
+        }>;
+    }>
+> {
+    const data = await fetchTransitRelations("subway");
+    const els = ((data as { elements?: unknown[] }).elements ?? []) as Array<{
+        type?: string;
+        id?: number;
+        members?: Array<{
+            type?: string;
+            geometry?: Array<{ lat: number; lon: number }>;
+        }>;
+    }>;
+    return els.filter((el) => el?.type === "relation");
+}
+
+/**
  * Fetch + parse + decimate a transit mode's routes for the
  * current play area. Returns a GeoJSON FeatureCollection
  * suitable for a MapLibre geojson source.

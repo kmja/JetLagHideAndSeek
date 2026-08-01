@@ -2694,10 +2694,11 @@ async function processElevation(extent) {
  */
 function metroRoutesQuery(extent) {
     const tuple = transitBboxTuple(extent); // same pad/precision as the client
-    // v1236: `out geom` (was `out tags geom`) — tags-verbosity omits relation
-    // members, so the payload had NO line geometry. Keep byte-identical to the
+    // `out tags geom` = line names + relation ids, NO members (v1236: the metro
+    // tentacle joins these names to the transit subway shard's geometry by
+    // relation id, so no member geometry is needed here). Byte-identical to the
     // client + worker copies.
-    return `\n[out:json][timeout:180][bbox:${tuple}];\nrelation["route"="subway"]["name"];\nout geom;\n`;
+    return `\n[out:json][timeout:180][bbox:${tuple}];\nrelation["route"="subway"]["name"];\nout tags geom;\n`;
 }
 
 async function processMetroRoutes(city, extent) {

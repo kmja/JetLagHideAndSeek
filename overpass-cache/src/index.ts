@@ -4694,23 +4694,22 @@ function transitRouteQuery(
 /** Byte-identical to `metroRoutesQuery` in src/maps/questions/tentacles.ts
  *  AND laptop-prewarm.mjs. The tentacle "Metro line" question reads named
  *  subway ROUTE relations (distinct from the transit overlay's `out skel`
- *  subway shards — this keeps `["name"]`). Served by `/api/metro/<id>` so the
- *  client no longer builds a land-clip-drifting bbox on its own (the pre-v386
- *  transit bug, which this endpoint fixes for metro too, v700).
+ *  subway shards — this keeps `["name"]` + `out tags geom`). Served by
+ *  `/api/metro/<id>` so the client no longer builds a land-clip-drifting
+ *  bbox on its own (the pre-v386 transit bug, which this endpoint fixes for
+ *  metro too, v700).
  *
- *  v1236: `out geom` (was `out tags geom`). `out tags geom` uses "tags"
- *  verbosity, which omits a relation's `members` — the served payload had the
- *  route relations but NO line geometry (the client diagnostic read
- *  `withMembers=0`), so every metro tentacle came up empty. `out geom` (body
- *  verbosity + geometry) includes each relation's way members with inline
- *  geometry. This changes the query string → new R2 key, so existing prewarmed
- *  metro entries orphan and re-warm on demand (`?warm=1`) / by the next cron /
- *  laptop pass. Newline framing is load-bearing to the R2 key. */
+ *  Note: `out tags geom` gives the line NAMES + relation ids but NO members
+ *  (tags verbosity omits them), so this payload has no geometry. That's
+ *  intentional (v1236): the metro tentacle sources line GEOMETRY from the
+ *  prewarmed transit subway shard, joined to these names by relation id — so
+ *  this query is UNCHANGED and its cache is not orphaned. Newline framing is
+ *  load-bearing to the R2 key. */
 function metroRoutesQuery(
     extent: [number, number, number, number],
 ): string {
     const tuple = transitBboxTuple(extent);
-    return `\n[out:json][timeout:180][bbox:${tuple}];\nrelation["route"="subway"]["name"];\nout geom;\n`;
+    return `\n[out:json][timeout:180][bbox:${tuple}];\nrelation["route"="subway"]["name"];\nout tags geom;\n`;
 }
 
 /** Byte-identical to `transitRoutesQuery` in laptop-prewarm.mjs. The

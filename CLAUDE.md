@@ -448,6 +448,23 @@ SMALL piece (`area < 5 km²`): the big ocean is left to the chunking (buffering 
 whole is the perf hit the grid exists to avoid, and it already tests in-result).
 `tsc` + 284 tests green.
 
+**v1237 — metro-line tentacle sourced from EXISTING cache (join names + transit
+geometry by relation id) — no re-warm.** Replaces v1236's query change (which
+would have orphaned the metro cache). The metro endpoint (`out tags geom`) carries
+line NAMES + relation ids but NO geometry ("tags" verbosity omits members). Rather
+than change that query, the tentacle now JOINS two already-prewarmed datasets by
+relation id: `/api/metro/<id>` (id → line name) + the transit **subway shard**
+(`fetchSubwayRouteRelations`, `/api/transit/<id>/subway`, `out skel geom` → id →
+member way geometry). Both are cached for a warm city, so the metro tentacle is
+Overpass-free with NO re-warm and NO cache orphan. `fetchReachableMetroLines`
+builds `id→name` from metro, `id→coords` from the subway shard, merges coords BY
+NAME (a line's two directions are separate relations sharing a name), and reach-
+filters; `computeMetroReachCells` partitions as before (nearest-LINE Voronoi, union
+by name). The v1236 `out geom` query change was REVERTED in all three copies
+(client/worker/laptop back to `out tags geom`), restoring the original metro cache.
+The `[metro]` diagnostic now reads `metroRel / names / subwayRel / joined /
+outOfRange / lines`. `tsc` + 284 tests green.
+
 **v1236 — metro-line tentacle ROOT CAUSE: `out tags geom` returns NO relation
 members (query fix).** The v1235 on-device diagnostic settled it: NYC read
 `elems=125 rel=125 withMembers=0 withGeom=0 lines=0` — the metro payload had all
