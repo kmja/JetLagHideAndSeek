@@ -448,6 +448,17 @@ SMALL piece (`area < 5 km²`): the big ocean is left to the chunking (buffering 
 whole is the perf hit the grid exists to avoid, and it already tests in-result).
 `tsc` + 284 tests green.
 
+**v1247 — metro tentacle: restore full coverage after the convergence filter.**
+v1246's converged-point drop worked (calm core) but `sum/circle` fell to 0.83 —
+a per-line `safeUnion` failure fell the WHOLE line back to a single Voronoi cell
+(`group[0]`), losing the rest of its area. The union now falls back to an
+INCREMENTAL fold on failure (skip only the self-intersecting cell, keep the
+line's other cells), so coverage returns to ~1.0. Also: the metro hider-answer
+(`hiderifyTentacles`) now SNAPS a point that lands in a thin boundary sliver to
+the NEAREST cell (`pointToLineDistance`) instead of answering "none in range" —
+the hider is within reach of the network so they're always in some line's region,
+and the answer must match a drawn cut. `tsc` + 284 tests green.
+
 **v1246 — metro tentacle: EXCLUDE converged (indistinguishable) line sections
 from the partition.** With v1245's clean partition (`sum/circle=0.98`), the dense
 core still shattered into thin wedges because many lines share tunnels/corridors

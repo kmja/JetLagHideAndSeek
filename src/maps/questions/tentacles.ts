@@ -652,14 +652,30 @@ export async function computeMetroReachCells(
         let region: GeoJSON.Feature<GeoJSON.Polygon | GeoJSON.MultiPolygon> =
             group[0];
         if (group.length > 1) {
+            // v1247: union all cells at once, but fall back to an INCREMENTAL
+            // fold on failure — a single self-intersecting cell must skip only
+            // itself, not drop the whole line's area to group[0] (that was the
+            // v1246 sum/circle=0.83 coverage loss).
             try {
                 region =
                     (safeUnion(
                         turf.featureCollection(group),
                     ) as GeoJSON.Feature<GeoJSON.Polygon | GeoJSON.MultiPolygon>) ??
-                    group[0];
+                    region;
             } catch {
-                region = group[0];
+                for (let gi = 1; gi < group.length; gi++) {
+                    try {
+                        const merged = turf.union(
+                            turf.featureCollection([region as any, group[gi]]),
+                        );
+                        if (merged)
+                            region = merged as GeoJSON.Feature<
+                                GeoJSON.Polygon | GeoJSON.MultiPolygon
+                            >;
+                    } catch {
+                        /* skip this cell only */
+                    }
+                }
             }
         }
         regionByName.set(name, region);
@@ -861,6 +877,28 @@ export const hiderifyTentacles = async (question: TentacleQuestion) => {
                 }
             } catch {
                 /* skip malformed cell */
+            }
+        }
+        // v1247: the hider is within reach of the metro network, so they're
+        // always in SOME line's region — but a thin union/clip boundary sliver
+        // can leave a point in no cell. Snap to the nearest cell instead of
+        // answering "none in range" (which would eliminate the hider's real
+        // location), so the answer always matches a drawn region.
+        if (!foundName && cells.length > 0) {
+            let best = Infinity;
+            for (const c of cells) {
+                try {
+                    const line = turf.polygonToLine(c.cell as any);
+                    const d = turf.pointToLineDistance(hider, line as any, {
+                        units: "meters",
+                    });
+                    if (d < best) {
+                        best = d;
+                        foundName = c.name;
+                    }
+                } catch {
+                    /* skip malformed cell */
+                }
             }
         }
         if (!foundName) {
