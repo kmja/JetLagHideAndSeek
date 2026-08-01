@@ -448,6 +448,16 @@ SMALL piece (`area < 5 km²`): the big ocean is left to the chunking (buffering 
 whole is the perf hit the grid exists to avoid, and it already tests in-result).
 `tsc` + 284 tests green.
 
+**v1242 — metro tentacle sampling respects the budget (was 10 680 degenerate
+points → one brown blob).** v1241's even-spaced sampler pushed `seg[0]` for EVERY
+member way, and NYC subway lines have thousands of tiny way-segments, so the count
+exploded to `pts=10680` (far over the 2500 budget) → a degenerate Voronoi whose
+per-line unions overlapped into one uniform brownish region. Fix: walk each line
+CONTINUOUSLY — carry the spacing accumulator ACROSS segments and place only ONE
+start point per line — so the count is bounded to ≈budget (≈2500) regardless of how
+the line is split into member ways. Diagnostic expanded with `len=Nkm spacing=Nm`
+(the sampler's chosen spacing) so the density is visible. `tsc` + 284 tests green.
+
 **v1241 — metro tentacle regions now FOLLOW the lines (dense even-spaced
 sampling).** The drawn lines didn't match the region boundaries — the nearest-LINE
 Voronoi was seeded by sampling every ~k-th VERTEX (`pts=638` over 32 lines ≈

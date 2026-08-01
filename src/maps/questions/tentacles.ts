@@ -421,15 +421,23 @@ function metroSamplePoints(
 
     const feats: GeoJSON.Feature<GeoJSON.Point>[] = [];
     for (const { name, segments } of lines) {
+        // Walk the WHOLE line continuously — carry the spacing accumulator
+        // ACROSS segments and place only ONE start point per line. (Pushing
+        // seg[0] per segment exploded the count on NYC, whose lines have
+        // thousands of tiny member ways → a degenerate 10k-point Voronoi.)
+        let acc = 0; // distance since the last placed sample
+        let placedFirst = false;
         for (const seg of segments) {
-            if (seg.length < 1) continue;
-            feats.push(turf.point(seg[0], { name }));
-            let acc = 0; // distance since the last placed sample
             for (let i = 1; i < seg.length; i++) {
                 const a = seg[i - 1];
                 const b = seg[i];
                 const d = haversineMeters(a[1], a[0], b[1], b[0]);
                 if (d === 0) continue;
+                if (!placedFirst) {
+                    feats.push(turf.point(a, { name }));
+                    placedFirst = true;
+                    acc = 0;
+                }
                 let pos = spacing - acc; // first sample offset within this edge
                 while (pos <= d) {
                     const f = pos / d;
@@ -441,12 +449,16 @@ function metroSamplePoints(
                     );
                     pos += spacing;
                 }
-                acc = d - (pos - spacing); // leftover carried to the next edge
+                acc += d;
+                acc %= spacing; // leftover distance past the last sample
             }
         }
     }
+    lastMetroSampleInfo = `len=${Math.round(totalLen / 1000)}km spacing=${Math.round(spacing)}m`;
     return turf.featureCollection(feats);
 }
+
+let lastMetroSampleInfo = "";
 
 /**
  * Metro tentacle candidates as dense sample points (tagged with the line name).
@@ -590,7 +602,7 @@ export async function computeMetroReachCells(
         }
     }
     setMetroDiag(
-        `${lastMetroDiagBase} | pts=${pts.features.length} voronoiCells=${voronoi.features.length} named=${regionByName.size} drawnCells=${cells.length}`,
+        `${lastMetroDiagBase} | ${lastMetroSampleInfo} pts=${pts.features.length} vCells=${voronoi.features.length} named=${regionByName.size} drawn=${cells.length}`,
     );
     return { cells, lines: drawLines };
 }
