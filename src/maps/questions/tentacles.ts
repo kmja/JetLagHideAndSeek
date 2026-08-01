@@ -67,10 +67,18 @@ function playAreaBboxTuple(): string | null {
 }
 
 /** Byte-stable query string for play-area metro routes. Must match the
- *  laptop prewarmer (overpass-cache/scripts/laptop-prewarm.mjs metro
- *  prewarm) byte-for-byte so the R2 cache hits. */
+ *  worker (`metroRoutesQuery` in overpass-cache/src/index.ts) AND the laptop
+ *  prewarmer byte-for-byte so the R2 cache hits.
+ *
+ *  v1236: `out geom` (NOT `out tags geom`). `out tags geom` uses "tags"
+ *  verbosity, which for a RELATION omits the `members` array entirely — so the
+ *  payload had the route relations but ZERO line geometry (the diagnostic read
+ *  `withMembers=0`), and every metro tentacle came up empty. `out geom` is
+ *  "body" verbosity + geometry → each relation includes its way members with
+ *  inline `geometry`. This changes the query string → new R2 key, so existing
+ *  prewarmed metro entries orphan and re-warm (self-heals on first use). */
 function metroRoutesQuery(bboxTuple: string): string {
-    return `\n[out:json][timeout:180][bbox:${bboxTuple}];\nrelation["route"="subway"]["name"];\nout tags geom;\n`;
+    return `\n[out:json][timeout:180][bbox:${bboxTuple}];\nrelation["route"="subway"]["name"];\nout geom;\n`;
 }
 
 const metroWarmRequested = new Set<number>();
@@ -120,12 +128,24 @@ async function fetchMetroRoutesData(): Promise<any> {
                 // (metro was the one relation-endpoint reader missed by the
                 // v1116/v1124 hardening sweep.)
                 const json = (await safeJsonFromCachedResponse(resp)) as {
-                    elements?: unknown[];
+                    elements?: Array<{ members?: unknown[] }>;
                 } | null;
                 const els = json?.elements;
-                if (Array.isArray(els) && els.length > 0) return json;
-                // Empty = miss/no-boundary. Warm in the background and fall
-                // through to the live bbox query so the user still gets data.
+                // v1236: require MEMBER GEOMETRY, not just non-empty elements —
+                // a stale `out tags geom` prewarm serves route relations with NO
+                // `members` (the withMembers=0 bug), which would otherwise be
+                // returned as usable data and block the live fallback. If no
+                // element carries members, treat it as a miss: warm the new-key
+                // entry and fall through to the live `out geom` query.
+                const hasMembers =
+                    Array.isArray(els) &&
+                    els.some(
+                        (e) =>
+                            Array.isArray(e?.members) && e.members.length > 0,
+                    );
+                if (hasMembers) return json;
+                // Empty / member-less = miss/no-boundary/stale. Warm in the
+                // background and fall through to the live bbox query.
                 requestWarmMetro(relId);
             }
         } catch {

@@ -448,6 +448,24 @@ SMALL piece (`area < 5 km²`): the big ocean is left to the chunking (buffering 
 whole is the perf hit the grid exists to avoid, and it already tests in-result).
 `tsc` + 284 tests green.
 
+**v1236 — metro-line tentacle ROOT CAUSE: `out tags geom` returns NO relation
+members (query fix).** The v1235 on-device diagnostic settled it: NYC read
+`elems=125 rel=125 withMembers=0 withGeom=0 lines=0` — the metro payload had all
+125 subway ROUTE relations but ZERO member geometry, so there were no line
+coordinates to partition (empty circle, always — even the old centroid version got
+0). Cause: the metro query used **`out tags geom`**, and "tags" verbosity omits a
+relation's `members` entirely; only "body" verbosity (`out geom`) includes way
+members with inline geometry. Changed the query to **`out geom`** in all three
+byte-identical copies (client `tentacles.ts`, worker `overpass-cache/src/index.ts`,
+laptop `laptop-prewarm.mjs`). This changes the R2 key, so existing prewarmed metro
+entries orphan and re-warm; **the client self-heals immediately** — `fetchMetroRoutesData`
+now requires MEMBER GEOMETRY (not just non-empty elements), so a stale member-less
+`out tags geom` entry served by a not-yet-redeployed worker is treated as a miss and
+falls through to the live `out geom` query (which returns members). So a warm city
+serves the fixed data from R2 once re-warmed, and every city works live in the
+meantime. `tsc` + 284 tests green. (Worker + laptop auto-deploy with the
+overpass-cache build.)
+
 **v1235 — metro-line tentacle on-device DIAGNOSTIC (the "empty tentacle circle"
 still had 0 segments).** The reach circle draws from GPS regardless of data, so an
 empty circle means `computeMetroReachCells` produced 0 per-line regions — but WHICH
