@@ -448,6 +448,15 @@ SMALL piece (`area < 5 km²`): the big ocean is left to the chunking (buffering 
 whole is the perf hit the grid exists to avoid, and it already tests in-result).
 `tsc` + 284 tests green.
 
+**v1223 — role picker: side-by-side big role buttons.** `RolePicker` reworked —
+the Seeker/Hider tiles are now two big, centred, SYMMETRIC buttons SIDE BY SIDE
+(`grid grid-cols-2`) with a large circular icon (filled primary when selected),
+a `text-xl` role name, and a one-line blurb (shortened: "Ask questions. Find the
+hider." / "Answer questions. Stay hidden."). **Seeker is selected by default** so
+the CTA is live immediately. The "Pick your role" header is bigger (`text-lg` →
+`text-2xl`), and the "Join game" button uses the design-system's largest size
+(`size="lg"`). `tsc` + 284 tests green.
+
 **v1222 — revert the v1220 overlay-card height change.** Restored
 `QuestionOverlayCard` to its fixed `h-[4.5rem]` (from the v1220 `min-h-[4.5rem]`)
 — the card keeps its fixed square-icon-block height at the app's real sizes; the

@@ -98,8 +98,10 @@ export function RolePicker() {
 
     // v452: select-then-confirm. Tapping a tile only HIGHLIGHTS it (like
     // the transit-mode chips); the "Join game" button below commits.
+    // v1223: default to Seeker (the more common pick) so the CTA is live
+    // immediately.
     const [selected, setSelected] = useState<"seeker" | "hider" | null>(
-        null,
+        "seeker",
     );
 
     // v784: warm the lazy HiderPage chunk the moment the hider tile is
@@ -187,7 +189,7 @@ export function RolePicker() {
                     dialog stays short enough to clear the on-screen
                     keyboard. */}
                 <div className="px-5 pt-4 pb-3 shrink-0 border-b border-border">
-                    <DialogTitle className="font-inter-tight font-black uppercase text-lg tracking-tight leading-tight">
+                    <DialogTitle className="font-inter-tight font-black uppercase text-2xl tracking-tight leading-tight">
                         Pick your role
                     </DialogTitle>
                     <DialogDescription className="mt-0.5 text-xs text-muted-foreground">
@@ -213,64 +215,62 @@ export function RolePicker() {
                     />
                 </div>
 
-                {/* Role tiles — single column (v803). The top-anchored dialog
-                    no longer has to stay short to clear the keyboard, so the
-                    tiles stack for a clearer, roomier read. */}
-                <div className="px-5 pt-3 pb-2 flex flex-col gap-2.5">
-                    <button
-                        type="button"
-                        onClick={() => setSelected("seeker")}
-                        aria-pressed={selected === "seeker"}
-                        className={cn(
-                            "flex flex-col items-start text-left gap-1.5 p-3 rounded-sm border-2",
-                            "shadow-[0_2px_0_rgba(0,0,0,0.25)]",
-                            "transition-all hover:-translate-y-[1px]",
-                            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                            selected === "seeker"
-                                ? "border-primary bg-primary/10"
-                                : "border-border bg-secondary/40 hover:bg-accent",
-                        )}
-                    >
-                        <div className="flex items-center gap-2">
-                            <span className="inline-flex items-center justify-center w-7 h-7 rounded-sm bg-secondary text-muted-foreground">
-                                <Footprints size={16} strokeWidth={2.4} />
-                            </span>
-                            <span className="font-inter-tight font-black uppercase text-sm tracking-[0.12em]">
-                                Seeker
-                            </span>
-                        </div>
-                        <p className="text-xs text-muted-foreground leading-snug">
-                            Ask questions, rule out the map, close in.
-                        </p>
-                    </button>
-
-                    <button
-                        type="button"
-                        onClick={() => setSelected("hider")}
-                        aria-pressed={selected === "hider"}
-                        className={cn(
-                            "flex flex-col items-start text-left gap-1.5 p-3 rounded-sm border-2",
-                            "shadow-[0_2px_0_rgba(0,0,0,0.25)]",
-                            "transition-all hover:-translate-y-[1px]",
-                            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                            selected === "hider"
-                                ? "border-primary bg-primary/10"
-                                : "border-border/70 bg-secondary/20 hover:bg-accent",
-                        )}
-                    >
-                        <div className="flex items-center gap-2">
-                            <span className="inline-flex items-center justify-center w-7 h-7 rounded-sm bg-secondary/60 text-muted-foreground/70">
-                                <VenetianMask size={16} strokeWidth={2.4} />
-                            </span>
-                            <span className="font-inter-tight font-black uppercase text-sm tracking-[0.12em]">
-                                Hider
-                            </span>
-                        </div>
-                        <p className="text-xs text-muted-foreground leading-snug">
-                            Answer questions and play cards to slow the seekers
-                            down.
-                        </p>
-                    </button>
+                {/* Role tiles — side by side (v1223): two big, centred,
+                    symmetric role buttons. The top-anchored dialog has room, so
+                    they're roomy tap targets with a short one-line blurb. */}
+                <div className="px-5 pt-3 pb-2 grid grid-cols-2 gap-3">
+                    {(
+                        [
+                            {
+                                role: "seeker" as const,
+                                Icon: Footprints,
+                                label: "Seeker",
+                                blurb: "Ask questions. Find the hider.",
+                            },
+                            {
+                                role: "hider" as const,
+                                Icon: VenetianMask,
+                                label: "Hider",
+                                blurb: "Answer questions. Stay hidden.",
+                            },
+                        ]
+                    ).map(({ role, Icon, label, blurb }) => {
+                        const active = selected === role;
+                        return (
+                            <button
+                                key={role}
+                                type="button"
+                                onClick={() => setSelected(role)}
+                                aria-pressed={active}
+                                className={cn(
+                                    "flex flex-col items-center text-center gap-2.5 px-3 py-5 rounded-xl border-2",
+                                    "shadow-[0_2px_0_rgba(0,0,0,0.25)]",
+                                    "transition-all hover:-translate-y-[1px]",
+                                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                                    active
+                                        ? "border-primary bg-primary/10"
+                                        : "border-border bg-secondary/40 hover:bg-accent",
+                                )}
+                            >
+                                <span
+                                    className={cn(
+                                        "inline-flex items-center justify-center w-14 h-14 rounded-full transition-colors",
+                                        active
+                                            ? "bg-primary text-primary-foreground"
+                                            : "bg-secondary text-muted-foreground",
+                                    )}
+                                >
+                                    <Icon size={28} strokeWidth={2.2} />
+                                </span>
+                                <span className="font-inter-tight font-black uppercase text-xl tracking-[0.08em] leading-none">
+                                    {label}
+                                </span>
+                                <p className="text-xs text-muted-foreground leading-snug">
+                                    {blurb}
+                                </p>
+                            </button>
+                        );
+                    })}
                 </div>
 
                 {/* Confirm — disabled until a role is highlighted. */}
@@ -278,6 +278,7 @@ export function RolePicker() {
                     <Button
                         onClick={confirmJoin}
                         disabled={!selected}
+                        size="lg"
                         className="w-full font-display font-extrabold uppercase tracking-[0.02em]"
                     >
                         Join game
