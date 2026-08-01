@@ -448,6 +448,15 @@ SMALL piece (`area < 5 km²`): the big ocean is left to the chunking (buffering 
 whole is the perf hit the grid exists to avoid, and it already tests in-result).
 `tsc` + 284 tests green.
 
+**v1255 — metro express-variant fold covers the diamond GLYPH too.** Broadened
+`normalizeMetroLabel` to strip the actual diamond glyphs (◇/◆/♦) as well as ASCII
+`<>`, since OSM encodes NYC's express-diamond either way. Deliberately NOT more
+aggressive — ref-grouping already merges same-line direction/branch relations, and
+the apparent "variants" in other networks (Paris `3bis`/`7bis`, Berlin `S41`/`S42`
+Ringbahn, RER branches) are genuinely DISTINCT lines, so digits/`bis`/branch
+suffixes are left untouched. The diamond is the one safe cross-network fold. `tsc`
++ 284 tests green.
+
 **v1254 — metro tentacle: fold EXPRESS variants into their base service.** NYC
 tags the express service with the diamond / angle-bracket notation (`<6>`, `<7>`,
 `<F>`) — the SAME line as its local (`6`/`7`/`F`): same track, same colour, drawn

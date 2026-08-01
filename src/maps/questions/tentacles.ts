@@ -191,14 +191,21 @@ function normalizeLineColor(c: unknown): string | undefined {
     return s; // named colour ("red") / rgb() — MapLibre accepts CSS colours
 }
 
-/** v1254: fold express variants into their base service. NYC tags the express
- *  service with the diamond / angle-bracket notation ("<6>", "<7>", "<F>") — the
- *  SAME line as its local ("6","7","F"): same track, same colour, drawn as ONE
- *  line in Google Maps (the rulebook's reference standard). Strip the brackets so
- *  they don't count as two distinct lines. No-op elsewhere (no other network puts
- *  `<>` in a ref). */
+/** v1254/v1255: fold express variants into their base service. NYC tags the
+ *  express service with the diamond notation — the SAME line as its local (`6`
+ *  vs `<6>`): same track, same colour, drawn as ONE line in Google Maps (the
+ *  rulebook's reference standard). OSM encodes that diamond variously — ASCII
+ *  `<6>` or the actual diamond glyph (◇/◆/♦) — so strip all of those forms.
+ *
+ *  Deliberately NOT more aggressive: this is the ONLY safe cross-network fold.
+ *  Line grouping is already by `ref`, and almost every network gives one line a
+ *  single `ref` across its direction/branch/terminal relations (so those are
+ *  already merged). The things that LOOK like mergeable variants are genuinely
+ *  DISTINCT lines that must not be merged — Paris `3bis`/`7bis` (separate short
+ *  lines), Berlin `S41`/`S42` (the two Ringbahn directions), `S1`/`S2`, RER
+ *  branch refs — so we do not touch digits, `bis`, or branch suffixes. */
 function normalizeMetroLabel(s: string): string {
-    return s.replace(/[<>]/g, "").trim();
+    return s.replace(/[<>◇◆♦]/g, "").trim();
 }
 
 /** The line LABEL for a route relation — prefer the short `ref` ("A", "1", "L")
