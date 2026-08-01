@@ -448,6 +448,20 @@ SMALL piece (`area < 5 km²`): the big ocean is left to the chunking (buffering 
 whole is the perf hit the grid exists to avoid, and it already tests in-result).
 `tsc` + 284 tests green.
 
+**v1238 — metro-line tentacle: live `out geom` fallback when the transit subway
+shard is empty.** The v1237 diagnostic read `names=125 subwayRel=1 joined=0
+lines=0` for NYC — the metro NAMES are cached (125) but the transit SUBWAY shard
+(the geometry source) wasn't warmed for NYC, so it yielded 1 relation and the join
+found nothing. Names are reliable, geometry isn't. Fix: keep the cached-shard join
+as the fast path, but fall back to a LIVE `relation[route=subway][name]; out geom;`
+query (names + geometry together) when the shard produces no lines. That live query
+is cached by the interpreter after first use (a normal cold fetch, NOT a prewarm
+re-warm) and uses a DIFFERENT query key than `/api/metro`, so it never orphans that
+cache. `extractMetroLines` is the shared per-line builder (name from the element's
+own tags on the live path, or from the metro `id→name` map on the shard path).
+Diagnostic now reads `names / src=shard|live / shardRel / rels / withGeom /
+outOfRange / lines`. `tsc` + 284 tests green.
+
 **v1237 — metro-line tentacle sourced from EXISTING cache (join names + transit
 geometry by relation id) — no re-warm.** Replaces v1236's query change (which
 would have orphaned the metro cache). The metro endpoint (`out tags geom`) carries
