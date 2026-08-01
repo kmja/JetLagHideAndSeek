@@ -448,14 +448,21 @@ SMALL piece (`area < 5 km²`): the big ocean is left to the chunking (buffering 
 whole is the perf hit the grid exists to avoid, and it already tests in-result).
 `tsc` + 284 tests green.
 
+**v1249 — metro tentacle labels: decluttered SYMBOL layer (not stacked pills).**
+v1248's HTML `<Marker>` pills piled into an unreadable cluster in the dense core
+(29 lines converge near a hub, and HTML markers don't collide-hide). Same
+per-line anchor (`pointOnFeature` of each region) but now a MapLibre `symbol`
+layer (`reachLabelsFC` → `impact-reach-labels-layer`) with `text-allow-overlap:
+false` so overlapping labels HIDE and reveal as you zoom, basemap-brightness-aware
+text + halo (matching the map's other name labels). Geometry unchanged — this was
+purely a label-rendering fix.
+
 **v1248 — metro tentacle: per-line NAME labels on the preview.** The metro
 regions had no labels; other tentacle questions plot a neutral name pill on each
-reference. Metro references are LINES/regions (not points), so `reachLabels`
-(`InlineLocationPicker`) anchors ONE pill per line at a guaranteed-inside
-representative point of its region (`pointOnFeature` on the cell), rendered as the
-SAME `<Marker>` pill style the other tentacles use (`max-w-[104px] truncate …
-bg-background/85`). Fed from `impact.reachCells` (name + geometry), so it reuses
-the partition already computed. `tsc` + 284 tests green.
+reference. Metro references are LINES/regions (not points), so labels anchor at a
+guaranteed-inside representative point of each line's region (`pointOnFeature` on
+the cell), fed from `impact.reachCells`. (v1249 switched the rendering from HTML
+pills to a decluttering symbol layer.) `tsc` + 284 tests green.
 
 **v1247 — metro tentacle: restore full coverage after the convergence filter.**
 v1246's converged-point drop worked (calm core) but `sum/circle` fell to 0.83 —

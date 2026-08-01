@@ -1245,26 +1245,32 @@ export function InlineLocationPicker({
         } as GeoJSON.FeatureCollection;
     }, [impact?.reachLines]);
 
-    // v1248: one NAME LABEL per metro line — the same pill labels the other
-    // tentacle questions plot on each reference point, but metro references are
-    // LINES/regions, so anchor the pill at a guaranteed-inside representative
-    // point of each line's region (pointOnFeature). Largest region first so a
-    // small clipped sliver's label doesn't win when two cells share a name.
-    const reachLabels = useMemo(() => {
+    // v1248/v1249: one NAME LABEL per metro line, anchored at a guaranteed-inside
+    // representative point of each line's region (pointOnFeature). Rendered as a
+    // MapLibre SYMBOL layer (not HTML pills) so collision detection hides
+    // overlapping labels — 29 lines converge near a hub, and stacked pills piled
+    // into an unreadable cluster (v1248). The symbol layer declutters and reveals
+    // more labels as you zoom in.
+    const reachLabelsFC = useMemo(() => {
         const cells = impact?.reachCells;
         if (!cells || cells.length === 0) return null;
-        const out: { name: string; lng: number; lat: number }[] = [];
+        const feats: GeoJSON.Feature[] = [];
         for (const rc of cells) {
             if (!rc.name) continue;
             try {
                 const p = pointOnFeature(rc.cell as GeoJSON.Feature);
-                const c = p.geometry.coordinates;
-                out.push({ name: rc.name, lng: c[0], lat: c[1] });
+                feats.push({
+                    type: "Feature",
+                    properties: { name: rc.name },
+                    geometry: p.geometry,
+                });
             } catch {
                 /* skip a cell whose interior point can't be found */
             }
         }
-        return out.length > 0 ? out : null;
+        return feats.length > 0
+            ? ({ type: "FeatureCollection", features: feats } as GeoJSON.FeatureCollection)
+            : null;
     }, [impact?.reachCells]);
 
     // Basemap brightness drives the hiding-zones palette, exactly like the
@@ -1662,21 +1668,40 @@ export function InlineLocationPicker({
                                     />
                                 </Source>
                             )}
-                            {/* v1248: per-line NAME labels — the same pill the
-                                other tentacle questions plot on each reference,
-                                anchored inside each line's region. */}
-                            {reachLabels?.map((l, i) => (
-                                <Marker
-                                    key={`metro-lbl-${i}-${l.name}`}
-                                    longitude={l.lng}
-                                    latitude={l.lat}
-                                    anchor="center"
+                            {/* v1249: per-line NAME labels as a decluttered
+                                symbol layer (collision-hidden), on top of the
+                                cells + lines. Basemap-brightness-aware text +
+                                halo, matching the map's other name labels. */}
+                            {reachLabelsFC && (
+                                <Source
+                                    id="impact-reach-labels"
+                                    type="geojson"
+                                    data={reachLabelsFC}
                                 >
-                                    <span className="max-w-[104px] truncate rounded-sm border border-foreground/20 bg-background/85 px-1 py-0.5 text-xs font-semibold leading-none text-foreground/85 shadow-sm">
-                                        {l.name}
-                                    </span>
-                                </Marker>
-                            ))}
+                                    <Layer
+                                        id="impact-reach-labels-layer"
+                                        type="symbol"
+                                        layout={{
+                                            "text-field": ["get", "name"],
+                                            "text-font": ["Noto Sans Regular"],
+                                            "text-size": 13,
+                                            "text-allow-overlap": false,
+                                            "text-ignore-placement": false,
+                                            "text-padding": 3,
+                                            "symbol-sort-key": 0,
+                                        }}
+                                        paint={{
+                                            "text-color": darkBasemap
+                                                ? "#ffffff"
+                                                : "#1f2937",
+                                            "text-halo-color": darkBasemap
+                                                ? "#000000"
+                                                : "#ffffff",
+                                            "text-halo-width": 1.6,
+                                        }}
+                                    />
+                                </Source>
+                            )}
                             <Source
                                 id="impact-reach"
                                 type="geojson"
