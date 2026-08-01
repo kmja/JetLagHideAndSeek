@@ -1219,6 +1219,31 @@ export function InlineLocationPicker({
         } as GeoJSON.FeatureCollection;
     }, [impact?.reachCells]);
 
+    // v1240: the actual metro LINE geometry the segmentation is based on, drawn
+    // ON the map like other tentacles plot their reference points. One
+    // MultiLineString per line (per-way segments, so disjoint pieces aren't
+    // joined by spurious straight jumps), coloured by the line's OSM colour.
+    const reachLinesFC = useMemo(() => {
+        const lines = impact?.reachLines;
+        if (!lines || lines.length === 0) return null;
+        return {
+            type: "FeatureCollection" as const,
+            features: lines
+                .filter((l) => l.segments && l.segments.length > 0)
+                .map((l) => ({
+                    type: "Feature" as const,
+                    properties: {
+                        lineColor: l.color ?? "hsl(266, 70%, 55%)",
+                        lineName: l.name,
+                    },
+                    geometry: {
+                        type: "MultiLineString" as const,
+                        coordinates: l.segments,
+                    },
+                })),
+        } as GeoJSON.FeatureCollection;
+    }, [impact?.reachLines]);
+
     // Basemap brightness drives the hiding-zones palette, exactly like the
     // main map (Map.tsx): neutral grey on the light Protomaps basemap,
     // brand red / near-white wash over satellite + dark.
@@ -1569,6 +1594,47 @@ export function InlineLocationPicker({
                                             "line-color": "hsl(266, 80%, 88%)",
                                             "line-width": 2,
                                             "line-opacity": 0.95,
+                                        }}
+                                    />
+                                </Source>
+                            )}
+                            {/* v1240: the metro LINE geometry the segmentation
+                                is based on — a white casing + the line's own
+                                colour on top, so the seeker sees where each line
+                                runs (like other tentacles plot their reference
+                                points). Drawn AFTER the cells so it sits on top. */}
+                            {reachLinesFC && (
+                                <Source
+                                    id="impact-reach-lines"
+                                    type="geojson"
+                                    data={reachLinesFC}
+                                >
+                                    <Layer
+                                        id="impact-reach-lines-casing"
+                                        type="line"
+                                        layout={{
+                                            "line-cap": "round",
+                                            "line-join": "round",
+                                        }}
+                                        paint={{
+                                            "line-color": "#ffffff",
+                                            "line-width": 4,
+                                            "line-opacity": 0.9,
+                                        }}
+                                    />
+                                    <Layer
+                                        id="impact-reach-lines-core"
+                                        type="line"
+                                        layout={{
+                                            "line-cap": "round",
+                                            "line-join": "round",
+                                        }}
+                                        paint={{
+                                            "line-color": [
+                                                "get",
+                                                "lineColor",
+                                            ] as any,
+                                            "line-width": 2,
                                         }}
                                     />
                                 </Source>

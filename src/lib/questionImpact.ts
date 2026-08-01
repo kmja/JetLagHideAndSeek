@@ -85,6 +85,14 @@ export interface QuestionImpact {
         /** v1238: the line's OSM map colour (metro tentacles), if tagged. */
         color?: string;
     }>;
+    /** v1240: the actual line GEOMETRY the segmentation is based on (metro
+     *  tentacles) — per-way segments per line, so the picker can DRAW the lines
+     *  like other tentacles plot their reference points. */
+    reachLines?: Array<{
+        name: string;
+        segments: [number, number][][];
+        color?: string;
+    }>;
     /** Seeker's nearest candidate (matching/measuring). */
     nearest: { lat: number; lng: number; name: string } | null;
     /** True while the candidate set is still being fetched. */
@@ -441,6 +449,11 @@ export function useQuestionImpact(
             name: string;
             color?: string;
         }>;
+        lines: Array<{
+            name: string;
+            segments: [number, number][][];
+            color?: string;
+        }>;
     } | null>(null);
     useEffect(() => {
         if (mode !== "tentacles") return;
@@ -450,11 +463,19 @@ export function useQuestionImpact(
         let cancelled = false;
         const key = `metro:${lat}:${lng}:${tentacleRadiusKm}`;
         computeMetroReachCells(lat, lng, tentacleRadiusKm, "kilometers")
-            .then((cells) => {
-                if (!cancelled) setMetroState({ key, lat, lng, cells });
+            .then((res) => {
+                if (!cancelled)
+                    setMetroState({
+                        key,
+                        lat,
+                        lng,
+                        cells: res.cells,
+                        lines: res.lines,
+                    });
             })
             .catch(() => {
-                if (!cancelled) setMetroState({ key, lat, lng, cells: [] });
+                if (!cancelled)
+                    setMetroState({ key, lat, lng, cells: [], lines: [] });
             });
         return () => {
             cancelled = true;
@@ -979,6 +1000,9 @@ export function useQuestionImpact(
                         name: c.name,
                         color: c.color,
                     }));
+                }
+                if (metroReady && metroState && metroState.lines.length) {
+                    out.reachLines = metroState.lines;
                 }
             } else if (reach) {
                 out.reachCircle = reach;

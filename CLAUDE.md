@@ -448,6 +448,16 @@ SMALL piece (`area < 5 km²`): the big ocean is left to the chunking (buffering 
 whole is the perf hit the grid exists to avoid, and it already tests in-result).
 `tsc` + 284 tests green.
 
+**v1240 — metro tentacle draws the LINE GEOMETRY on the preview (like other
+tentacles plot their reference points).** The segmentation is based on the metro
+lines, so the preview now draws them: `MetroLine` carries per-way `segments` (kept
+separate from the flat `coords` so disjoint way pieces aren't joined by spurious
+straight jumps), `computeMetroReachCells` returns `{cells, lines}` (a `MetroReachResult`),
+`QuestionImpact.reachLines` carries `{name, segments, color}`, and
+`InlineLocationPicker` draws a `reachLinesFC` (one MultiLineString per line) as a
+white casing + the line's own OSM colour on top, over the coloured regions. So the
+seeker sees exactly where each line runs. `tsc` + 284 tests green.
+
 **v1239 — metro tentacle: group by line `ref` + colour by the real OSM line
 colour (was a shattered 123-region purple mesh).** With geometry finally flowing
 (v1238), NYC drew `named=123` regions in one purple — a meaningless shatter,

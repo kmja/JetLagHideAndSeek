@@ -167,7 +167,12 @@ const METRO_SAMPLE_MAX_PER_LINE = 24;
 
 interface MetroLine {
     name: string;
+    /** Flat vertex list (all member ways concatenated) — for sampling + the
+     *  reach-distance filter, where per-way structure doesn't matter. */
     coords: [number, number][];
+    /** Per-way vertex lists — for DRAWING the line without connecting disjoint
+     *  way pieces with spurious straight jumps. */
+    segments: [number, number][][];
     /** The line's OSM `colour` (its map colour), if tagged. */
     color?: string;
 }
@@ -218,6 +223,7 @@ function extractMetroLines(
     radiusMeters: number,
 ): { lines: MetroLine[]; rels: number; withGeom: number; outOfRange: number } {
     const coordsByName = new Map<string, [number, number][]>();
+    const segmentsByName = new Map<string, [number, number][][]>();
     const colorByName = new Map<string, string>();
     let rels = 0;
     let withGeom = 0;
@@ -230,20 +236,28 @@ function extractMetroLines(
             (typeof el.id === "number" ? colorById.get(el.id) : undefined) ??
             normalizeLineColor(el.tags?.colour ?? el.tags?.color);
         if (color && !colorByName.has(name)) colorByName.set(name, color);
-        const coords: [number, number][] = [];
+        const coords: [number, number][] = []; // flat — sampling + reach filter
+        const segments: [number, number][][] = []; // per-way — drawing
         for (const m of el.members ?? []) {
             if (m?.type !== "way" || !Array.isArray(m.geometry)) continue;
+            const seg: [number, number][] = [];
             for (const p of m.geometry) {
                 if (typeof p.lat === "number" && typeof p.lon === "number") {
-                    coords.push([p.lon, p.lat]);
+                    const pt: [number, number] = [p.lon, p.lat];
+                    coords.push(pt);
+                    seg.push(pt);
                 }
             }
+            if (seg.length >= 2) segments.push(seg);
         }
         if (coords.length < 2) continue;
         withGeom++;
         const arr = coordsByName.get(name);
         if (arr) arr.push(...coords);
         else coordsByName.set(name, coords);
+        const segArr = segmentsByName.get(name);
+        if (segArr) segArr.push(...segments);
+        else segmentsByName.set(name, segments);
     }
     const lines: MetroLine[] = [];
     let outOfRange = 0;
@@ -257,7 +271,12 @@ function extractMetroLines(
             outOfRange++;
             continue;
         }
-        lines.push({ name, coords, color: colorByName.get(name) });
+        lines.push({
+            name,
+            coords,
+            segments: segmentsByName.get(name) ?? [],
+            color: colorByName.get(name),
+        });
     }
     return { lines, rels, withGeom, outOfRange };
 }
@@ -446,25 +465,41 @@ function unionVoronoiByName(
     return out;
 }
 
+export interface MetroReachCell {
+    cell: GeoJSON.Feature<GeoJSON.Polygon | GeoJSON.MultiPolygon>;
+    name: string;
+    color?: string;
+}
+export interface MetroReachResult {
+    cells: MetroReachCell[];
+    /** The reachable lines (name + per-way segments + colour) — for DRAWING the
+     *  actual line geometry the segmentation is based on. */
+    lines: Array<{
+        name: string;
+        segments: [number, number][][];
+        color?: string;
+    }>;
+}
+
 /**
  * The metro reach partitioned into ONE region per LINE (nearest-line Voronoi),
- * each clipped to the reach circle. The SINGLE producer used by the configure
- * preview, the elimination, and the draft planning overlay — so all three agree.
+ * each clipped to the reach circle, PLUS the reachable lines' geometry. The
+ * SINGLE producer used by the configure preview, the elimination, and the draft
+ * planning overlay — so all three agree.
  */
 export async function computeMetroReachCells(
     centerLat: number,
     centerLng: number,
     radius: number,
     unit: Units,
-): Promise<
-    Array<{
-        cell: GeoJSON.Feature<GeoJSON.Polygon | GeoJSON.MultiPolygon>;
-        name: string;
-        color?: string;
-    }>
-> {
+): Promise<MetroReachResult> {
     const lines = await fetchReachableMetroLines(centerLat, centerLng, radius, unit);
-    if (lines.length === 0) return [];
+    const drawLines = lines.map((l) => ({
+        name: l.name,
+        segments: l.segments,
+        color: l.color,
+    }));
+    if (lines.length === 0) return { cells: [], lines: drawLines };
     const colorByName = new Map<string, string>();
     for (const l of lines) if (l.color) colorByName.set(l.name, l.color);
     let reach: GeoJSON.Feature<GeoJSON.Polygon>;
@@ -475,18 +510,17 @@ export async function computeMetroReachCells(
         }) as GeoJSON.Feature<GeoJSON.Polygon>;
     } catch {
         setMetroDiag(`${lastMetroDiagBase} | reach circle FAILED`);
-        return [];
+        return { cells: [], lines: drawLines };
     }
     if (lines.length === 1)
-        return [
-            {
-                cell: reach,
-                name: lines[0].name,
-                color: lines[0].color,
-            },
-        ];
+        return {
+            cells: [
+                { cell: reach, name: lines[0].name, color: lines[0].color },
+            ],
+            lines: drawLines,
+        };
     const pts = metroSamplePoints(lines);
-    if (pts.features.length < 2) return [];
+    if (pts.features.length < 2) return { cells: [], lines: drawLines };
     let voronoi: GeoJSON.FeatureCollection<
         GeoJSON.Polygon | GeoJSON.MultiPolygon
     >;
@@ -496,14 +530,10 @@ export async function computeMetroReachCells(
         setMetroDiag(
             `${lastMetroDiagBase} | pts=${pts.features.length} voronoi THREW: ${String(e).slice(0, 80)}`,
         );
-        return [];
+        return { cells: [], lines: drawLines };
     }
     const regionByName = unionVoronoiByName(voronoi);
-    const cells: Array<{
-        cell: GeoJSON.Feature<GeoJSON.Polygon | GeoJSON.MultiPolygon>;
-        name: string;
-        color?: string;
-    }> = [];
+    const cells: MetroReachCell[] = [];
     for (const [name, region] of regionByName) {
         try {
             const clipped = turf.intersect(
@@ -524,7 +554,7 @@ export async function computeMetroReachCells(
     setMetroDiag(
         `${lastMetroDiagBase} | pts=${pts.features.length} voronoiCells=${voronoi.features.length} named=${regionByName.size} drawnCells=${cells.length}`,
     );
-    return cells;
+    return { cells, lines: drawLines };
 }
 
 const filterPointsWithinRadius = (
@@ -574,7 +604,7 @@ export const adjustPerTentacle = async (
     // region (already clipped to the reach circle) and keep it. Same producer
     // as the preview + planning overlay, so the cut matches what the seeker saw.
     if (question.locationType === "metro") {
-        const cells = await computeMetroReachCells(
+        const { cells } = await computeMetroReachCells(
             question.lat,
             question.lng,
             question.radius,
@@ -697,7 +727,7 @@ export const tentaclesPlanningPolygon = async (question: TentacleQuestion) => {
     // v1233: metro draft overlay draws the per-LINE region boundaries (from the
     // shared nearest-line partition), not a mesh of centroid cells.
     if (question.locationType === "metro") {
-        const cells = await computeMetroReachCells(
+        const { cells } = await computeMetroReachCells(
             question.lat,
             question.lng,
             question.radius,
