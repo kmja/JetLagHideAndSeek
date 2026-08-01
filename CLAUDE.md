@@ -448,6 +448,11 @@ SMALL piece (`area < 5 km²`): the big ocean is left to the chunking (buffering 
 whole is the perf hit the grid exists to avoid, and it already tests in-result).
 `tsc` + 284 tests green.
 
+**v1224 — role-picker even spacing around the role buttons.** The gap below the
+Seeker/Hider tiles (`pb-2`) was smaller than the gap above (input `pb-1` + tiles
+`pt-3` = 1rem); bumped the tiles block to `pb-4` so the space below matches the
+space above (`RolePicker`). `tsc` + 284 tests green.
+
 **v1223 — role picker: side-by-side big role buttons.** `RolePicker` reworked —
 the Seeker/Hider tiles are now two big, centred, SYMMETRIC buttons SIDE BY SIDE
 (`grid grid-cols-2`) with a large circular icon (filled primary when selected),

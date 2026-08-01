@@ -218,7 +218,7 @@ export function RolePicker() {
                 {/* Role tiles — side by side (v1223): two big, centred,
                     symmetric role buttons. The top-anchored dialog has room, so
                     they're roomy tap targets with a short one-line blurb. */}
-                <div className="px-5 pt-3 pb-2 grid grid-cols-2 gap-3">
+                <div className="px-5 pt-3 pb-4 grid grid-cols-2 gap-3">
                     {(
                         [
                             {
