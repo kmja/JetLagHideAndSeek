@@ -448,6 +448,16 @@ SMALL piece (`area < 5 km²`): the big ocean is left to the chunking (buffering 
 whole is the perf hit the grid exists to avoid, and it already tests in-result).
 `tsc` + 284 tests green.
 
+**v1243 — metro tentacle: MEASURE the output geometry (stop guessing the brown
+blob).** Instead of inferring from screenshots, `computeMetroReachCells` now reports
+the decisive numbers: `sum/circle` (sum of cell areas ÷ reach-circle area — ~1.0
+for a true disjoint partition, ≫1 if the regions OVERLAP and compound in the fill,
+which is the "one brown blob" signature), `giants` (cells covering >50% of the
+circle — a self-overlapping/degenerate union), `colors` (distinct fill colours),
+and `top=[name=area%…]` (the biggest cells + whether any lack a colour). With
+`vCells` vs `pts` already shown, the diagnostic now pinpoints whether the fault is
+the sampler, the Voronoi, the union, or the render. Diagnostic-only.
+
 **v1242 — metro tentacle sampling respects the budget (was 10 680 degenerate
 points → one brown blob).** v1241's even-spaced sampler pushed `seg[0]` for EVERY
 member way, and NYC subway lines have thousands of tiny way-segments, so the count

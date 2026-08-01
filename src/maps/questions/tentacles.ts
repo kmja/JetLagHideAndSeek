@@ -601,8 +601,45 @@ export async function computeMetroReachCells(
             /* skip this line's cell */
         }
     }
+    // v1243: MEASURE the output geometry so we can see the root cause instead of
+    // guessing. A true partition has sum(cell areas) == circle area (ratio ~1);
+    // ratio >> 1 means the regions OVERLAP (a Voronoi/union bug) and compound in
+    // the fill. Also report how many cells are "giant" (>50% of the circle),
+    // the distinct fill colours, and the top cells by area (name·area%·colour).
+    let circleArea = 0;
+    let sumArea = 0;
+    let giants = 0;
+    const colors = new Set<string>();
+    const areaByCell = cells.map((c) => {
+        let a = 0;
+        try {
+            a = turf.area(c.cell as any);
+        } catch {
+            a = 0;
+        }
+        return { name: c.name, a, color: c.color };
+    });
+    try {
+        circleArea = turf.area(reach as any);
+    } catch {
+        circleArea = 0;
+    }
+    for (const ci of areaByCell) {
+        sumArea += ci.a;
+        if (circleArea > 0 && ci.a > 0.5 * circleArea) giants++;
+        colors.add(ci.color ?? "none");
+    }
+    const ratio = circleArea > 0 ? sumArea / circleArea : 0;
+    const top = [...areaByCell]
+        .sort((x, y) => y.a - x.a)
+        .slice(0, 4)
+        .map(
+            (ci) =>
+                `${ci.name}=${circleArea > 0 ? Math.round((ci.a / circleArea) * 100) : "?"}%${ci.color ? "" : "·nocol"}`,
+        )
+        .join(",");
     setMetroDiag(
-        `${lastMetroDiagBase} | ${lastMetroSampleInfo} pts=${pts.features.length} vCells=${voronoi.features.length} named=${regionByName.size} drawn=${cells.length}`,
+        `${lastMetroDiagBase} | ${lastMetroSampleInfo} pts=${pts.features.length} vCells=${voronoi.features.length} named=${regionByName.size} drawn=${cells.length} sum/circle=${ratio.toFixed(2)} giants=${giants} colors=${colors.size} top=[${top}]`,
     );
     return { cells, lines: drawLines };
 }
