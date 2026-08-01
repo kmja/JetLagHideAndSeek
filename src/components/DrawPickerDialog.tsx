@@ -485,9 +485,9 @@ function CardCell({
     onTap: () => void;
     onConfirm: () => void;
 }) {
-    // The centred (active), not-yet-discarded card is the pick target: it gets
-    // the selected ring + the "Pick this card" button. Peeking neighbours are
-    // dimmed and only tap-to-centre.
+    // The centred (active), not-yet-discarded card is the pick target: it's
+    // lifted and gets the "Pick this card" button (NOT the red selected tint —
+    // v1228). Peeking neighbours are dimmed and only tap-to-centre.
     const isTarget = isActive && !isFading;
     // Card transform per phase.
     const cardStyle: CSSProperties = (() => {
@@ -522,9 +522,13 @@ function CardCell({
                 <CardTile
                     card={card}
                     gameSize={gameSize}
-                    selected={isTarget}
+                    // v1228: the centred card is already marked by its size, the
+                    // lift, and the "Pick this card" button — don't also apply
+                    // the app's red selected tint + ring (it read as an error /
+                    // wrong-looking highlight on the card art).
+                    selected={false}
                     onClick={disabled ? undefined : onTap}
-                    selectionIndicator={isTarget ? "ring" : "none"}
+                    selectionIndicator="none"
                     // Keep the poker-card aspect ratio (CardTile's native
                     // `aspect-[5/7]`). Cards must never stretch — long
                     // descriptions scroll within the card body instead

@@ -448,6 +448,13 @@ SMALL piece (`area < 5 km²`): the big ocean is left to the chunking (buffering 
 whole is the perf hit the grid exists to avoid, and it already tests in-result).
 `tsc` + 284 tests green.
 
+**v1228 — draw-picker centred card drops the red selected tint/ring.** The
+centred (active) card in the `DrawPickerDialog` carousel was passed
+`selected`/`selectionIndicator="ring"`, so it wore the app's red selected tint +
+ring over the card art. It's already marked by its larger size, the lift, and the
+"Pick this card" button, so the selected styling is gone (`selected={false}`,
+`selectionIndicator="none"`). `tsc` + 284 tests green.
+
 **v1227 — hider answer dialog no longer false-reports "can't find your location"
 under a GPS spoof.** The hider answer dialog (`HiderView`) correctly snapshots
 `lastKnownPosition` (spoof-aware, same as the main map) and passes it to
