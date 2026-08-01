@@ -412,38 +412,59 @@ function setMetroDiag(msg: string): void {
  * fallback if the worker is unavailable. This function does the FETCH + writes
  * the diagnostic atom.
  */
+// v1264: memoise the last compute. The configure-dialog impact effect re-runs on
+// GPS jitter / re-render, firing computeMetroReachCells 3–4× for essentially the
+// same position — each a multi-second worker union. Cache the Promise keyed by
+// rounded (lat,lng,radius,unit) (~11 m) so those duplicates share ONE compute.
+let metroCacheKey = "";
+let metroCachePromise: Promise<MetroReachResult> | null = null;
+
 export async function computeMetroReachCells(
     centerLat: number,
     centerLng: number,
     radius: number,
     unit: Units,
 ): Promise<MetroReachResult> {
-    const lines = await fetchReachableMetroLines(
-        centerLat,
-        centerLng,
-        radius,
-        unit,
-    );
-    if (lines.length === 0) return { cells: [], lines: [] };
-    let out: { result: MetroReachResult; diag: string } | null = null;
-    try {
-        out = await metroReachCellsViaWorker<{
-            result: MetroReachResult;
-            diag: string;
-        }>({ lines, centerLat, centerLng, radius, unit });
-    } catch {
-        // Worker unavailable / errored — compute on the main thread (correctness
-        // never depends on the worker existing, only smoothness).
-        out = computeMetroReachCellsFromLines(
-            lines,
+    const key = `${centerLat.toFixed(4)},${centerLng.toFixed(4)},${radius},${unit}`;
+    if (key === metroCacheKey && metroCachePromise) return metroCachePromise;
+    metroCacheKey = key;
+    const promise = (async (): Promise<MetroReachResult> => {
+        const lines = await fetchReachableMetroLines(
             centerLat,
             centerLng,
             radius,
             unit,
         );
-    }
-    setMetroDiag(`${lastMetroDiagBase} | ${out.diag}`);
-    return out.result;
+        if (lines.length === 0) return { cells: [], lines: [] };
+        let out: { result: MetroReachResult; diag: string } | null = null;
+        try {
+            out = await metroReachCellsViaWorker<{
+                result: MetroReachResult;
+                diag: string;
+            }>({ lines, centerLat, centerLng, radius, unit });
+        } catch {
+            // Worker unavailable / errored — compute on the main thread
+            // (correctness never depends on the worker existing, only smoothness).
+            out = computeMetroReachCellsFromLines(
+                lines,
+                centerLat,
+                centerLng,
+                radius,
+                unit,
+            );
+        }
+        setMetroDiag(`${lastMetroDiagBase} | ${out.diag}`);
+        return out.result;
+    })();
+    // On failure, drop the cache so a retry recomputes instead of re-throwing.
+    metroCachePromise = promise.catch((e) => {
+        if (metroCacheKey === key) {
+            metroCacheKey = "";
+            metroCachePromise = null;
+        }
+        throw e;
+    });
+    return metroCachePromise;
 }
 
 const filterPointsWithinRadius = (

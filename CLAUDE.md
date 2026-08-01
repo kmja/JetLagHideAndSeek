@@ -448,6 +448,17 @@ SMALL piece (`area < 5 km²`): the big ocean is left to the chunking (buffering 
 whole is the perf hit the grid exists to avoid, and it already tests in-result).
 `tsc` + 284 tests green.
 
+**v1264 — metro tentacle: memoise the compute + denser contested boundaries
+(smoother regions).** The configure impact effect re-ran `computeMetroReachCells`
+3–4× per open (GPS jitter / re-render), each a multi-second worker union. Now it's
+memoised by rounded (lat,lng,radius,unit) (~11 m) so the duplicates share ONE
+compute (Promise cache, dropped on failure so a retry recomputes). That headroom
+paid for lowering `METRO_ADAPT_K` 0.7→0.45: the nearest-sample-point boundary
+zigzags at ~the sample spacing, so where lines run close (Brooklyn junctions) the
+region boundary alternated into small cells instead of following the lines; denser
+contested sampling converges it toward the smooth nearest-LINE midline.
+`METRO_SHARED_SPACING_M` 1200→1000. `tsc` + 284 tests green.
+
 **v1263 — metro tentacle: compute in the geometry Web Worker + fewer points + no
 cell borders (fix the configure-dialog stutter).** The per-line Voronoi union was a
 7.9 s SYNCHRONOUS main-thread block for NYC (`union=7870ms`) — it ballooned because

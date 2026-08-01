@@ -43,7 +43,13 @@ export interface MetroReachResult {
 const METRO_STEP_M = 100; // fine walk granularity (adaptive emit decision)
 const METRO_COARSE_REF_M = 200; // reference sampling of ALL lines (nearest-other query)
 const METRO_GRID_M = 300; // spatial-grid cell size for the nearest-other query
-const METRO_ADAPT_K = 0.7; // emit spacing ≈ K × distance-to-nearest-other-line
+// v1264: emit spacing ≈ K × distance-to-nearest-other-line. LOWERED 0.7→0.45: the
+// nearest-SAMPLE-POINT boundary zigzags at ~spacing, so where two lines run close
+// (Brooklyn junctions) the region boundary alternates into small cells instead of
+// following the lines smoothly. A smaller K densifies contested boundaries so they
+// converge toward the smooth nearest-LINE midline. Affordable now that the compute
+// is memoised (runs once, not 4×) + off-thread.
+const METRO_ADAPT_K = 0.45;
 const METRO_MIN_SPACING_M = 110; // densest emit spacing (contested corridors)
 const METRO_MAX_SPACING_M = 900; // coarsest emit spacing (isolated stretches)
 const METRO_MAX_SEARCH_M = 1400; // beyond this a line is "isolated" → max spacing
@@ -52,7 +58,7 @@ const METRO_MAX_SEARCH_M = 1400; // beyond this a line is "isolated" → max spa
 // pushed the point count to ~8700 and the per-line union to ~8 s. Coarser shared
 // sampling keeps the track claimed (no wrong-trunk bleed) + the lateral split,
 // with far fewer points → a tractable union.
-const METRO_SHARED_SPACING_M = 1200;
+const METRO_SHARED_SPACING_M = 1000;
 
 // v1246/v1260: distance (m) under which two DIFFERENT lines are treated as a
 // SHARED/stacked track (NYC's A/C/E on 8th Ave, the Bronx 2+5).
