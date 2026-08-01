@@ -181,6 +181,19 @@ const METRO_SHARED_SPACING_M = 500; // v1261: emit spacing on a shared/stacked t
 //   (another line within METRO_CONVERGENCE_M) — coarse, so the track stays
 //   claimed by one of the sharing services without exploding the point count.
 
+// v1262: on a SHARED track, offset each service's seeds PERPENDICULAR to the
+// track by a deterministic per-line amount, so two services sharing a track land
+// on OPPOSITE sides and the Voronoi splits the corridor lengthwise (2 on one
+// side, 5 on the other) instead of alternating along it — a stable division all
+// players agree on. Buckets avoid 0 and spread so co-located lines differ.
+const METRO_LATERAL_BUCKETS = [-330, -220, -110, 110, 220, 330];
+function lineLateralOffsetM(name: string): number {
+    let h = 0;
+    for (let i = 0; i < name.length; i++)
+        h = (h * 31 + name.charCodeAt(i)) | 0;
+    return METRO_LATERAL_BUCKETS[Math.abs(h) % METRO_LATERAL_BUCKETS.length];
+}
+
 interface MetroLine {
     name: string;
     /** Flat vertex list (all member ways concatenated) — for sampling + the
@@ -530,19 +543,21 @@ function metroSamplePoints(
     let emitted = 0;
     let shared = 0;
     for (const w of fine.walks) {
+        const lateral = lineLateralOffsetM(w.name);
         let distSince = METRO_MAX_SPACING_M; // emit near the start
-        for (const p of w.pts) {
+        let prev: [number, number] | null = null;
+        for (let pi = 0; pi < w.pts.length; pi++) {
+            const p = w.pts[pi];
             const D = nearestOther(p[0], p[1], w.name);
             distSince += METRO_STEP_M;
-            // v1261: on a SHARED/stacked track (another line within
+            // v1261/v1262: on a SHARED/stacked track (another line within
             // CONVERGENCE_M — NYC runs many services on ONE track, e.g. the
             // Bronx 2+5 on White Plains Rd, the 8th Ave A/C/E), DON'T skip:
             // skipping empties the track of this line's seeds so a DIFFERENT
-            // trunk's region expands across it (the "2 runs through green" bug,
-            // and lines dropped entirely). Emit COARSELY instead — the track
-            // stays claimed by one of the services sharing it (so it keeps the
-            // right trunk colour), without exploding the point count if we
-            // sampled every stacked metre densely.
+            // trunk's region expands across it (the "2 runs through green" bug).
+            // Emit COARSELY, and OFFSET the seed PERPENDICULAR to the track by
+            // this line's lateral amount, so two services sharing a track split
+            // the corridor lengthwise (one on each side) instead of alternating.
             const stacked = D < METRO_CONVERGENCE_M;
             if (stacked) shared++;
             const target = stacked
@@ -554,10 +569,33 @@ function metroSamplePoints(
                         Math.max(METRO_MIN_SPACING_M, METRO_ADAPT_K * D),
                     );
             if (distSince >= target) {
-                feats.push(turf.point(p, { name: w.name }));
+                let ep = p;
+                if (stacked) {
+                    // Local track heading from the adjacent walk point (100 m
+                    // apart), rotated 90° → the perpendicular to offset along.
+                    const from = prev ?? p;
+                    const to = prev
+                        ? p
+                        : pi + 1 < w.pts.length
+                          ? w.pts[pi + 1]
+                          : p;
+                    const dxm = (to[0] - from[0]) * 111320 * cos;
+                    const dym = (to[1] - from[1]) * 111320;
+                    const len = Math.hypot(dxm, dym);
+                    if (len > 1e-6) {
+                        const offx = (-dym / len) * lateral; // metres
+                        const offy = (dxm / len) * lateral;
+                        ep = [
+                            p[0] + offx / (111320 * cos),
+                            p[1] + offy / 111320,
+                        ];
+                    }
+                }
+                feats.push(turf.point(ep, { name: w.name }));
                 distSince = 0;
                 emitted++;
             }
+            prev = p;
         }
     }
     lastMetroSampleInfo = `len=${Math.round(totalLen / 1000)}km adaptive ref=${refPts.length} emit=${emitted} shared=${shared}`;

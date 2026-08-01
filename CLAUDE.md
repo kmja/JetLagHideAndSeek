@@ -448,6 +448,17 @@ SMALL piece (`area < 5 km²`): the big ocean is left to the chunking (buffering 
 whole is the perf hit the grid exists to avoid, and it already tests in-result).
 `tsc` + 284 tests green.
 
+**v1262 — metro tentacle: SHARED tracks split lengthwise (2 one side, 5 the
+other).** Follow-up to v1261: a shared track (Bronx 2+5) still ALTERNATED colours
+along it because both services seeded the same centreline. Now, on a shared/stacked
+segment, each service's coarse seed is OFFSET PERPENDICULAR to the track by a
+deterministic per-line amount (`lineLateralOffsetM`, name-hashed into ±110/220/330 m
+buckets that avoid 0 and spread), so two services sharing a track land on OPPOSITE
+sides and the Voronoi splits the corridor lengthwise — one service each side, a
+stable division all players agree on — instead of alternating. Only applied on
+stacked segments (isolated lines stay exact); the drawn white line sits on the
+centreline (the split boundary). `tsc` + 284 tests green.
+
 **v1261 — metro tentacle: SHARED-track services stay claimed (was "the 2 runs
 through green").** NYC runs many services on ONE physical track (Bronx 2+5 on
 White Plains Rd, 8th Ave A/C/E, 7th Ave express 2/3…). The v1260 sampler SKIPPED
