@@ -448,6 +448,12 @@ SMALL piece (`area < 5 km²`): the big ocean is left to the chunking (buffering 
 whole is the perf hit the grid exists to avoid, and it already tests in-result).
 `tsc` + 284 tests green.
 
+**v1222 — revert the v1220 overlay-card height change.** Restored
+`QuestionOverlayCard` to its fixed `h-[4.5rem]` (from the v1220 `min-h-[4.5rem]`)
+— the card keeps its fixed square-icon-block height at the app's real sizes; the
+larger-text growth was only needed inside the font-size lab. The v1220 nav
+no-wrap + v1221 sentence-case label changes stay. `tsc` + 284 tests green.
+
 **v1221 — revert "Ask" → "New question", now sentence case.** Reverted the v1220
 label shortening: the seeker primary CTA reads "New question" again (kept
 `whitespace-nowrap` so it stays on one line when scaled). Made it SENTENCE CASE
