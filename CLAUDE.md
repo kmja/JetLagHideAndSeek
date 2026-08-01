@@ -448,6 +448,14 @@ SMALL piece (`area < 5 km²`): the big ocean is left to the chunking (buffering 
 whole is the perf hit the grid exists to avoid, and it already tests in-result).
 `tsc` + 284 tests green.
 
+**v1219 — font-size lab gains an "Overall scale" (type + spacing together).**
+Bumping a single font-size class in the v1218 lab left the padding/gaps fixed, so
+bigger text just looked cramped. Added an **Overall scale** slider (80–170%) that
+applies `zoom` to the `.font-lab` preview wrapper, magnifying the whole thing —
+type, spacing, and icons together — the "everything bigger" knob; the per-class
+sliders stay for relative fine-tuning on top. Reset clears both. `tsc` + 284 tests
+green.
+
 **v1218 — in-app font-size lab (`/debug/fonts`) with the REAL components +
 fonts.** A new developer route renders the ACTUAL app components — the on-map
 overlays (`PendingAnswerOverlay`, `HiderUnansweredOverlay`, `HiderTimer` via their

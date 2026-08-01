@@ -277,12 +277,19 @@ export function DebugFontsPage() {
     const [sizes, setSizes] = useState<Record<string, number>>(() =>
         Object.fromEntries(TOKENS.map((t) => [t.var, t.def])),
     );
+    // Overall scale — `zoom` magnifies the WHOLE preview (type + spacing +
+    // icons together), which is the "everything bigger, not just cramped text"
+    // knob. The per-class sliders tune relative type sizes on top of it.
+    const [scale, setScale] = useState(1);
     const labStyle = useMemo(
         () =>
-            Object.fromEntries(
-                TOKENS.map((t) => [t.var, `${sizes[t.var]}px`]),
-            ) as React.CSSProperties,
-        [sizes],
+            ({
+                ...Object.fromEntries(
+                    TOKENS.map((t) => [t.var, `${sizes[t.var]}px`]),
+                ),
+                zoom: scale,
+            }) as React.CSSProperties,
+        [sizes, scale],
     );
 
     const M = 60_000;
@@ -339,21 +346,62 @@ export function DebugFontsPage() {
                 <aside className="md:sticky md:top-[68px] md:self-start rounded-xl border border-border bg-background p-4">
                     <div className="mb-3 flex items-center justify-between">
                         <div className="text-[11px] uppercase tracking-[0.14em] font-poppins font-bold text-muted-foreground">
-                            Size classes
+                            Font-size lab
                         </div>
                         <button
                             type="button"
                             className="text-xs font-semibold text-primary hover:underline"
-                            onClick={() =>
+                            onClick={() => {
                                 setSizes(
                                     Object.fromEntries(
                                         TOKENS.map((t) => [t.var, t.def]),
                                     ),
-                                )
-                            }
+                                );
+                                setScale(1);
+                            }}
                         >
                             Reset
                         </button>
+                    </div>
+
+                    {/* Overall scale — type + spacing together. */}
+                    <div className="mb-4 rounded-lg border border-primary/30 bg-primary/5 p-3">
+                        <div className="flex items-baseline justify-between gap-2">
+                            <label
+                                htmlFor="ui-scale"
+                                className="text-sm font-bold"
+                            >
+                                Overall scale
+                            </label>
+                            <span
+                                className={cn(
+                                    "text-xs tabular-nums font-bold",
+                                    scale === 1
+                                        ? "text-muted-foreground"
+                                        : "text-primary",
+                                )}
+                            >
+                                {Math.round(scale * 100)}%
+                            </span>
+                        </div>
+                        <div className="text-[11px] text-muted-foreground mb-1.5">
+                            Scales type AND spacing together — the "everything
+                            bigger" knob.
+                        </div>
+                        <input
+                            id="ui-scale"
+                            type="range"
+                            min={0.8}
+                            max={1.7}
+                            step={0.05}
+                            value={scale}
+                            onChange={(e) => setScale(Number(e.target.value))}
+                            className="w-full accent-primary"
+                        />
+                    </div>
+
+                    <div className="text-[11px] uppercase tracking-[0.14em] font-poppins font-bold text-muted-foreground mb-2">
+                        Per-class fine-tuning
                     </div>
                     <div className="flex flex-col gap-3.5">
                         {TOKENS.map((t) => (
