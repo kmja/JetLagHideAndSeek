@@ -448,6 +448,12 @@ SMALL piece (`area < 5 km²`): the big ocean is left to the chunking (buffering 
 whole is the perf hit the grid exists to avoid, and it already tests in-result).
 `tsc` + 284 tests green.
 
+**v1230 — clipboard-fallback share toast no longer forced 1000px wide.** The
+"Clipboard not supported — copy this URL manually" error toast in
+`OptionDrawers` carried `className: "p-0 w-[1000px]"`, forcing a 1000px-wide
+toast that overflowed the screen on mobile. Changed to `break-all` (wrap the raw
+URL within the toast's normal width). `tsc` + 284 tests green.
+
 **v1229 — pre-ship stability pass: seeker UI can no longer freeze on the
 hiding-zones compute + Veto hand-play redirect.** Two fixes from the pre-ship
 review (the app is being sent to the Jet Lag creators to play a live game).

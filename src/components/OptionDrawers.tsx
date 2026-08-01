@@ -349,7 +349,7 @@ export const OptionDrawers = ({
                         if (result === false) {
                             return toast.error(
                                 `Clipboard not supported. Try manually copying/pasting: ${shareUrl}`,
-                                { className: "p-0 w-[1000px]" },
+                                { className: "break-all" },
                             );
                         }
 
