@@ -52,6 +52,7 @@ import {
 import { seaLevelRegion } from "@/maps/api/elevation";
 import { matchingDraftRegion } from "@/maps/questions/matching";
 import { measuringDraftBuffer } from "@/maps/questions/measuring";
+import { findMetroTentacleCandidates } from "@/maps/questions/tentacles";
 import { arcBufferToPoint } from "@/maps/geo-utils";
 import { pointInPlayArea } from "@/maps/geo-utils/playAreaIndex";
 import { geoSpatialVoronoi } from "@/maps/geo-utils/voronoi";
@@ -109,6 +110,14 @@ type ResolvedFamily =
     // built from the prewarmed elevation DEM (`seaLevelRegion`), NOT a point
     // buffer. Its own kind so the effect calls the elevation path.
     | { kind: "sea-level" }
+    // v1232: metro-line tentacle — its candidate points come from an async
+    // Overpass/R2 fetch (findMetroTentacleCandidates), NOT the prefetch point
+    // cache, so it gets its own kind + effect. Without this, resolveFamily
+    // returned null → useQuestionImpact returned null → the tentacle picker's
+    // `impactReady` (impact !== null) was stuck false forever, so the configure
+    // veil never lifted and the still-open local draft could be wiped by a
+    // room snapshot (the reported "loads for a bit then the dialog collapses").
+    | { kind: "metro" }
     | { kind: "city" }
     | null;
 
@@ -156,6 +165,8 @@ function resolveFamily(typeRaw: string): ResolvedFamily {
     // v881: sea-level now HAS a preview — we prewarm the elevation DEM, so
     // `seaLevelRegion` can build the "closer to sea level" region here.
     if (stripped === "sea-level") return { kind: "sea-level" };
+    // v1232: metro-line tentacle — async candidate fetch (see the kind doc).
+    if (stripped === "metro") return { kind: "metro" };
     if (stripped in LOCATION_FIRST_TAG) {
         const loc = stripped as APILocations;
         return { kind: "api", family: `api:${loc}`, location: loc };
@@ -405,13 +416,64 @@ export function useQuestionImpact(
             family.kind === "city" ||
             family.kind === "measuring-geom" ||
             family.kind === "matching-region" ||
-            family.kind === "sea-level"
+            family.kind === "sea-level" ||
+            family.kind === "metro"
         ) {
             return;
         }
         if (getCachedCategory(family.family) !== null) return;
         void prefetchCategory(family.family).then(() => setTick((t) => t + 1));
     }, [family?.kind, (family as any)?.family]);
+
+    // v1232: async metro-line candidate fetch for the tentacle overlay. Reads
+    // the SAME representative-point set the answer grades against
+    // (findMetroTentacleCandidates → prewarmed /api/metro, live Overpass on a
+    // cold miss). Settles even on failure (empty candidates) so the veil never
+    // stalls; the tentacle branch then draws the reach circle + per-line cells.
+    const [metroState, setMetroState] = useState<{
+        key: string;
+        lat: number;
+        lng: number;
+        candidates: Array<{ lat: number; lng: number; name: string }>;
+    } | null>(null);
+    useEffect(() => {
+        if (mode !== "tentacles") return;
+        if (!family || family.kind !== "metro") return;
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+        if (!tentacleRadiusKm) return;
+        let cancelled = false;
+        const key = `metro:${lat}:${lng}:${tentacleRadiusKm}`;
+        findMetroTentacleCandidates(lat, lng, tentacleRadiusKm, "kilometers")
+            .then((fc) => {
+                if (cancelled) return;
+                const candidates = (fc.features ?? [])
+                    .map((f) => {
+                        const c = f.geometry?.coordinates;
+                        const name = (f.properties as { name?: string })?.name;
+                        return Array.isArray(c) && typeof name === "string"
+                            ? { lat: c[1], lng: c[0], name }
+                            : null;
+                    })
+                    .filter(
+                        (x): x is { lat: number; lng: number; name: string } =>
+                            x !== null,
+                    );
+                setMetroState({ key, lat, lng, candidates });
+            })
+            .catch(() => {
+                if (!cancelled)
+                    setMetroState({ key, lat, lng, candidates: [] });
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, [mode, family?.kind, lat, lng, tentacleRadiusKm]);
+    const metroReady = Boolean(
+        metroState &&
+            metroState.lat === lat &&
+            metroState.lng === lng &&
+            metroState.key === `metro:${lat}:${lng}:${tentacleRadiusKm}`,
+    );
 
     // v840: real "same" region for the matching AREA/line types (admin
     // zone, landmass, station-length/-line, street) — the SAME polygon the
@@ -728,15 +790,18 @@ export function useQuestionImpact(
                       lat: la,
                       lng: ln,
                   }))
-                : noPointSet
-                  ? []
-                  : (getCachedCategory(
-                        (family as { family: FamilyKey }).family,
-                    ) ?? []).map((f) => ({
-                        lat: f.lat,
-                        lng: f.lng,
-                        name: f.name,
-                    }));
+                : // v1232: metro candidates come from the async fetch state.
+                  family.kind === "metro"
+                  ? (metroReady && metroState ? metroState.candidates : [])
+                  : noPointSet
+                    ? []
+                    : (getCachedCategory(
+                          (family as { family: FamilyKey }).family,
+                      ) ?? []).map((f) => ({
+                          lat: f.lat,
+                          lng: f.lng,
+                          name: f.name,
+                      }));
         // v371: rulebook p17 — restrict candidates to features inside
         // the play-area polygon. The reference cache is keyed on a
         // 50 km PADDED bbox so feature warming is reusable across edits;
@@ -792,10 +857,13 @@ export function useQuestionImpact(
                   !measuringSettled
                 : family.kind === "matching-region"
                   ? !matchingRegionReady
-                  : family.kind !== "city" &&
-                    getCachedCategory(
-                        (family as { family: FamilyKey }).family,
-                    ) === null;
+                  : // v1232: metro draws once its async candidate fetch settles.
+                    family.kind === "metro"
+                    ? !metroReady
+                    : family.kind !== "city" &&
+                      getCachedCategory(
+                          (family as { family: FamilyKey }).family,
+                      ) === null;
 
         // Nearest candidate (matching / measuring).
         let nearest: { lat: number; lng: number; name: string } | null = null;
@@ -1004,5 +1072,7 @@ export function useQuestionImpact(
         $ensureVersion,
         matchingRegion,
         matchingRegionReady,
+        metroState,
+        metroReady,
     ]);
 }

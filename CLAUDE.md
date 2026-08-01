@@ -448,6 +448,25 @@ SMALL piece (`area < 5 km²`): the big ocean is left to the chunking (buffering 
 whole is the perf hit the grid exists to avoid, and it already tests in-result).
 `tsc` + 284 tests green.
 
+**v1232 — metro-line tentacle configure dialog no longer stalls-then-collapses
+(the veil never lifted).** Follow-up to v1225 (which fixed the metro gzip-parse so
+it stopped erroring). The configure dialog then "loaded for a bit and collapsed to
+just the action buttons." Root cause: `resolveFamily("metro")` returned `null`
+(metro isn't in `LOCATION_FIRST_TAG`), so `useQuestionImpact` returned `null`, so
+the tentacle picker's `impactReady` (`impact !== null`) was stuck `false` forever —
+the map veil never lifted. Metro was the ONLY configure that never settles; while it
+sat there, the autohosted room's snapshot/merge (`questions.set(incomingQs)`) rebuilt
+the store and wiped the still-open LOCAL draft, so `pendingQuestion` (looked up by key)
+became undefined and the dialog body vanished, leaving only the footer. Fixed by giving
+the metro tentacle a real impact overlay like every other tentacle: `useQuestionImpact`
+gained a `{kind:"metro"}` family + an async effect that fetches the candidate lines via
+the now-exported `findMetroTentacleCandidates` (the SAME prewarmed `/api/metro` set the
+answer grades against, live-Overpass fallback), feeds them as the tentacle candidates,
+and gates `loading` on that fetch settling (even on failure → empty, so it can't stall).
+The tentacle branch then draws the reach circle + per-line Voronoi cells + candidate
+dots. So the veil settles, the overlay is useful, and the draft-wipe window is closed.
+`tsc` + 284 tests green.
+
 **v1231 — play-area search placeholder examples updated.** The play-area search
 input placeholder in `GameSetupDialog`'s `PlayAreaStep` read "e.g. Stockholm,
 Tokyo, London"; changed to "e.g. New York, Tokyo, London".

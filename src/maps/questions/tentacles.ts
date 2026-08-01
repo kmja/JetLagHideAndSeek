@@ -140,8 +140,12 @@ async function fetchMetroRoutesData(): Promise<any> {
  * Fetch metro-line tentacle candidates as a FeatureCollection of
  * representative points (one per route), filtered to those whose
  * closest point on the line sits within `radius` of the seeker.
+ *
+ * Exported (v1232) so the configure-dialog impact overlay
+ * (`useQuestionImpact`) can draw the metro reach circle + per-line
+ * Voronoi cells from the SAME candidate set the answer grades against.
  */
-async function findMetroTentacleCandidates(
+export async function findMetroTentacleCandidates(
     centerLat: number,
     centerLng: number,
     radius: number,
