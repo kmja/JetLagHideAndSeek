@@ -1528,7 +1528,7 @@ export function PlayAreaStep({
                                     }
                                     searchInputRef.current?.blur();
                                 }}
-                                placeholder="e.g. Stockholm, Tokyo, London"
+                                placeholder="e.g. New York, Tokyo, London"
                                 className="text-base pr-10"
                             />
                             {busy && (

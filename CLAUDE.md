@@ -448,6 +448,10 @@ SMALL piece (`area < 5 km²`): the big ocean is left to the chunking (buffering 
 whole is the perf hit the grid exists to avoid, and it already tests in-result).
 `tsc` + 284 tests green.
 
+**v1231 — play-area search placeholder examples updated.** The play-area search
+input placeholder in `GameSetupDialog`'s `PlayAreaStep` read "e.g. Stockholm,
+Tokyo, London"; changed to "e.g. New York, Tokyo, London".
+
 **v1230 — clipboard-fallback share toast no longer forced 1000px wide.** The
 "Clipboard not supported — copy this URL manually" error toast in
 `OptionDrawers` carried `className: "p-0 w-[1000px]"`, forcing a 1000px-wide
