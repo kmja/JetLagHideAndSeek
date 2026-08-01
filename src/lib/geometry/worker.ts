@@ -25,6 +25,10 @@ import {
     union,
 } from "@turf/turf";
 
+import {
+    computeMetroReachCellsFromLines,
+    type MetroLine,
+} from "../../maps/questions/metroReach";
 import { seaFromCoastline } from "../../maps/questions/seaFromCoastline";
 import {
     clipPolygonToLandWith,
@@ -159,6 +163,17 @@ type InMessage =
           id: number;
           type: "dissolveWater";
           payload: { features: Feature[] };
+      }
+    | {
+          id: number;
+          type: "metroReachCells";
+          payload: {
+              lines: MetroLine[];
+              centerLat: number;
+              centerLng: number;
+              radius: number;
+              unit: string;
+          };
       };
 
 // The world rectangle we punch the play area out of — byte-identical to
@@ -1074,6 +1089,20 @@ const handleGeometryMessage = async (e: MessageEvent<InMessage>) => {
             // this single worker and timed out).
             const result = unionPolygonsGently(
                 (msg.payload.features ?? []).filter((f) => f && f.geometry),
+            );
+            self.postMessage({ id, ok: true, result });
+        } else if (type === "metroReachCells") {
+            // v1263: the metro nearest-line Voronoi partition (sampling + Voronoi
+            // + per-line union) — a multi-second block for a dense metro — OFF
+            // the main thread so the configure-dialog loading animation stays
+            // smooth. Returns { result, diag }; the caller writes the diag atom.
+            const p = msg.payload;
+            const result = computeMetroReachCellsFromLines(
+                p.lines,
+                p.centerLat,
+                p.centerLng,
+                p.radius,
+                p.unit as never,
             );
             self.postMessage({ id, ok: true, result });
         } else {

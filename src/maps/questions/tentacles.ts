@@ -7,6 +7,13 @@ import {
 } from "@/lib/context";
 import { lastMetroDiag } from "@/lib/debugState";
 import { haversineMeters } from "@/lib/geo";
+import { metroReachCellsViaWorker } from "@/lib/geometry/client";
+import {
+    computeMetroReachCellsFromLines,
+    type MetroLine,
+    type MetroReachCell,
+    type MetroReachResult,
+} from "@/maps/questions/metroReach";
 import { safeJsonFromCachedResponse } from "@/maps/api/cache";
 import { METRO_BY_RELATION_BASE } from "@/maps/api/constants";
 import { referenceExtent } from "@/maps/api/playAreaPrefetch";
@@ -162,49 +169,10 @@ async function fetchMetroRoutesData(): Promise<any> {
  * hider's answer (hiderifyTentacles) picks the nearest sample point, whose line
  * name selects the matching region.
  */
-// v1260: ADAPTIVE sampling. The nearest-SAMPLE-POINT partition only matches the
-// nearest-LINE partition where the sample spacing is small relative to the gap to
-// the nearest OTHER line — but that only matters near BOUNDARIES. Where a line is
-// ISOLATED (far from any other line) the whole neighbourhood is that line's region
-// regardless of spacing, so dense sampling there is wasted points. So the emit
-// spacing SCALES with the distance to the nearest other line: dense where lines are
-// contested, coarse where a line is alone. This gives accurate boundaries with far
-// fewer points than a uniform dense grid → faster Voronoi + union.
-const METRO_STEP_M = 100; // fine walk granularity (adaptive emit decision)
-const METRO_COARSE_REF_M = 200; // reference sampling of ALL lines (nearest-other query)
-const METRO_GRID_M = 300; // spatial-grid cell size for the nearest-other query
-const METRO_ADAPT_K = 0.7; // emit spacing ≈ K × distance-to-nearest-other-line
-const METRO_MIN_SPACING_M = 110; // densest emit spacing (contested corridors)
-const METRO_MAX_SPACING_M = 900; // coarsest emit spacing (isolated stretches)
-const METRO_MAX_SEARCH_M = 1400; // beyond this a line is "isolated" → max spacing
-const METRO_SHARED_SPACING_M = 500; // v1261: emit spacing on a shared/stacked track
-//   (another line within METRO_CONVERGENCE_M) — coarse, so the track stays
-//   claimed by one of the sharing services without exploding the point count.
-
-// v1262: on a SHARED track, offset each service's seeds PERPENDICULAR to the
-// track by a deterministic per-line amount, so two services sharing a track land
-// on OPPOSITE sides and the Voronoi splits the corridor lengthwise (2 on one
-// side, 5 on the other) instead of alternating along it — a stable division all
-// players agree on. Buckets avoid 0 and spread so co-located lines differ.
-const METRO_LATERAL_BUCKETS = [-330, -220, -110, 110, 220, 330];
-function lineLateralOffsetM(name: string): number {
-    let h = 0;
-    for (let i = 0; i < name.length; i++)
-        h = (h * 31 + name.charCodeAt(i)) | 0;
-    return METRO_LATERAL_BUCKETS[Math.abs(h) % METRO_LATERAL_BUCKETS.length];
-}
-
-interface MetroLine {
-    name: string;
-    /** Flat vertex list (all member ways concatenated) — for sampling + the
-     *  reach-distance filter, where per-way structure doesn't matter. */
-    coords: [number, number][];
-    /** Per-way vertex lists — for DRAWING the line without connecting disjoint
-     *  way pieces with spurious straight jumps. */
-    segments: [number, number][][];
-    /** The line's OSM `colour` (its map colour), if tagged. */
-    color?: string;
-}
+// v1263: the pure metro Voronoi geometry (sampling / partition / union) moved to
+// `metroReach.ts` so it can run in the geometry Web Worker (off the main thread —
+// it was a multi-second block for a dense metro that stuttered the configure
+// dialog). This file keeps the FETCH + the diagnostic-atom write.
 
 /** OSM `colour` → a MapLibre-usable colour string, else undefined. Accepts hex
  *  (`#FF6319` / `FF6319`) and passes through CSS colour names verbatim. */
@@ -432,208 +400,17 @@ function setMetroDiag(msg: string): void {
     }
 }
 
-/** Walk every line at STEP_M and return the ordered positions per line (name +
- *  point list), continuously (accumulator carried across the per-way segments so
- *  a line split into thousands of tiny member ways isn't over-sampled at seams).
- *  Also returns the total length. */
-function walkLinesAtStep(
-    lines: MetroLine[],
-    stepM: number,
-): { walks: { name: string; pts: [number, number][] }[]; totalLen: number } {
-    const walks: { name: string; pts: [number, number][] }[] = [];
-    let totalLen = 0;
-    for (const { name, segments } of lines) {
-        const pts: [number, number][] = [];
-        let acc = 0;
-        let placed = false;
-        for (const seg of segments) {
-            for (let i = 1; i < seg.length; i++) {
-                const a = seg[i - 1];
-                const b = seg[i];
-                const d = haversineMeters(a[1], a[0], b[1], b[0]);
-                if (d === 0) continue;
-                totalLen += d;
-                if (!placed) {
-                    pts.push([a[0], a[1]]);
-                    placed = true;
-                    acc = 0;
-                }
-                let pos = stepM - acc;
-                while (pos <= d) {
-                    const f = pos / d;
-                    pts.push([
-                        a[0] + (b[0] - a[0]) * f,
-                        a[1] + (b[1] - a[1]) * f,
-                    ]);
-                    pos += stepM;
-                }
-                acc = (acc + d) % stepM;
-            }
-        }
-        if (pts.length) walks.push({ name, pts });
-    }
-    return { walks, totalLen };
-}
-
-/** ADAPTIVE sample points along each line (v1260). Emit spacing scales with the
- *  distance to the nearest OTHER line — dense near contested boundaries, coarse
- *  where a line is isolated — and points inside a genuinely STACKED corridor (an
- *  other line within METRO_CONVERGENCE_M) are SKIPPED (the convergence rule, now
- *  folded into sampling). This gives boundary-accurate seeds with far fewer points
- *  than a uniform dense grid. */
-function metroSamplePoints(
-    lines: MetroLine[],
-): GeoJSON.FeatureCollection<GeoJSON.Point> {
-    // Pass 1: coarse reference points of ALL lines → a spatial grid, for the
-    // "distance to the nearest OTHER line" query that drives the adaptive spacing.
-    const coarse = walkLinesAtStep(lines, METRO_COARSE_REF_M);
-    const totalLen = coarse.totalLen;
-    interface RP {
-        lng: number;
-        lat: number;
-        name: string;
-    }
-    const refPts: RP[] = [];
-    let refLat = 0;
-    for (const w of coarse.walks)
-        for (const p of w.pts) {
-            if (refPts.length === 0) refLat = p[1];
-            refPts.push({ lng: p[0], lat: p[1], name: w.name });
-        }
-    const cos = Math.cos((refLat * Math.PI) / 180) || 1e-6;
-    const cellLat = METRO_GRID_M / 111320;
-    const cellLng = METRO_GRID_M / (111320 * cos);
-    const grid = new Map<string, RP[]>();
-    for (const p of refPts) {
-        const k = `${Math.floor(p.lng / cellLng)},${Math.floor(p.lat / cellLat)}`;
-        const arr = grid.get(k);
-        if (arr) arr.push(p);
-        else grid.set(k, [p]);
-    }
-    const maxRings = Math.ceil(METRO_MAX_SEARCH_M / METRO_GRID_M);
-    // Distance (m) to the nearest ref point of a DIFFERENT line (expanding-ring
-    // nearest search, early-terminating). Infinity if none within the search cap.
-    const nearestOther = (lng: number, lat: number, name: string): number => {
-        const gx = Math.floor(lng / cellLng);
-        const gy = Math.floor(lat / cellLat);
-        let best = Infinity;
-        for (let r = 0; r <= maxRings; r++) {
-            if (Number.isFinite(best) && best <= (r - 1) * METRO_GRID_M) break;
-            for (let dx = -r; dx <= r; dx++) {
-                for (let dy = -r; dy <= r; dy++) {
-                    if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
-                    const cell = grid.get(`${gx + dx},${gy + dy}`);
-                    if (!cell) continue;
-                    for (const q of cell) {
-                        if (q.name === name) continue;
-                        const my = (q.lat - lat) * 111320;
-                        const mx = (q.lng - lng) * 111320 * cos;
-                        const dd = Math.sqrt(mx * mx + my * my);
-                        if (dd < best) best = dd;
-                    }
-                }
-            }
-        }
-        return best;
-    };
-
-    // Pass 2: fine walk; emit adaptively (skip STACKED, spacing ∝ nearest-other).
-    const fine = walkLinesAtStep(lines, METRO_STEP_M);
-    const feats: GeoJSON.Feature<GeoJSON.Point>[] = [];
-    let emitted = 0;
-    let shared = 0;
-    for (const w of fine.walks) {
-        const lateral = lineLateralOffsetM(w.name);
-        let distSince = METRO_MAX_SPACING_M; // emit near the start
-        let prev: [number, number] | null = null;
-        for (let pi = 0; pi < w.pts.length; pi++) {
-            const p = w.pts[pi];
-            const D = nearestOther(p[0], p[1], w.name);
-            distSince += METRO_STEP_M;
-            // v1261/v1262: on a SHARED/stacked track (another line within
-            // CONVERGENCE_M — NYC runs many services on ONE track, e.g. the
-            // Bronx 2+5 on White Plains Rd, the 8th Ave A/C/E), DON'T skip:
-            // skipping empties the track of this line's seeds so a DIFFERENT
-            // trunk's region expands across it (the "2 runs through green" bug).
-            // Emit COARSELY, and OFFSET the seed PERPENDICULAR to the track by
-            // this line's lateral amount, so two services sharing a track split
-            // the corridor lengthwise (one on each side) instead of alternating.
-            const stacked = D < METRO_CONVERGENCE_M;
-            if (stacked) shared++;
-            const target = stacked
-                ? METRO_SHARED_SPACING_M
-                : !Number.isFinite(D)
-                  ? METRO_MAX_SPACING_M
-                  : Math.min(
-                        METRO_MAX_SPACING_M,
-                        Math.max(METRO_MIN_SPACING_M, METRO_ADAPT_K * D),
-                    );
-            if (distSince >= target) {
-                let ep = p;
-                if (stacked) {
-                    // Local track heading from the adjacent walk point (100 m
-                    // apart), rotated 90° → the perpendicular to offset along.
-                    const from = prev ?? p;
-                    const to = prev
-                        ? p
-                        : pi + 1 < w.pts.length
-                          ? w.pts[pi + 1]
-                          : p;
-                    const dxm = (to[0] - from[0]) * 111320 * cos;
-                    const dym = (to[1] - from[1]) * 111320;
-                    const len = Math.hypot(dxm, dym);
-                    if (len > 1e-6) {
-                        const offx = (-dym / len) * lateral; // metres
-                        const offy = (dxm / len) * lateral;
-                        ep = [
-                            p[0] + offx / (111320 * cos),
-                            p[1] + offy / 111320,
-                        ];
-                    }
-                }
-                feats.push(turf.point(ep, { name: w.name }));
-                distSince = 0;
-                emitted++;
-            }
-            prev = p;
-        }
-    }
-    lastMetroSampleInfo = `len=${Math.round(totalLen / 1000)}km adaptive ref=${refPts.length} emit=${emitted} shared=${shared}`;
-    return turf.featureCollection(feats);
-}
-
-let lastMetroSampleInfo = "";
-
-// v1246/v1260: distance (m) under which two DIFFERENT lines are treated as
-// "virtually indistinguishable" (only truly STACKED tunnels — e.g. NYC's A/C/E
-// sharing 8th Ave). Sample points that close to another line are SKIPPED by the
-// adaptive sampler (metroSamplePoints), so a stacked corridor doesn't shatter.
-// Kept SMALL (150 m): near-parallel lines (PATH tubes, 200–400 m apart) get a
-// clean midline boundary from their own dense samples, so only the genuinely-
-// stacked case needs dropping.
-const METRO_CONVERGENCE_M = 150;
-
-export interface MetroReachCell {
-    cell: GeoJSON.Feature<GeoJSON.Polygon | GeoJSON.MultiPolygon>;
-    name: string;
-    color?: string;
-}
-export interface MetroReachResult {
-    cells: MetroReachCell[];
-    /** The reachable lines (name + per-way segments + colour) — for DRAWING the
-     *  actual line geometry the segmentation is based on. */
-    lines: Array<{
-        name: string;
-        segments: [number, number][][];
-        color?: string;
-    }>;
-}
-
 /**
  * The metro reach partitioned into ONE region per LINE (nearest-line Voronoi),
  * each clipped to the reach circle, PLUS the reachable lines' geometry. The
  * SINGLE producer used by the configure preview, the elimination, and the draft
  * planning overlay — so all three agree.
+ *
+ * v1263: the heavy geometry (sampling + Voronoi + per-line union) runs in the
+ * geometry Web Worker (`computeMetroReachCellsFromLines`) so it never stutters
+ * the configure-dialog loading animation — with a synchronous main-thread
+ * fallback if the worker is unavailable. This function does the FETCH + writes
+ * the diagnostic atom.
  */
 export async function computeMetroReachCells(
     centerLat: number,
@@ -641,199 +418,32 @@ export async function computeMetroReachCells(
     radius: number,
     unit: Units,
 ): Promise<MetroReachResult> {
-    const lines = await fetchReachableMetroLines(centerLat, centerLng, radius, unit);
-    const drawLines = lines.map((l) => ({
-        name: l.name,
-        segments: l.segments,
-        color: l.color,
-    }));
-    if (lines.length === 0) return { cells: [], lines: drawLines };
-    const colorByName = new Map<string, string>();
-    for (const l of lines) if (l.color) colorByName.set(l.name, l.color);
-    let reach: GeoJSON.Feature<GeoJSON.Polygon>;
-    try {
-        reach = turf.circle([centerLng, centerLat], radius, {
-            units: unit,
-            steps: 64,
-        }) as GeoJSON.Feature<GeoJSON.Polygon>;
-    } catch {
-        setMetroDiag(`${lastMetroDiagBase} | reach circle FAILED`);
-        return { cells: [], lines: drawLines };
-    }
-    if (lines.length === 1)
-        return {
-            cells: [
-                { cell: reach, name: lines[0].name, color: lines[0].color },
-            ],
-            lines: drawLines,
-        };
-    const rawPts = metroSamplePoints(lines);
-    // v1245: DEDUP coincident points before `turf.voronoi`. Both directions of
-    // each subway line trace the SAME physical track, so metroSamplePoints emits
-    // many EXACT duplicate coordinates — and d3-voronoi (turf.voronoi) THROWS
-    // `Cannot read properties of null (reading '0')` on coincident sites. Keep
-    // the first occurrence of each rounded coordinate (~1 m grid). The first
-    // line to sample a shared segment claims that point's cell, which is fine —
-    // a point shared by two directions of the same line is the same name anyway,
-    // and two genuinely different lines can't run through the identical metre.
-    const seenCoord = new Set<string>();
-    const dedup: GeoJSON.Feature<GeoJSON.Point>[] = [];
-    for (const f of rawPts.features) {
-        const c = f.geometry.coordinates;
-        const key = `${c[0].toFixed(5)},${c[1].toFixed(5)}`;
-        if (seenCoord.has(key)) continue;
-        seenCoord.add(key);
-        dedup.push(f);
-    }
-    // v1260: convergence is now handled INSIDE metroSamplePoints (it skips points
-    // within METRO_CONVERGENCE_M of another line), so no separate filter step.
-    const pts = turf.featureCollection(dedup);
-    if (pts.features.length < 2) return { cells: [], lines: drawLines };
-    // v1244: PLANAR `turf.voronoi` (not the spherical `geoSpatialVoronoi`). The
-    // spherical one doesn't produce a clean partition at ~2500 points — its
-    // cells OVERLAP (the v1243 diagnostic read sum/circle=18.58, 18 giant cells,
-    // multiple lines each covering 100% of the circle). At city scale a planar
-    // Voronoi is accurate and IS a proper partition. `turf.voronoi` returns one
-    // cell per input point IN THE SAME ORDER, so we map each cell to its line
-    // name by index (no `site.properties` needed).
-    // v1256: the Voronoi bbox must contain the POINTS *and* the whole REACH
-    // CIRCLE. The metro network doesn't extend to every edge of the circle (no
-    // subway up in Yonkers / out east), so a points-only bbox left the circle's
-    // outer edges outside the Voronoi → no cell there → uncovered after clipping
-    // (the top/right coverage gap, sum/circle 0.83). Unioning in the reach bbox
-    // makes the outermost cells expand to fill the whole circle → ~full coverage.
-    const pb = turf.bbox(pts);
-    const rb = turf.bbox(reach);
-    const bb: [number, number, number, number] = [
-        Math.min(pb[0], rb[0]),
-        Math.min(pb[1], rb[1]),
-        Math.max(pb[2], rb[2]),
-        Math.max(pb[3], rb[3]),
-    ];
-    const padX = (bb[2] - bb[0]) * 0.05 + 0.01;
-    const padY = (bb[3] - bb[1]) * 0.05 + 0.01;
-    let voronoi: GeoJSON.FeatureCollection<GeoJSON.Polygon>;
-    try {
-        voronoi = turf.voronoi(pts, {
-            bbox: [bb[0] - padX, bb[1] - padY, bb[2] + padX, bb[3] + padY],
-        });
-    } catch (e) {
-        setMetroDiag(
-            `${lastMetroDiagBase} | pts=${pts.features.length} voronoi THREW: ${String(e).slice(0, 80)}`,
-        );
-        return { cells: [], lines: drawLines };
-    }
-    // Group cells by line name (index-mapped to the input points).
-    const groups = new Map<string, GeoJSON.Feature<GeoJSON.Polygon>[]>();
-    voronoi.features.forEach((cell, i) => {
-        if (!cell?.geometry) return;
-        const name = (pts.features[i]?.properties as { name?: string })?.name;
-        if (typeof name !== "string") return;
-        const arr = groups.get(name);
-        if (arr) arr.push(cell);
-        else groups.set(name, [cell]);
-    });
-    const regionByName = new Map<
-        string,
-        GeoJSON.Feature<GeoJSON.Polygon | GeoJSON.MultiPolygon>
-    >();
-    const unionStart =
-        typeof performance !== "undefined" ? performance.now() : 0;
-    for (const [name, group] of groups) {
-        let region: GeoJSON.Feature<GeoJSON.Polygon | GeoJSON.MultiPolygon> =
-            group[0];
-        if (group.length > 1) {
-            // v1247: union all cells at once, but fall back to an INCREMENTAL
-            // fold on failure — a single self-intersecting cell must skip only
-            // itself, not drop the whole line's area to group[0] (that was the
-            // v1246 sum/circle=0.83 coverage loss).
-            try {
-                region =
-                    (safeUnion(
-                        turf.featureCollection(group),
-                    ) as GeoJSON.Feature<GeoJSON.Polygon | GeoJSON.MultiPolygon>) ??
-                    region;
-            } catch {
-                for (let gi = 1; gi < group.length; gi++) {
-                    try {
-                        const merged = turf.union(
-                            turf.featureCollection([region as any, group[gi]]),
-                        );
-                        if (merged)
-                            region = merged as GeoJSON.Feature<
-                                GeoJSON.Polygon | GeoJSON.MultiPolygon
-                            >;
-                    } catch {
-                        /* skip this cell only */
-                    }
-                }
-            }
-        }
-        regionByName.set(name, region);
-    }
-    const unionMs =
-        typeof performance !== "undefined"
-            ? Math.round(performance.now() - unionStart)
-            : 0;
-    const cells: MetroReachCell[] = [];
-    for (const [name, region] of regionByName) {
-        try {
-            const clipped = turf.intersect(
-                turf.featureCollection([region as any, reach as any]),
-            );
-            if (clipped)
-                cells.push({
-                    cell: clipped as GeoJSON.Feature<
-                        GeoJSON.Polygon | GeoJSON.MultiPolygon
-                    >,
-                    name,
-                    color: colorByName.get(name),
-                });
-        } catch {
-            /* skip this line's cell */
-        }
-    }
-    // v1243: MEASURE the output geometry so we can see the root cause instead of
-    // guessing. A true partition has sum(cell areas) == circle area (ratio ~1);
-    // ratio >> 1 means the regions OVERLAP (a Voronoi/union bug) and compound in
-    // the fill. Also report how many cells are "giant" (>50% of the circle),
-    // the distinct fill colours, and the top cells by area (name·area%·colour).
-    let circleArea = 0;
-    let sumArea = 0;
-    let giants = 0;
-    const colors = new Set<string>();
-    const areaByCell = cells.map((c) => {
-        let a = 0;
-        try {
-            a = turf.area(c.cell as any);
-        } catch {
-            a = 0;
-        }
-        return { name: c.name, a, color: c.color };
-    });
-    try {
-        circleArea = turf.area(reach as any);
-    } catch {
-        circleArea = 0;
-    }
-    for (const ci of areaByCell) {
-        sumArea += ci.a;
-        if (circleArea > 0 && ci.a > 0.5 * circleArea) giants++;
-        colors.add(ci.color ?? "none");
-    }
-    const ratio = circleArea > 0 ? sumArea / circleArea : 0;
-    const top = [...areaByCell]
-        .sort((x, y) => y.a - x.a)
-        .slice(0, 4)
-        .map(
-            (ci) =>
-                `${ci.name}=${circleArea > 0 ? Math.round((ci.a / circleArea) * 100) : "?"}%${ci.color ? "" : "·nocol"}`,
-        )
-        .join(",");
-    setMetroDiag(
-        `${lastMetroDiagBase} | ${lastMetroSampleInfo} pts=${rawPts.features.length}→${dedup.length} vCells=${voronoi.features.length} named=${regionByName.size} drawn=${cells.length} union=${unionMs}ms sum/circle=${ratio.toFixed(2)} giants=${giants} colors=${colors.size} top=[${top}]`,
+    const lines = await fetchReachableMetroLines(
+        centerLat,
+        centerLng,
+        radius,
+        unit,
     );
-    return { cells, lines: drawLines };
+    if (lines.length === 0) return { cells: [], lines: [] };
+    let out: { result: MetroReachResult; diag: string } | null = null;
+    try {
+        out = await metroReachCellsViaWorker<{
+            result: MetroReachResult;
+            diag: string;
+        }>({ lines, centerLat, centerLng, radius, unit });
+    } catch {
+        // Worker unavailable / errored — compute on the main thread (correctness
+        // never depends on the worker existing, only smoothness).
+        out = computeMetroReachCellsFromLines(
+            lines,
+            centerLat,
+            centerLng,
+            radius,
+            unit,
+        );
+    }
+    setMetroDiag(`${lastMetroDiagBase} | ${out.diag}`);
+    return out.result;
 }
 
 const filterPointsWithinRadius = (

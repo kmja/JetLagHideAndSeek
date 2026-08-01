@@ -448,6 +448,22 @@ SMALL piece (`area < 5 km²`): the big ocean is left to the chunking (buffering 
 whole is the perf hit the grid exists to avoid, and it already tests in-result).
 `tsc` + 284 tests green.
 
+**v1263 — metro tentacle: compute in the geometry Web Worker + fewer points + no
+cell borders (fix the configure-dialog stutter).** The per-line Voronoi union was a
+7.9 s SYNCHRONOUS main-thread block for NYC (`union=7870ms`) — it ballooned because
+the v1261 shared-track coarse-emit pushed the point count to ~8700. Three fixes:
+(1) the pure geometry (sampling + Voronoi + union) moved to a new worker-safe module
+`src/maps/questions/metroReach.ts` (`computeMetroReachCellsFromLines`) and runs in
+the geometry Web Worker (new `metroReachCells` op, `metroReachCellsViaWorker`) so
+the loading animation never stutters — with a synchronous main-thread FALLBACK if
+the worker is unavailable; `tentacles.ts` keeps the FETCH + the diagnostic-atom
+write. (2) `METRO_SHARED_SPACING_M` 500→1200 m — NYC's ~76%-shared network at 500 m
+was the point explosion; coarser shared sampling keeps the track claimed + the
+lateral split with far fewer points → a tractable union. (3) the light-purple cell
+BORDER layer is dropped for metro (`!reachLinesFC`) — cells are coloured by real
+line colour + the neutral drawn line marks each track, so borders were just noise;
+point-tentacles keep their borders. `tsc` + 284 tests green.
+
 **v1262 — metro tentacle: SHARED tracks split lengthwise (2 one side, 5 the
 other).** Follow-up to v1261: a shared track (Bronx 2+5) still ALTERNATED colours
 along it because both services seeded the same centreline. Now, on a shared/stacked

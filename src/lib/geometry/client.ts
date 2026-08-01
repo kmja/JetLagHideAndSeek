@@ -175,7 +175,8 @@ function call<T>(
         | "bufferAndUnion"
         | "bufferWaterGrid"
         | "landFromWater"
-        | "dissolveWater",
+        | "dissolveWater"
+        | "metroReachCells",
     payload: unknown,
     onPhase?: (phase: string) => void,
 ): Promise<T> {
@@ -371,6 +372,25 @@ export async function dissolveWater(
     return call<Feature<Polygon | MultiPolygon> | null>("dissolveWater", {
         features,
     });
+}
+
+/**
+ * v1263: the metro-tentacle nearest-LINE Voronoi partition, OFF the main thread.
+ * The sampling + Voronoi + per-line union is a multi-second block for a dense
+ * metro (NYC ~8 s), which stuttered the configure-dialog loading animation. Runs
+ * in the worker; REJECTS if the worker is unavailable so the caller
+ * (`tentacles.ts computeMetroReachCells`) keeps its synchronous main-thread
+ * `computeMetroReachCellsFromLines` fallback — correctness never depends on the
+ * worker existing, only smoothness.
+ */
+export async function metroReachCellsViaWorker<R>(payload: {
+    lines: unknown;
+    centerLat: number;
+    centerLng: number;
+    radius: number;
+    unit: string;
+}): Promise<R> {
+    return call<R>("metroReachCells", payload);
 }
 
 /**

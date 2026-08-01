@@ -1708,19 +1708,25 @@ export function InlineLocationPicker({
                                             "fill-opacity": 0.35,
                                         }}
                                     />
-                                    {/* v823: CLEAR LIGHT-purple borders
-                                        between cells so adjacent segments stay
-                                        easy to tell apart even when two land on
-                                        similar shades. */}
-                                    <Layer
-                                        id="impact-reach-cells-line"
-                                        type="line"
-                                        paint={{
-                                            "line-color": "hsl(266, 80%, 88%)",
-                                            "line-width": 2,
-                                            "line-opacity": 0.95,
-                                        }}
-                                    />
+                                    {/* v823: CLEAR LIGHT-purple borders between
+                                        cells so adjacent segments stay easy to
+                                        tell apart even when two land on similar
+                                        shades. v1263: dropped for METRO (cells are
+                                        coloured by real line colour, and the drawn
+                                        neutral line already marks each track, so
+                                        the borders just add noise). */}
+                                    {!reachLinesFC && (
+                                        <Layer
+                                            id="impact-reach-cells-line"
+                                            type="line"
+                                            paint={{
+                                                "line-color":
+                                                    "hsl(266, 80%, 88%)",
+                                                "line-width": 2,
+                                                "line-opacity": 0.95,
+                                            }}
+                                        />
+                                    )}
                                 </Source>
                             )}
                             {/* v1240: the metro LINE geometry the segmentation
