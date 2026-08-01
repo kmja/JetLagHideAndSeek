@@ -162,16 +162,21 @@ async function fetchMetroRoutesData(): Promise<any> {
  * hider's answer (hiderifyTentacles) picks the nearest sample point, whose line
  * name selects the matching region.
  */
-// v1241/v1259: budget + min spacing for the evenly-spaced line sampling. The
-// partition is nearest-SAMPLE-POINT, which only converges to nearest-LINE when
-// spacing is small relative to the gaps between distinct lines — at 2500 points
-// NYC's ~4355 km of route gave ~1742 m spacing, so a point ON a line could be
-// nearer a DIFFERENT line's sample and get miscoloured (the red NWK–WTC line
-// running through yellow/purple wedges). Raised to 12000 (~360 m spacing over
-// NYC) so a point on a line is genuinely nearest to that line's own sample. The
-// per-line union is a single sweep-line pass, so it stays tractable.
-const METRO_SAMPLE_BUDGET = 12000;
-const METRO_SAMPLE_MIN_SPACING_M = 120;
+// v1260: ADAPTIVE sampling. The nearest-SAMPLE-POINT partition only matches the
+// nearest-LINE partition where the sample spacing is small relative to the gap to
+// the nearest OTHER line — but that only matters near BOUNDARIES. Where a line is
+// ISOLATED (far from any other line) the whole neighbourhood is that line's region
+// regardless of spacing, so dense sampling there is wasted points. So the emit
+// spacing SCALES with the distance to the nearest other line: dense where lines are
+// contested, coarse where a line is alone. This gives accurate boundaries with far
+// fewer points than a uniform dense grid → faster Voronoi + union.
+const METRO_STEP_M = 100; // fine walk granularity (adaptive emit decision)
+const METRO_COARSE_REF_M = 200; // reference sampling of ALL lines (nearest-other query)
+const METRO_GRID_M = 300; // spatial-grid cell size for the nearest-other query
+const METRO_ADAPT_K = 0.7; // emit spacing ≈ K × distance-to-nearest-other-line
+const METRO_MIN_SPACING_M = 110; // densest emit spacing (contested corridors)
+const METRO_MAX_SPACING_M = 900; // coarsest emit spacing (isolated stretches)
+const METRO_MAX_SEARCH_M = 1400; // beyond this a line is "isolated" → max spacing
 
 interface MetroLine {
     name: string;
@@ -411,148 +416,152 @@ function setMetroDiag(msg: string): void {
     }
 }
 
-/** EVENLY-spaced sample points ALONG each line (by DISTANCE, on the real
- *  per-way segments), tagged with the line name — the seed set for the
- *  nearest-LINE Voronoi. Even spacing is what makes the nearest-SAMPLE-POINT
- *  partition converge to the nearest-LINE partition: the old vertex-subsampling
- *  (every k-th vertex) left ~1.5 km gaps, so between two of a line's samples a
- *  point could be nearer ANOTHER line's sample → the region boundary diverged
- *  from the line (v1241). Spacing is chosen to fill the budget: dense enough for
- *  crisp boundaries, bounded so a big metro stays tractable. */
-function metroSamplePoints(
+/** Walk every line at STEP_M and return the ordered positions per line (name +
+ *  point list), continuously (accumulator carried across the per-way segments so
+ *  a line split into thousands of tiny member ways isn't over-sampled at seams).
+ *  Also returns the total length. */
+function walkLinesAtStep(
     lines: MetroLine[],
-): GeoJSON.FeatureCollection<GeoJSON.Point> {
-    // Total line length → spacing that keeps the point count under budget.
+    stepM: number,
+): { walks: { name: string; pts: [number, number][] }[]; totalLen: number } {
+    const walks: { name: string; pts: [number, number][] }[] = [];
     let totalLen = 0;
-    for (const { segments } of lines) {
-        for (const seg of segments) {
-            for (let i = 1; i < seg.length; i++) {
-                totalLen += haversineMeters(
-                    seg[i - 1][1],
-                    seg[i - 1][0],
-                    seg[i][1],
-                    seg[i][0],
-                );
-            }
-        }
-    }
-    const spacing = Math.max(
-        METRO_SAMPLE_MIN_SPACING_M,
-        totalLen / METRO_SAMPLE_BUDGET,
-    );
-
-    const feats: GeoJSON.Feature<GeoJSON.Point>[] = [];
     for (const { name, segments } of lines) {
-        // Walk the WHOLE line continuously — carry the spacing accumulator
-        // ACROSS segments and place only ONE start point per line. (Pushing
-        // seg[0] per segment exploded the count on NYC, whose lines have
-        // thousands of tiny member ways → a degenerate 10k-point Voronoi.)
-        let acc = 0; // distance since the last placed sample
-        let placedFirst = false;
+        const pts: [number, number][] = [];
+        let acc = 0;
+        let placed = false;
         for (const seg of segments) {
             for (let i = 1; i < seg.length; i++) {
                 const a = seg[i - 1];
                 const b = seg[i];
                 const d = haversineMeters(a[1], a[0], b[1], b[0]);
                 if (d === 0) continue;
-                if (!placedFirst) {
-                    feats.push(turf.point(a, { name }));
-                    placedFirst = true;
+                totalLen += d;
+                if (!placed) {
+                    pts.push([a[0], a[1]]);
+                    placed = true;
                     acc = 0;
                 }
-                let pos = spacing - acc; // first sample offset within this edge
+                let pos = stepM - acc;
                 while (pos <= d) {
                     const f = pos / d;
-                    feats.push(
-                        turf.point(
-                            [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f],
-                            { name },
-                        ),
-                    );
-                    pos += spacing;
+                    pts.push([
+                        a[0] + (b[0] - a[0]) * f,
+                        a[1] + (b[1] - a[1]) * f,
+                    ]);
+                    pos += stepM;
                 }
-                acc += d;
-                acc %= spacing; // leftover distance past the last sample
+                acc = (acc + d) % stepM;
             }
         }
+        if (pts.length) walks.push({ name, pts });
     }
-    lastMetroSampleInfo = `len=${Math.round(totalLen / 1000)}km spacing=${Math.round(spacing)}m`;
-    return turf.featureCollection(feats);
+    return { walks, totalLen };
 }
 
-let lastMetroSampleInfo = "";
-let lastMetroConvergedInfo = "";
-
-// v1246/v1259: distance (m) under which two DIFFERENT lines are treated as
-// "virtually indistinguishable" (only truly STACKED tunnels — e.g. NYC's A/C/E
-// sharing 8th Ave). Those points are dropped so a stacked corridor doesn't
-// shatter. Kept SMALL (150 m): the v1258 raise to 400 m over-dropped, emptying
-// near-parallel corridors so a neighbouring line's wedge expanded across a
-// line's own track (the red-line-through-yellow bug). With the v1259 dense
-// sampling, near-parallel lines (200–400 m apart, PATH tubes) now get a clean
-// midline boundary from their own dense samples instead of needing to be
-// dropped — so this only needs to catch the genuinely-stacked case.
-const METRO_CONVERGENCE_M = 150;
-
-/** Drop metro sample points that lie within METRO_CONVERGENCE_M of a point
- *  belonging to a DIFFERENT line. O(n) via a spatial grid keyed at the
- *  convergence cell size, checking only the 3×3 neighbourhood. Points from the
- *  SAME line near each other are kept (a line running near itself is still
- *  distinguishable as that line). */
-function filterConvergedPoints(
-    feats: GeoJSON.Feature<GeoJSON.Point>[],
-    centerLat: number,
-): GeoJSON.Feature<GeoJSON.Point>[] {
-    const cos = Math.cos((centerLat * Math.PI) / 180) || 1e-6;
-    const cellLat = METRO_CONVERGENCE_M / 111320;
-    const cellLng = METRO_CONVERGENCE_M / (111320 * cos);
-    interface P {
+/** ADAPTIVE sample points along each line (v1260). Emit spacing scales with the
+ *  distance to the nearest OTHER line — dense near contested boundaries, coarse
+ *  where a line is isolated — and points inside a genuinely STACKED corridor (an
+ *  other line within METRO_CONVERGENCE_M) are SKIPPED (the convergence rule, now
+ *  folded into sampling). This gives boundary-accurate seeds with far fewer points
+ *  than a uniform dense grid. */
+function metroSamplePoints(
+    lines: MetroLine[],
+): GeoJSON.FeatureCollection<GeoJSON.Point> {
+    // Pass 1: coarse reference points of ALL lines → a spatial grid, for the
+    // "distance to the nearest OTHER line" query that drives the adaptive spacing.
+    const coarse = walkLinesAtStep(lines, METRO_COARSE_REF_M);
+    const totalLen = coarse.totalLen;
+    interface RP {
         lng: number;
         lat: number;
         name: string;
     }
-    const grid = new Map<string, P[]>();
-    const keyOf = (lng: number, lat: number) =>
-        `${Math.floor(lng / cellLng)},${Math.floor(lat / cellLat)}`;
-    const items: P[] = feats.map((f) => ({
-        lng: f.geometry.coordinates[0],
-        lat: f.geometry.coordinates[1],
-        name: (f.properties as { name?: string })?.name ?? "",
-    }));
-    items.forEach((p) => {
-        const k = keyOf(p.lng, p.lat);
+    const refPts: RP[] = [];
+    let refLat = 0;
+    for (const w of coarse.walks)
+        for (const p of w.pts) {
+            if (refPts.length === 0) refLat = p[1];
+            refPts.push({ lng: p[0], lat: p[1], name: w.name });
+        }
+    const cos = Math.cos((refLat * Math.PI) / 180) || 1e-6;
+    const cellLat = METRO_GRID_M / 111320;
+    const cellLng = METRO_GRID_M / (111320 * cos);
+    const grid = new Map<string, RP[]>();
+    for (const p of refPts) {
+        const k = `${Math.floor(p.lng / cellLng)},${Math.floor(p.lat / cellLat)}`;
         const arr = grid.get(k);
         if (arr) arr.push(p);
         else grid.set(k, [p]);
-    });
-    const converged = new Array<boolean>(items.length).fill(false);
-    const thr2 = METRO_CONVERGENCE_M * METRO_CONVERGENCE_M;
-    for (let i = 0; i < items.length; i++) {
-        const p = items[i];
-        const gx = Math.floor(p.lng / cellLng);
-        const gy = Math.floor(p.lat / cellLat);
-        let near = false;
-        for (let dx = -1; dx <= 1 && !near; dx++) {
-            for (let dy = -1; dy <= 1 && !near; dy++) {
-                const cell = grid.get(`${gx + dx},${gy + dy}`);
-                if (!cell) continue;
-                for (const q of cell) {
-                    if (q.name === p.name) continue;
-                    const my = (q.lat - p.lat) * 111320;
-                    const mx = (q.lng - p.lng) * 111320 * cos;
-                    if (mx * mx + my * my <= thr2) {
-                        near = true;
-                        break;
+    }
+    const maxRings = Math.ceil(METRO_MAX_SEARCH_M / METRO_GRID_M);
+    // Distance (m) to the nearest ref point of a DIFFERENT line (expanding-ring
+    // nearest search, early-terminating). Infinity if none within the search cap.
+    const nearestOther = (lng: number, lat: number, name: string): number => {
+        const gx = Math.floor(lng / cellLng);
+        const gy = Math.floor(lat / cellLat);
+        let best = Infinity;
+        for (let r = 0; r <= maxRings; r++) {
+            if (Number.isFinite(best) && best <= (r - 1) * METRO_GRID_M) break;
+            for (let dx = -r; dx <= r; dx++) {
+                for (let dy = -r; dy <= r; dy++) {
+                    if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+                    const cell = grid.get(`${gx + dx},${gy + dy}`);
+                    if (!cell) continue;
+                    for (const q of cell) {
+                        if (q.name === name) continue;
+                        const my = (q.lat - lat) * 111320;
+                        const mx = (q.lng - lng) * 111320 * cos;
+                        const dd = Math.sqrt(mx * mx + my * my);
+                        if (dd < best) best = dd;
                     }
                 }
             }
         }
-        converged[i] = near;
+        return best;
+    };
+
+    // Pass 2: fine walk; emit adaptively (skip STACKED, spacing ∝ nearest-other).
+    const fine = walkLinesAtStep(lines, METRO_STEP_M);
+    const feats: GeoJSON.Feature<GeoJSON.Point>[] = [];
+    let emitted = 0;
+    let skipped = 0;
+    for (const w of fine.walks) {
+        let distSince = METRO_MAX_SPACING_M; // emit near the start
+        for (const p of w.pts) {
+            const D = nearestOther(p[0], p[1], w.name);
+            distSince += METRO_STEP_M;
+            if (D < METRO_CONVERGENCE_M) {
+                skipped++;
+                continue; // stacked/indistinguishable → not a seed
+            }
+            const target = !Number.isFinite(D)
+                ? METRO_MAX_SPACING_M
+                : Math.min(
+                      METRO_MAX_SPACING_M,
+                      Math.max(METRO_MIN_SPACING_M, METRO_ADAPT_K * D),
+                  );
+            if (distSince >= target) {
+                feats.push(turf.point(p, { name: w.name }));
+                distSince = 0;
+                emitted++;
+            }
+        }
     }
-    const kept = feats.filter((_, i) => !converged[i]);
-    lastMetroConvergedInfo = `conv=${feats.length - kept.length}`;
-    return kept;
+    lastMetroSampleInfo = `len=${Math.round(totalLen / 1000)}km adaptive ref=${refPts.length} emit=${emitted} skip=${skipped}`;
+    return turf.featureCollection(feats);
 }
+
+let lastMetroSampleInfo = "";
+
+// v1246/v1260: distance (m) under which two DIFFERENT lines are treated as
+// "virtually indistinguishable" (only truly STACKED tunnels — e.g. NYC's A/C/E
+// sharing 8th Ave). Sample points that close to another line are SKIPPED by the
+// adaptive sampler (metroSamplePoints), so a stacked corridor doesn't shatter.
+// Kept SMALL (150 m): near-parallel lines (PATH tubes, 200–400 m apart) get a
+// clean midline boundary from their own dense samples, so only the genuinely-
+// stacked case needs dropping.
+const METRO_CONVERGENCE_M = 150;
 
 export interface MetroReachCell {
     cell: GeoJSON.Feature<GeoJSON.Polygon | GeoJSON.MultiPolygon>;
@@ -626,18 +635,9 @@ export async function computeMetroReachCells(
         seenCoord.add(key);
         dedup.push(f);
     }
-    // v1246: drop CONVERGED sections. Where lines from DIFFERENT lines run so
-    // close they're virtually indistinguishable (shared tunnels/corridors near
-    // a hub), a seeker can't tell which is nearest — so those points shouldn't
-    // seed the partition (they produced the shattered thin wedges in the dense
-    // core). Drop a point when another line's point sits within CONVERGENCE_M;
-    // the distinguishable outer stretches keep their cells and the converged
-    // corridor is absorbed into whichever adjacent line's region is nearest.
-    // Spatial grid → O(n). Fall back to the un-filtered set if it thins to <2.
-    const distinct = filterConvergedPoints(dedup, centerLat);
-    const pts = turf.featureCollection(
-        distinct.length >= 2 ? distinct : dedup,
-    );
+    // v1260: convergence is now handled INSIDE metroSamplePoints (it skips points
+    // within METRO_CONVERGENCE_M of another line), so no separate filter step.
+    const pts = turf.featureCollection(dedup);
     if (pts.features.length < 2) return { cells: [], lines: drawLines };
     // v1244: PLANAR `turf.voronoi` (not the spherical `geoSpatialVoronoi`). The
     // spherical one doesn't produce a clean partition at ~2500 points — its
@@ -781,7 +781,7 @@ export async function computeMetroReachCells(
         )
         .join(",");
     setMetroDiag(
-        `${lastMetroDiagBase} | ${lastMetroSampleInfo} pts=${rawPts.features.length}→${dedup.length}→${pts.features.length} ${lastMetroConvergedInfo} vCells=${voronoi.features.length} named=${regionByName.size} drawn=${cells.length} union=${unionMs}ms sum/circle=${ratio.toFixed(2)} giants=${giants} colors=${colors.size} top=[${top}]`,
+        `${lastMetroDiagBase} | ${lastMetroSampleInfo} pts=${rawPts.features.length}→${dedup.length} vCells=${voronoi.features.length} named=${regionByName.size} drawn=${cells.length} union=${unionMs}ms sum/circle=${ratio.toFixed(2)} giants=${giants} colors=${colors.size} top=[${top}]`,
     );
     return { cells, lines: drawLines };
 }

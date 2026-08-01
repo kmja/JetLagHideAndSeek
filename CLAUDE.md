@@ -448,6 +448,20 @@ SMALL piece (`area < 5 km²`): the big ocean is left to the chunking (buffering 
 whole is the perf hit the grid exists to avoid, and it already tests in-result).
 `tsc` + 284 tests green.
 
+**v1260 — metro tentacle: ADAPTIVE sampling (dense only near boundaries).** The
+v1259 uniform 360 m grid fixed correctness but wasted points where a line is
+isolated (the whole area is that line regardless of spacing). Now the emit spacing
+SCALES with the distance to the nearest OTHER line: a two-pass sampler
+(`metroSamplePoints`) coarse-samples all lines into a spatial grid, then fine-walks
+each line at 100 m and emits at `spacing ≈ 0.7 × distance-to-nearest-other-line`
+(clamped 110–900 m), SKIPPING points within `METRO_CONVERGENCE_M` (150 m) of
+another line — so convergence is folded into sampling (the separate
+`filterConvergedPoints` pass is gone). Result: dense boundary-accurate seeds in
+contested corridors, coarse seeds where a line is alone → fewer total points, so
+the Voronoi + per-line union are FASTER than v1259 while boundaries stay accurate.
+Diagnostic now reads `adaptive ref=N emit=N skip=N` + `union=Nms`. `tsc` + 284
+tests green.
+
 **v1259 — metro tentacle ROOT CAUSE of "a line runs through another's region":
 sparse sampling.** A point ON the red NWK–WTC line rendered inside yellow/purple
 wedges — because the partition is nearest-SAMPLE-POINT and at `spacing=1742 m`
