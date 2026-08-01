@@ -448,6 +448,22 @@ SMALL piece (`area < 5 km²`): the big ocean is left to the chunking (buffering 
 whole is the perf hit the grid exists to avoid, and it already tests in-result).
 `tsc` + 284 tests green.
 
+**v1239 — metro tentacle: group by line `ref` + colour by the real OSM line
+colour (was a shattered 123-region purple mesh).** With geometry finally flowing
+(v1238), NYC drew `named=123` regions in one purple — a meaningless shatter,
+because each subway SERVICE has many route relations with variant-specific NAMES
+("A: Inwood – Far Rockaway", "A: Inwood – Lefferts"), so they never grouped. Fix:
+group route relations by the short **`ref`** ("A", "1", "L") that OSM tags every
+relation with (fallback to name where absent), collapsing ~123 variants → ~30
+actual lines — a meaningful nearest-LINE partition. AND colour each region by the
+line's real OSM **`colour`** tag (the A/C/E blue, the 1/2/3 red…) so the overlay
+reads like a subway map: `MetroLine`/`computeMetroReachCells`/`QuestionImpact.reachCells`
+carry an optional `color`, and `InlineLocationPicker`'s reach-cell fill prefers it
+(falling back to the adjacency-shade purple where a line has no colour tag).
+`extractMetroLines` now keys on `metroLabelOf` (ref-first) and tracks colour;
+`normalizeLineColor` handles hex/named OSM colours. Diagnostic: `labels` (was
+`names`). `tsc` + 284 tests green.
+
 **v1238 — metro-line tentacle: live `out geom` fallback when the transit subway
 shard is empty.** The v1237 diagnostic read `names=125 subwayRel=1 joined=0
 lines=0` for NYC — the metro NAMES are cached (125) but the transit SUBWAY shard

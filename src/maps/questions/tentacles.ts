@@ -168,33 +168,68 @@ const METRO_SAMPLE_MAX_PER_LINE = 24;
 interface MetroLine {
     name: string;
     coords: [number, number][];
+    /** The line's OSM `colour` (its map colour), if tagged. */
+    color?: string;
 }
 
-/** Build per-line coords from route-relation elements, reach-filtered.
- *  `name` comes from the element's OWN tags (live `out geom` path) OR, for the
- *  tag-less transit shard, from `nameById` (join by relation id). Coords are
- *  merged BY NAME — a line's two directions are separate relations sharing a
- *  name. Returns the lines + counts for the diagnostic. */
+/** OSM `colour` → a MapLibre-usable colour string, else undefined. Accepts hex
+ *  (`#FF6319` / `FF6319`) and passes through CSS colour names verbatim. */
+function normalizeLineColor(c: unknown): string | undefined {
+    if (typeof c !== "string") return undefined;
+    const s = c.trim();
+    if (!s) return undefined;
+    if (/^#?[0-9a-fA-F]{6}$/.test(s)) return s.startsWith("#") ? s : `#${s}`;
+    if (/^#?[0-9a-fA-F]{3}$/.test(s)) return s.startsWith("#") ? s : `#${s}`;
+    return s; // named colour ("red") / rgb() — MapLibre accepts CSS colours
+}
+
+/** The line LABEL for a route relation — prefer the short `ref` ("A", "1", "L")
+ *  so all of a line's direction/variant relations GROUP into ONE line, instead
+ *  of splitting on variant-specific names ("A: Inwood – Far Rockaway"). Falls
+ *  back to the name where no ref is tagged. From `labelById` (join by id, shard
+ *  path) or the element's own tags (live path). */
+function metroLabelOf(
+    el: any,
+    labelById: Map<number, string>,
+): string | undefined {
+    if (typeof el.id === "number") {
+        const l = labelById.get(el.id);
+        if (l) return l;
+    }
+    return (
+        (typeof el.tags?.ref === "string" ? el.tags.ref : undefined) ??
+        (typeof el.tags?.["name:en"] === "string"
+            ? el.tags["name:en"]
+            : undefined) ??
+        (typeof el.tags?.name === "string" ? el.tags.name : undefined)
+    );
+}
+
+/** Build per-LINE coords (grouped by label/`ref`) from route-relation elements,
+ *  reach-filtered. Label + colour come from `labelById`/`colorById` (shard path,
+ *  join by id) or the element's own tags (live path). Coords merge by label — a
+ *  line's directions/variants share a ref. Returns the lines + counts. */
 function extractMetroLines(
     elements: any[],
-    nameById: Map<number, string>,
+    labelById: Map<number, string>,
+    colorById: Map<number, string>,
     centerLat: number,
     centerLng: number,
     radiusMeters: number,
 ): { lines: MetroLine[]; rels: number; withGeom: number; outOfRange: number } {
     const coordsByName = new Map<string, [number, number][]>();
+    const colorByName = new Map<string, string>();
     let rels = 0;
     let withGeom = 0;
     for (const el of elements) {
         if (el?.type !== "relation") continue;
         rels++;
-        const name: string | undefined =
-            (typeof el.id === "number" ? nameById.get(el.id) : undefined) ??
-            (typeof el.tags?.["name:en"] === "string"
-                ? el.tags["name:en"]
-                : undefined) ??
-            (typeof el.tags?.name === "string" ? el.tags.name : undefined);
+        const name = metroLabelOf(el, labelById);
         if (!name) continue;
+        const color =
+            (typeof el.id === "number" ? colorById.get(el.id) : undefined) ??
+            normalizeLineColor(el.tags?.colour ?? el.tags?.color);
+        if (color && !colorByName.has(name)) colorByName.set(name, color);
         const coords: [number, number][] = [];
         for (const m of el.members ?? []) {
             if (m?.type !== "way" || !Array.isArray(m.geometry)) continue;
@@ -222,7 +257,7 @@ function extractMetroLines(
             outOfRange++;
             continue;
         }
-        lines.push({ name, coords });
+        lines.push({ name, coords, color: colorByName.get(name) });
     }
     return { lines, rels, withGeom, outOfRange };
 }
@@ -252,21 +287,25 @@ async function fetchReachableMetroLines(
 ): Promise<MetroLine[]> {
     const radiusMeters = turf.convertLength(radius, unit, "meters");
 
-    // Names: relation id → line name (metro endpoint, no geometry).
+    // Metro endpoint: relation id → line LABEL (`ref` preferred so variants
+    // group into one line) + colour. No geometry (out tags geom).
     let metroData: any;
     try {
         metroData = await fetchMetroRoutesData();
     } catch {
         metroData = null;
     }
-    const nameById = new Map<number, string>();
+    const labelById = new Map<number, string>();
+    const colorById = new Map<number, string>();
     for (const el of metroData?.elements ?? []) {
         if (el?.type !== "relation" || typeof el.id !== "number") continue;
-        const name = el.tags?.["name:en"] ?? el.tags?.name;
-        if (typeof name === "string" && name) nameById.set(el.id, name);
+        const label = el.tags?.ref ?? el.tags?.["name:en"] ?? el.tags?.name;
+        if (typeof label === "string" && label) labelById.set(el.id, label);
+        const color = normalizeLineColor(el.tags?.colour ?? el.tags?.color);
+        if (color) colorById.set(el.id, color);
     }
 
-    // 1. Cached transit subway shard, joined to the names by relation id.
+    // 1. Cached transit subway shard, joined to the labels by relation id.
     let shardRels: any[] = [];
     try {
         shardRels = await fetchSubwayRouteRelations();
@@ -275,7 +314,8 @@ async function fetchReachableMetroLines(
     }
     let res = extractMetroLines(
         shardRels,
-        nameById,
+        labelById,
+        colorById,
         centerLat,
         centerLng,
         radiusMeters,
@@ -299,7 +339,8 @@ async function fetchReachableMetroLines(
             if (live?.elements) {
                 res = extractMetroLines(
                     live.elements,
-                    nameById,
+                    labelById,
+                    colorById,
                     centerLat,
                     centerLng,
                     radiusMeters,
@@ -309,7 +350,7 @@ async function fetchReachableMetroLines(
     }
 
     setMetroDiag(
-        `names=${nameById.size} src=${src} shardRel=${shardRels.length} rels=${res.rels} withGeom=${res.withGeom} outOfRange=${res.outOfRange} lines=${res.lines.length}`,
+        `labels=${labelById.size} src=${src} shardRel=${shardRels.length} rels=${res.rels} withGeom=${res.withGeom} outOfRange=${res.outOfRange} lines=${res.lines.length}`,
     );
     return res.lines;
 }
@@ -419,10 +460,13 @@ export async function computeMetroReachCells(
     Array<{
         cell: GeoJSON.Feature<GeoJSON.Polygon | GeoJSON.MultiPolygon>;
         name: string;
+        color?: string;
     }>
 > {
     const lines = await fetchReachableMetroLines(centerLat, centerLng, radius, unit);
     if (lines.length === 0) return [];
+    const colorByName = new Map<string, string>();
+    for (const l of lines) if (l.color) colorByName.set(l.name, l.color);
     let reach: GeoJSON.Feature<GeoJSON.Polygon>;
     try {
         reach = turf.circle([centerLng, centerLat], radius, {
@@ -433,7 +477,14 @@ export async function computeMetroReachCells(
         setMetroDiag(`${lastMetroDiagBase} | reach circle FAILED`);
         return [];
     }
-    if (lines.length === 1) return [{ cell: reach, name: lines[0].name }];
+    if (lines.length === 1)
+        return [
+            {
+                cell: reach,
+                name: lines[0].name,
+                color: lines[0].color,
+            },
+        ];
     const pts = metroSamplePoints(lines);
     if (pts.features.length < 2) return [];
     let voronoi: GeoJSON.FeatureCollection<
@@ -451,6 +502,7 @@ export async function computeMetroReachCells(
     const cells: Array<{
         cell: GeoJSON.Feature<GeoJSON.Polygon | GeoJSON.MultiPolygon>;
         name: string;
+        color?: string;
     }> = [];
     for (const [name, region] of regionByName) {
         try {
@@ -463,6 +515,7 @@ export async function computeMetroReachCells(
                         GeoJSON.Polygon | GeoJSON.MultiPolygon
                     >,
                     name,
+                    color: colorByName.get(name),
                 });
         } catch {
             /* skip this line's cell */

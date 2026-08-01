@@ -82,6 +82,8 @@ export interface QuestionImpact {
     reachCells?: Array<{
         cell: Feature<Polygon | MultiPolygon>;
         name: string;
+        /** v1238: the line's OSM map colour (metro tentacles), if tagged. */
+        color?: string;
     }>;
     /** Seeker's nearest candidate (matching/measuring). */
     nearest: { lat: number; lng: number; name: string } | null;
@@ -437,6 +439,7 @@ export function useQuestionImpact(
         cells: Array<{
             cell: Feature<Polygon | MultiPolygon>;
             name: string;
+            color?: string;
         }>;
     } | null>(null);
     useEffect(() => {
@@ -974,6 +977,7 @@ export function useQuestionImpact(
                     out.reachCells = metroState.cells.map((c) => ({
                         cell: c.cell,
                         name: c.name,
+                        color: c.color,
                     }));
                 }
             } else if (reach) {
