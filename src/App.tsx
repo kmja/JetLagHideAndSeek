@@ -59,6 +59,13 @@ const DebugAdjacencyPage = lazyWithRetry(() =>
         default: m.DebugAdjacencyPage,
     })),
 );
+// Developer font-size lab — real components + real fonts, with sliders that
+// remap the actual Tailwind size classes. Reached from the debug panel.
+const DebugFontsPage = lazyWithRetry(() =>
+    import("@/pages/DebugFontsPage").then((m) => ({
+        default: m.DebugFontsPage,
+    })),
+);
 // First-time / new-game wizard route (v252). Was a dialog overlay
 // on the seeker view; now its own page. Reached via the Welcome
 // screen's "Start new game" or the route-level redirect when
@@ -227,6 +234,10 @@ const router = createBrowserRouter([
     {
         path: "/debug/adjacency",
         element: <RouteWrapper element={<DebugAdjacencyPage />} />,
+    },
+    {
+        path: "/debug/fonts",
+        element: <RouteWrapper element={<DebugFontsPage />} />,
     },
     // Catch-all — anything else lands on the seeker shell (which the
     // gate then redirects from if welcome / setup haven't been done,

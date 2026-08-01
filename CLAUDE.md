@@ -448,6 +448,20 @@ SMALL piece (`area < 5 km²`): the big ocean is left to the chunking (buffering 
 whole is the perf hit the grid exists to avoid, and it already tests in-result).
 `tsc` + 284 tests green.
 
+**v1218 — in-app font-size lab (`/debug/fonts`) with the REAL components +
+fonts.** A new developer route renders the ACTUAL app components — the on-map
+overlays (`PendingAnswerOverlay`, `HiderUnansweredOverlay`, `HiderTimer` via their
+`preview` props), the real bottom-nav primitives (`bottomNavPrimitives`), and a
+real `QuestionOverlayCard` configure dialog — so it uses the app's real fonts
+(Poppins / Inter Tight / M PLUS Rounded, loaded app-wide) and chrome, not a mock.
+A sidebar of sliders remaps the actual Tailwind size utilities (`text-[9px]`,
+`text-[10px]`, `text-[11px]`, `text-xs`…`text-3xl`) to CSS variables scoped to a
+`.font-lab` wrapper (`!important` override, arbitrary-value class names escaped),
+so dragging one live-resizes every real element that uses that class — no
+component changes, no global state touched. Light/dark toggle + Reset. Reached
+from the debug panel's "Font-size lab" button (`DebugPhaseControls`) alongside the
+card/overlay galleries. `tsc` + 284 tests green.
+
 **v1217 — hider nav Zone slot always reads "Zone".** The hider bottom-nav Zone
 slot label was `$hidingZone === null ? "Select zone" : "Zone"`; it now always
 reads "Zone" (`HiderBottomNav`). Confirmed both nav bars' slot labels are already

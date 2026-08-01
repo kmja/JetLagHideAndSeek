@@ -1270,6 +1270,16 @@ export function DebugPhaseControls(_props: { floating?: DebugFloating } = {}) {
                         </span>
                     </DebugButton>
                     <DebugButton
+                        onClick={() => {
+                            window.location.assign("/debug/fonts");
+                        }}
+                    >
+                        <span className="inline-flex items-center gap-1.5">
+                            <LayoutGrid className="w-3.5 h-3.5" />
+                            Font-size lab (real components + fonts)
+                        </span>
+                    </DebugButton>
+                    <DebugButton
                         variant="danger"
                         onClick={async () => {
                             const ok = await appConfirm({
