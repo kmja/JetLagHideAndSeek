@@ -448,6 +448,15 @@ SMALL piece (`area < 5 km²`): the big ocean is left to the chunking (buffering 
 whole is the perf hit the grid exists to avoid, and it already tests in-result).
 `tsc` + 284 tests green.
 
+**v1250 — metro tentacle: use the category PURPLE shades, not real line colours.**
+Reverted the v1238 real-OSM-line-colour rendering — the metro tentacle overlay now
+uses the same adjacency-graph purple shades every other tentacle question uses
+(`assignCellColors`), and the drawn lines are a single neutral category purple. The
+cells' distinct shades distinguish the lines; real MTA/tunnelbana colours belong on
+a dedicated subway overlay, not the deduction overlay. The `colour` fetch/plumbing
+in `tentacles.ts` stays (unused) so it's trivially reversible. `tsc` + 284 tests
+green.
+
 **v1249 — metro tentacle labels: decluttered SYMBOL layer (not stacked pills).**
 v1248's HTML `<Marker>` pills piled into an unreadable cluster in the dense core
 (29 lines converge near a hub, and HTML markers don't collide-hide). Same

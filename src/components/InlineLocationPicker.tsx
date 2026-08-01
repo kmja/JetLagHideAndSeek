@@ -1201,9 +1201,9 @@ export function InlineLocationPicker({
         // v1176: colour by spatial adjacency (greedy graph colouring) so no two
         // touching cells share a shade — index-cycling put similar shades side
         // by side because the list index is unrelated to the map position.
-        // v1238: for metro tentacles, PREFER each line's real OSM `colour` (its
-        // map colour — the A/C/E blue, the 1/2/3 red…) so the overlay reads like
-        // a subway map; fall back to the adjacency shade where a line has none.
+        // v1250: use the category's PURPLE adjacency shades like every other
+        // tentacle question (the v1238 real-OSM-line-colour path was dropped —
+        // real line colours belong on a dedicated subway overlay, not here).
         const fills = assignCellColors(
             cells.map((rc) => rc.cell as GeoJSON.Feature),
         );
@@ -1213,7 +1213,7 @@ export function InlineLocationPicker({
                 ...(rc.cell as GeoJSON.Feature),
                 properties: {
                     ...((rc.cell as GeoJSON.Feature).properties ?? {}),
-                    fill: rc.color ?? fills[i],
+                    fill: fills[i],
                     cellName: rc.name,
                 },
             })),
@@ -1234,7 +1234,10 @@ export function InlineLocationPicker({
                 .map((l) => ({
                     type: "Feature" as const,
                     properties: {
-                        lineColor: l.color ?? "hsl(266, 70%, 55%)",
+                        // v1250: neutral category purple for every line (dropped
+                        // the real OSM line colour — the cells' adjacency shades
+                        // distinguish lines; the line is just a locator).
+                        lineColor: "hsl(266, 70%, 55%)",
                         lineName: l.name,
                     },
                     geometry: {
