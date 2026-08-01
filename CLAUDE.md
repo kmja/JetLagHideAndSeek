@@ -448,6 +448,17 @@ SMALL piece (`area < 5 km²`): the big ocean is left to the chunking (buffering 
 whole is the perf hit the grid exists to avoid, and it already tests in-result).
 `tsc` + 284 tests green.
 
+**v1261 — metro tentacle: SHARED-track services stay claimed (was "the 2 runs
+through green").** NYC runs many services on ONE physical track (Bronx 2+5 on
+White Plains Rd, 8th Ave A/C/E, 7th Ave express 2/3…). The v1260 sampler SKIPPED
+any point within `METRO_CONVERGENCE_M` of another line — which on a shared track
+emptied BOTH services' seeds, so a DIFFERENT trunk's region expanded across the
+track (the 2's track showing green; `skip=33289`, `drawn` dropped 29→19). Now a
+shared/stacked point is EMITTED at a coarse fixed spacing (`METRO_SHARED_SPACING_M`
+= 500 m) instead of skipped, so the track stays claimed by one of the services
+sharing it (keeps the right trunk colour) without exploding the point count.
+Diagnostic `skip=N` → `shared=N`. `tsc` + 284 tests green.
+
 **v1260 — metro tentacle: ADAPTIVE sampling (dense only near boundaries).** The
 v1259 uniform 360 m grid fixed correctness but wasted points where a line is
 isolated (the whole area is that line regardless of spacing). Now the emit spacing

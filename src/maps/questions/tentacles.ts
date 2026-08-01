@@ -177,6 +177,9 @@ const METRO_ADAPT_K = 0.7; // emit spacing ≈ K × distance-to-nearest-other-li
 const METRO_MIN_SPACING_M = 110; // densest emit spacing (contested corridors)
 const METRO_MAX_SPACING_M = 900; // coarsest emit spacing (isolated stretches)
 const METRO_MAX_SEARCH_M = 1400; // beyond this a line is "isolated" → max spacing
+const METRO_SHARED_SPACING_M = 500; // v1261: emit spacing on a shared/stacked track
+//   (another line within METRO_CONVERGENCE_M) — coarse, so the track stays
+//   claimed by one of the sharing services without exploding the point count.
 
 interface MetroLine {
     name: string;
@@ -525,22 +528,31 @@ function metroSamplePoints(
     const fine = walkLinesAtStep(lines, METRO_STEP_M);
     const feats: GeoJSON.Feature<GeoJSON.Point>[] = [];
     let emitted = 0;
-    let skipped = 0;
+    let shared = 0;
     for (const w of fine.walks) {
         let distSince = METRO_MAX_SPACING_M; // emit near the start
         for (const p of w.pts) {
             const D = nearestOther(p[0], p[1], w.name);
             distSince += METRO_STEP_M;
-            if (D < METRO_CONVERGENCE_M) {
-                skipped++;
-                continue; // stacked/indistinguishable → not a seed
-            }
-            const target = !Number.isFinite(D)
-                ? METRO_MAX_SPACING_M
-                : Math.min(
-                      METRO_MAX_SPACING_M,
-                      Math.max(METRO_MIN_SPACING_M, METRO_ADAPT_K * D),
-                  );
+            // v1261: on a SHARED/stacked track (another line within
+            // CONVERGENCE_M — NYC runs many services on ONE track, e.g. the
+            // Bronx 2+5 on White Plains Rd, the 8th Ave A/C/E), DON'T skip:
+            // skipping empties the track of this line's seeds so a DIFFERENT
+            // trunk's region expands across it (the "2 runs through green" bug,
+            // and lines dropped entirely). Emit COARSELY instead — the track
+            // stays claimed by one of the services sharing it (so it keeps the
+            // right trunk colour), without exploding the point count if we
+            // sampled every stacked metre densely.
+            const stacked = D < METRO_CONVERGENCE_M;
+            if (stacked) shared++;
+            const target = stacked
+                ? METRO_SHARED_SPACING_M
+                : !Number.isFinite(D)
+                  ? METRO_MAX_SPACING_M
+                  : Math.min(
+                        METRO_MAX_SPACING_M,
+                        Math.max(METRO_MIN_SPACING_M, METRO_ADAPT_K * D),
+                    );
             if (distSince >= target) {
                 feats.push(turf.point(p, { name: w.name }));
                 distSince = 0;
@@ -548,7 +560,7 @@ function metroSamplePoints(
             }
         }
     }
-    lastMetroSampleInfo = `len=${Math.round(totalLen / 1000)}km adaptive ref=${refPts.length} emit=${emitted} skip=${skipped}`;
+    lastMetroSampleInfo = `len=${Math.round(totalLen / 1000)}km adaptive ref=${refPts.length} emit=${emitted} shared=${shared}`;
     return turf.featureCollection(feats);
 }
 
