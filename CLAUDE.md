@@ -448,6 +448,14 @@ SMALL piece (`area < 5 km²`): the big ocean is left to the chunking (buffering 
 whole is the perf hit the grid exists to avoid, and it already tests in-result).
 `tsc` + 284 tests green.
 
+**v1221 — revert "Ask" → "New question", now sentence case.** Reverted the v1220
+label shortening: the seeker primary CTA reads "New question" again (kept
+`whitespace-nowrap` so it stays on one line when scaled). Made it SENTENCE CASE
+(dropped `uppercase` + `tracking-wider` from `NAV_PRIMARY_LABEL_CLASS` + the
+BottomNav inline label) to match the other bottom-nav labels; the primary stays a
+touch bolder (`font-bold` vs the secondary `font-semibold`). `tsc` + 284 tests
+green.
+
 **v1220 — larger-text robustness: overlay card grows, nav labels don't wrap,
 "New question" → "Ask".** Fixes the breaks the font-size lab surfaced at bigger
 sizes. (1) `QuestionOverlayCard` (the pending-answer / hider / collapsed-question

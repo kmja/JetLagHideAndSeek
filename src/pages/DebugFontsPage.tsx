@@ -184,7 +184,7 @@ function SeekerNav() {
             </div>
             <div className={NAV_PRIMARY_CLASS}>
                 <Plus className="w-6 h-6" />
-                <span className={NAV_PRIMARY_LABEL_CLASS}>Ask</span>
+                <span className={NAV_PRIMARY_LABEL_CLASS}>New question</span>
             </div>
             <div className={NAV_BTN_CLASS}>
                 <MapIcon className="w-5 h-5" />

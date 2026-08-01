@@ -33,8 +33,10 @@ export const NAV_PRIMARY_CLASS = cn(
 // base font size is scaled up (the slot is narrow — a wrap breaks the row).
 export const NAV_LABEL_CLASS =
     "text-xs font-poppins font-semibold whitespace-nowrap";
+// v1221: sentence case (was uppercase) to match the other nav labels; the
+// primary CTA stays a touch bolder (`font-bold`) than the secondary slots.
 export const NAV_PRIMARY_LABEL_CLASS =
-    "text-xs font-bold uppercase tracking-wider whitespace-nowrap";
+    "text-xs font-poppins font-bold whitespace-nowrap";
 
 /**
  * The small count pill in a nav slot's top-right corner. Base geometry is
