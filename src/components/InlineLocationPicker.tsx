@@ -6,11 +6,13 @@ import {
     booleanIntersects,
     booleanPointInPolygon,
     circle as turfCircle,
+    along,
     featureCollection,
+    length as turfLength,
     lineOverlap,
+    lineString,
     nearestPointOnLine,
     point as turfPoint,
-    pointOnFeature,
     polygonToLine,
     voronoi,
 } from "@turf/turf";
@@ -1248,33 +1250,50 @@ export function InlineLocationPicker({
         } as GeoJSON.FeatureCollection;
     }, [impact?.reachLines]);
 
-    // v1248/v1249: one NAME LABEL per metro line, anchored at a guaranteed-inside
-    // representative point of each line's region (pointOnFeature). Rendered as a
-    // MapLibre SYMBOL layer (not HTML pills) so collision detection hides
-    // overlapping labels — 29 lines converge near a hub, and stacked pills piled
-    // into an unreadable cluster (v1248). The symbol layer declutters and reveals
-    // more labels as you zoom in.
+    // v1248/v1249: one NAME LABEL per metro line, rendered as a MapLibre SYMBOL
+    // layer (not HTML pills) so collision detection hides overlapping labels — 29
+    // lines converge near a hub, and stacked pills piled into an unreadable
+    // cluster (v1248). The symbol layer declutters and reveals more labels as you
+    // zoom in.
+    // v1251: anchor the label ON THE LINE itself (mid-way along its LONGEST
+    // segment), not at the region centroid — the label belongs to the line, and
+    // an on-line anchor away from endpoints reads as "this line is X".
     const reachLabelsFC = useMemo(() => {
-        const cells = impact?.reachCells;
-        if (!cells || cells.length === 0) return null;
+        const lines = impact?.reachLines;
+        if (!lines || lines.length === 0) return null;
         const feats: GeoJSON.Feature[] = [];
-        for (const rc of cells) {
-            if (!rc.name) continue;
+        for (const l of lines) {
+            if (!l.name || !l.segments || l.segments.length === 0) continue;
             try {
-                const p = pointOnFeature(rc.cell as GeoJSON.Feature);
+                let best: [number, number][] | null = null;
+                let bestLen = -1;
+                for (const seg of l.segments) {
+                    if (!seg || seg.length < 2) continue;
+                    const len = turfLength(lineString(seg), {
+                        units: "kilometers",
+                    });
+                    if (len > bestLen) {
+                        bestLen = len;
+                        best = seg;
+                    }
+                }
+                if (!best) continue;
+                const p = along(lineString(best), bestLen / 2, {
+                    units: "kilometers",
+                });
                 feats.push({
                     type: "Feature",
-                    properties: { name: rc.name },
+                    properties: { name: l.name },
                     geometry: p.geometry,
                 });
             } catch {
-                /* skip a cell whose interior point can't be found */
+                /* skip a line whose anchor can't be computed */
             }
         }
         return feats.length > 0
             ? ({ type: "FeatureCollection", features: feats } as GeoJSON.FeatureCollection)
             : null;
-    }, [impact?.reachCells]);
+    }, [impact?.reachLines]);
 
     // Basemap brightness drives the hiding-zones palette, exactly like the
     // main map (Map.tsx): neutral grey on the light Protomaps basemap,

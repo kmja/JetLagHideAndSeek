@@ -448,6 +448,13 @@ SMALL piece (`area < 5 km²`): the big ocean is left to the chunking (buffering 
 whole is the perf hit the grid exists to avoid, and it already tests in-result).
 `tsc` + 284 tests green.
 
+**v1251 — metro tentacle labels anchored ON the line, not the region.** The
+per-line name label was placed at the region centroid (`pointOnFeature` of the
+cell); it now anchors mid-way along the line's LONGEST segment (`turf.along` at
+half its length) — fed from `impact.reachLines` instead of `reachCells` — so the
+label sits on the line geometry itself, away from endpoints. Still the decluttered
+symbol layer. `tsc` + 284 tests green.
+
 **v1250 — metro tentacle: use the category PURPLE shades, not real line colours.**
 Reverted the v1238 real-OSM-line-colour rendering — the metro tentacle overlay now
 uses the same adjacency-graph purple shades every other tentacle question uses
