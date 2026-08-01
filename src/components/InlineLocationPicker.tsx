@@ -94,6 +94,47 @@ import { SelfPositionMarker } from "./SelfPositionMarker";
  * border, so they're dropped. Returns null on any failure (caller falls back to
  * the full/remaining-area set).
  */
+/** Parse a hex colour (`#RGB` / `#RRGGBB`, `#`-optional) to HSL (h 0–360, s/l
+ *  0–1). Returns null for named / rgb() / already-hsl strings (which we then use
+ *  verbatim). Used to shade same-trunk metro lines by lightness. */
+function parseColorToHsl(
+    c: string,
+): { h: number; s: number; l: number } | null {
+    let hex = c.trim();
+    if (hex.startsWith("#")) hex = hex.slice(1);
+    if (hex.length === 3)
+        hex = hex
+            .split("")
+            .map((ch) => ch + ch)
+            .join("");
+    if (!/^[0-9a-fA-F]{6}$/.test(hex)) return null;
+    const r = parseInt(hex.slice(0, 2), 16) / 255;
+    const g = parseInt(hex.slice(2, 4), 16) / 255;
+    const b = parseInt(hex.slice(4, 6), 16) / 255;
+    const max = Math.max(r, g, b);
+    const min = Math.min(r, g, b);
+    const l = (max + min) / 2;
+    const d = max - min;
+    let h = 0;
+    let s = 0;
+    if (d !== 0) {
+        s = d / (1 - Math.abs(2 * l - 1));
+        switch (max) {
+            case r:
+                h = ((g - b) / d) % 6;
+                break;
+            case g:
+                h = (b - r) / d + 2;
+                break;
+            default:
+                h = (r - g) / d + 4;
+        }
+        h *= 60;
+        if (h < 0) h += 360;
+    }
+    return { h, s, l };
+}
+
 function matchingBorderIndices(
     candidates: { lat: number; lng: number }[],
     anchor: { lat: number; lng: number },
@@ -1211,13 +1252,49 @@ export function InlineLocationPicker({
         const fills = assignCellColors(
             cells.map((rc) => rc.cell as GeoJSON.Feature),
         );
+        // v1257: NYC groups several services onto ONE trunk colour (A/C/E blue,
+        // 4/5/6 green, 1/2/3 red…), so two different same-trunk lines would be the
+        // same colour where they meet. Give each LINE on a shared trunk a distinct
+        // LIGHTNESS shade — spread the lines sharing a base colour across a ±band —
+        // so a line's own regions stay one shade but same-trunk neighbours read as
+        // different shades of blue/green/etc. Keyed by line name → consistent per
+        // line; single-line trunks are unshifted.
+        const namesByColor = new globalThis.Map<string, string[]>();
+        for (const rc of cells) {
+            if (!rc.color || !rc.name) continue;
+            const arr = namesByColor.get(rc.color);
+            if (arr) {
+                if (!arr.includes(rc.name)) arr.push(rc.name);
+            } else namesByColor.set(rc.color, [rc.name]);
+        }
+        const SHADE_SPREAD = 0.17; // ± lightness band across a shared trunk
+        const shadeByName = new globalThis.Map<string, string>();
+        for (const [color, names] of namesByColor) {
+            const hsl = parseColorToHsl(color);
+            names.forEach((nm, idx) => {
+                if (!hsl || names.length === 1) {
+                    shadeByName.set(nm, color);
+                    return;
+                }
+                const off =
+                    (idx / (names.length - 1) - 0.5) * 2 * SHADE_SPREAD;
+                const l = Math.min(0.82, Math.max(0.28, hsl.l + off));
+                shadeByName.set(
+                    nm,
+                    `hsl(${Math.round(hsl.h)}, ${Math.round(hsl.s * 100)}%, ${Math.round(l * 100)}%)`,
+                );
+            });
+        }
         return {
             type: "FeatureCollection" as const,
             features: cells.map((rc, i) => ({
                 ...(rc.cell as GeoJSON.Feature),
                 properties: {
                     ...((rc.cell as GeoJSON.Feature).properties ?? {}),
-                    fill: rc.color ?? fills[i],
+                    fill:
+                        (rc.name ? shadeByName.get(rc.name) : undefined) ??
+                        rc.color ??
+                        fills[i],
                     cellName: rc.name,
                 },
             })),

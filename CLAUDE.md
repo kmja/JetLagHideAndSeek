@@ -448,6 +448,16 @@ SMALL piece (`area < 5 km²`): the big ocean is left to the chunking (buffering 
 whole is the perf hit the grid exists to avoid, and it already tests in-result).
 `tsc` + 284 tests green.
 
+**v1257 — metro tentacle: distinguish same-trunk lines by lightness shade.** NYC
+groups several services onto ONE trunk colour (A/C/E blue, 4/5/6 green, 1/2/3
+red…), so v1256's real-colour cells made two different same-trunk lines the same
+colour where they meet. Each LINE sharing a base colour now gets a distinct
+LIGHTNESS shade (lines on a trunk spread across a ±0.17 band, clamped 0.28–0.82),
+keyed by line name so a line's own regions stay ONE shade while same-trunk
+neighbours read as different shades of blue/green/etc. `parseColorToHsl`
+(`InlineLocationPicker`) parses the OSM hex → HSL; single-line trunks + non-hex
+(named/rgb) colours are used verbatim. `tsc` + 284 tests green.
+
 **v1256 — metro tentacle: full circle coverage + colour cells by real line
 colour.** Two fixes. (1) COVERAGE — the Voronoi bbox was the POINTS bbox, but the
 metro network doesn't reach every edge of the reach circle (no subway in the far
