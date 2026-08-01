@@ -10,6 +10,7 @@ import {
     lineOverlap,
     nearestPointOnLine,
     point as turfPoint,
+    pointOnFeature,
     polygonToLine,
     voronoi,
 } from "@turf/turf";
@@ -1244,6 +1245,28 @@ export function InlineLocationPicker({
         } as GeoJSON.FeatureCollection;
     }, [impact?.reachLines]);
 
+    // v1248: one NAME LABEL per metro line — the same pill labels the other
+    // tentacle questions plot on each reference point, but metro references are
+    // LINES/regions, so anchor the pill at a guaranteed-inside representative
+    // point of each line's region (pointOnFeature). Largest region first so a
+    // small clipped sliver's label doesn't win when two cells share a name.
+    const reachLabels = useMemo(() => {
+        const cells = impact?.reachCells;
+        if (!cells || cells.length === 0) return null;
+        const out: { name: string; lng: number; lat: number }[] = [];
+        for (const rc of cells) {
+            if (!rc.name) continue;
+            try {
+                const p = pointOnFeature(rc.cell as GeoJSON.Feature);
+                const c = p.geometry.coordinates;
+                out.push({ name: rc.name, lng: c[0], lat: c[1] });
+            } catch {
+                /* skip a cell whose interior point can't be found */
+            }
+        }
+        return out.length > 0 ? out : null;
+    }, [impact?.reachCells]);
+
     // Basemap brightness drives the hiding-zones palette, exactly like the
     // main map (Map.tsx): neutral grey on the light Protomaps basemap,
     // brand red / near-white wash over satellite + dark.
@@ -1639,6 +1662,21 @@ export function InlineLocationPicker({
                                     />
                                 </Source>
                             )}
+                            {/* v1248: per-line NAME labels — the same pill the
+                                other tentacle questions plot on each reference,
+                                anchored inside each line's region. */}
+                            {reachLabels?.map((l, i) => (
+                                <Marker
+                                    key={`metro-lbl-${i}-${l.name}`}
+                                    longitude={l.lng}
+                                    latitude={l.lat}
+                                    anchor="center"
+                                >
+                                    <span className="max-w-[104px] truncate rounded-sm border border-foreground/20 bg-background/85 px-1 py-0.5 text-xs font-semibold leading-none text-foreground/85 shadow-sm">
+                                        {l.name}
+                                    </span>
+                                </Marker>
+                            ))}
                             <Source
                                 id="impact-reach"
                                 type="geojson"

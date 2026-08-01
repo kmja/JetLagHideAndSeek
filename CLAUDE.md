@@ -448,6 +448,15 @@ SMALL piece (`area < 5 km²`): the big ocean is left to the chunking (buffering 
 whole is the perf hit the grid exists to avoid, and it already tests in-result).
 `tsc` + 284 tests green.
 
+**v1248 — metro tentacle: per-line NAME labels on the preview.** The metro
+regions had no labels; other tentacle questions plot a neutral name pill on each
+reference. Metro references are LINES/regions (not points), so `reachLabels`
+(`InlineLocationPicker`) anchors ONE pill per line at a guaranteed-inside
+representative point of its region (`pointOnFeature` on the cell), rendered as the
+SAME `<Marker>` pill style the other tentacles use (`max-w-[104px] truncate …
+bg-background/85`). Fed from `impact.reachCells` (name + geometry), so it reuses
+the partition already computed. `tsc` + 284 tests green.
+
 **v1247 — metro tentacle: restore full coverage after the convergence filter.**
 v1246's converged-point drop worked (calm core) but `sum/circle` fell to 0.83 —
 a per-line `safeUnion` failure fell the WHOLE line back to a single Voronoi cell
