@@ -191,6 +191,16 @@ function normalizeLineColor(c: unknown): string | undefined {
     return s; // named colour ("red") / rgb() — MapLibre accepts CSS colours
 }
 
+/** v1254: fold express variants into their base service. NYC tags the express
+ *  service with the diamond / angle-bracket notation ("<6>", "<7>", "<F>") — the
+ *  SAME line as its local ("6","7","F"): same track, same colour, drawn as ONE
+ *  line in Google Maps (the rulebook's reference standard). Strip the brackets so
+ *  they don't count as two distinct lines. No-op elsewhere (no other network puts
+ *  `<>` in a ref). */
+function normalizeMetroLabel(s: string): string {
+    return s.replace(/[<>]/g, "").trim();
+}
+
 /** The line LABEL for a route relation — prefer the short `ref` ("A", "1", "L")
  *  so all of a line's direction/variant relations GROUP into ONE line, instead
  *  of splitting on variant-specific names ("A: Inwood – Far Rockaway"). Falls
@@ -202,15 +212,15 @@ function metroLabelOf(
 ): string | undefined {
     if (typeof el.id === "number") {
         const l = labelById.get(el.id);
-        if (l) return l;
+        if (l) return normalizeMetroLabel(l);
     }
-    return (
+    const raw =
         (typeof el.tags?.ref === "string" ? el.tags.ref : undefined) ??
         (typeof el.tags?.["name:en"] === "string"
             ? el.tags["name:en"]
             : undefined) ??
-        (typeof el.tags?.name === "string" ? el.tags.name : undefined)
-    );
+        (typeof el.tags?.name === "string" ? el.tags.name : undefined);
+    return typeof raw === "string" ? normalizeMetroLabel(raw) : undefined;
 }
 
 /** Build per-LINE coords (grouped by label/`ref`) from route-relation elements,

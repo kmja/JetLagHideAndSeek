@@ -448,6 +448,17 @@ SMALL piece (`area < 5 km²`): the big ocean is left to the chunking (buffering 
 whole is the perf hit the grid exists to avoid, and it already tests in-result).
 `tsc` + 284 tests green.
 
+**v1254 — metro tentacle: fold EXPRESS variants into their base service.** NYC
+tags the express service with the diamond / angle-bracket notation (`<6>`, `<7>`,
+`<F>`) — the SAME line as its local (`6`/`7`/`F`): same track, same colour, drawn
+as ONE line in Google Maps (the rulebook's reference standard, p468 "drawn as
+colored lines in Google Maps"). `normalizeMetroLabel` strips the `<>` so express
+folds into its base and they don't count as two distinct lines; applied in
+`metroLabelOf` on BOTH the shard-path (`labelById`) and live-path (tags) label.
+No-op elsewhere (no other network puts `<>` in a `ref`). PATH (NWK–WTC, JSQ–33…)
+and Staten Island Railway are LEFT in — Google Maps draws them as separate lines,
+so they legitimately count by the rulebook's own standard. `tsc` + 284 tests green.
+
 **v1253 — metro tentacle drawn lines are NEUTRAL (were category purple).** The
 purple line over the purple-shaded cells read like it carried meaning; the drawn
 line is now a neutral basemap-aware locator (contrasting halo casing + a neutral
