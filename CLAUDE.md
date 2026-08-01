@@ -448,6 +448,14 @@ SMALL piece (`area < 5 km²`): the big ocean is left to the chunking (buffering 
 whole is the perf hit the grid exists to avoid, and it already tests in-result).
 `tsc` + 284 tests green.
 
+**v1252 — metro tentacle labels back to the tentacle PILL style, line-anchored.**
+Restored the same `<Marker>` pill the other tentacle questions plot on each
+reference (`max-w-[104px] truncate … bg-background/85`), replacing the v1249
+symbol layer — but kept the v1251 on-line anchor (mid-way along each line's
+longest segment). Mid-longest-segment anchors spread the pills out along the lines
+rather than piling them at region centres, so they read better than the v1248
+region-anchored pills. `tsc` + 284 tests green.
+
 **v1251 — metro tentacle labels anchored ON the line, not the region.** The
 per-line name label was placed at the region centroid (`pointOnFeature` of the
 cell); it now anchors mid-way along the line's LONGEST segment (`turf.along` at
