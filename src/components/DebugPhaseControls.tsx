@@ -22,6 +22,7 @@ import { spoofRandomInPlayArea } from "@/lib/debugSpoofArea";
 import {
     debugPanelOpen,
     lastBodyOfWaterDiag,
+    lastMetroDiag,
     lastPreloadDiag,
     lastSubtypePickerDiag,
     stationLabelMaxChars,
@@ -136,6 +137,7 @@ export function DebugPhaseControls(_props: { floating?: DebugFloating } = {}) {
     const $bowDiag = useStore(lastBodyOfWaterDiag);
     const $preloadDiag = useStore(lastPreloadDiag);
     const $subtypeDiag = useStore(lastSubtypePickerDiag);
+    const $metroDiag = useStore(lastMetroDiag);
     const $questions = useStore(questions);
     const $inbox = useStore(hiderInbox);
     const $map = useStore(mapContext);
@@ -815,6 +817,18 @@ export function DebugPhaseControls(_props: { floating?: DebugFloating } = {}) {
                     </span>
                     <span className="tabular-nums break-all">
                         {$subtypeDiag || "— (open a subtype picker to see)"}
+                    </span>
+                </div>
+
+                {/* v1235: metro-line tentacle partition — raw elements /
+                    relations / member-geometry / lines / voronoi cells, to pin
+                    down the reported "empty tentacle circle" (no data vs no
+                    member geometry vs voronoi/union failure). Open a metro-line
+                    tentacle question, then read this back. */}
+                <div className="text-[11px] rounded border border-border/60 bg-secondary/40 px-2 py-1.5">
+                    <span className="text-muted-foreground">Metro line: </span>
+                    <span className="tabular-nums break-all">
+                        {$metroDiag || "— (open a metro-line tentacle to see)"}
                     </span>
                 </div>
 

@@ -448,6 +448,17 @@ SMALL piece (`area < 5 km²`): the big ocean is left to the chunking (buffering 
 whole is the perf hit the grid exists to avoid, and it already tests in-result).
 `tsc` + 284 tests green.
 
+**v1235 — metro-line tentacle on-device DIAGNOSTIC (the "empty tentacle circle"
+still had 0 segments).** The reach circle draws from GPS regardless of data, so an
+empty circle means `computeMetroReachCells` produced 0 per-line regions — but WHICH
+stage drops to zero (no data / no member geometry / voronoi/union failure) is
+invisible without a console (Android). Added `lastMetroDiag` (`debugState.ts`) set
+from `tentacles.ts` and shown in `DebugPhaseControls` ("Metro line:" line) +
+`[metro]`-console'd: it records `elems / rel / withMembers / withGeom / outOfRange /
+lines | pts / voronoiCells / named / drawnCells`. Open a metro-line tentacle, then
+read the debug panel — the counts pinpoint the failing stage so the next fix is
+targeted rather than guessed. Diagnostic-only; no behaviour change.
+
 **v1234 — metro tentacle uses REAL line geometry (nearest-LINE partition), not
 centroids.** Follow-up to v1233's centroid filtering: a metro line is a curved
 polyline, and its nearest point to you can be far from its centroid — so a

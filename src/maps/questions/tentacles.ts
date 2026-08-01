@@ -5,6 +5,7 @@ import {
     hiderMode,
     mapGeoLocation,
 } from "@/lib/context";
+import { lastMetroDiag } from "@/lib/debugState";
 import { haversineMeters } from "@/lib/geo";
 import { safeJsonFromCachedResponse } from "@/maps/api/cache";
 import { METRO_BY_RELATION_BASE } from "@/maps/api/constants";
@@ -172,14 +173,25 @@ async function fetchReachableMetroLines(
     } catch {
         return [];
     }
-    if (!data) return [];
+    if (!data) {
+        setMetroDiag("no data (fetch returned null)");
+        return [];
+    }
     const radiusMeters = turf.convertLength(radius, unit, "meters");
     const seen = new Set<string>();
     const lines: MetroLine[] = [];
+    // v1235 diagnostic counters — surfaced so an on-device tester can see WHERE
+    // the metro overlay drops to zero.
+    let relations = 0;
+    let withMembers = 0;
+    let withGeom = 0;
+    let outOfRange = 0;
     for (const el of data.elements ?? []) {
         if (el.type !== "relation") continue;
+        relations++;
         const name = el.tags?.["name:en"] ?? el.tags?.name;
         if (!name || typeof name !== "string" || seen.has(name)) continue;
+        if (Array.isArray(el.members) && el.members.length) withMembers++;
         const coords: [number, number][] = [];
         for (const m of el.members ?? []) {
             if (m.type !== "way" || !Array.isArray(m.geometry)) continue;
@@ -190,6 +202,7 @@ async function fetchReachableMetroLines(
             }
         }
         if (coords.length < 2) continue;
+        withGeom++;
         // Distance constraint = seeker → CLOSEST point on the line (real
         // geometry). Inline haversine — a metro line has hundreds of vertices.
         let closest = Infinity;
@@ -197,11 +210,29 @@ async function fetchReachableMetroLines(
             const d = haversineMeters(centerLat, centerLng, c[1], c[0]);
             if (d < closest) closest = d;
         }
-        if (closest > radiusMeters) continue;
+        if (closest > radiusMeters) {
+            outOfRange++;
+            continue;
+        }
         seen.add(name);
         lines.push({ name, coords });
     }
+    setMetroDiag(
+        `elems=${(data.elements ?? []).length} rel=${relations} withMembers=${withMembers} withGeom=${withGeom} outOfRange=${outOfRange} lines=${lines.length}`,
+    );
     return lines;
+}
+
+let lastMetroDiagBase = "";
+function setMetroDiag(msg: string): void {
+    lastMetroDiagBase = msg;
+    try {
+        lastMetroDiag.set(msg);
+        // eslint-disable-next-line no-console
+        console.log(`[metro] ${msg}`);
+    } catch {
+        /* atom set can't fail meaningfully */
+    }
 }
 
 /** Dense sample points ALONG each line, tagged with the line name — the seed
@@ -308,6 +339,7 @@ export async function computeMetroReachCells(
             steps: 64,
         }) as GeoJSON.Feature<GeoJSON.Polygon>;
     } catch {
+        setMetroDiag(`${lastMetroDiagBase} | reach circle FAILED`);
         return [];
     }
     if (lines.length === 1) return [{ cell: reach, name: lines[0].name }];
@@ -318,7 +350,10 @@ export async function computeMetroReachCells(
     >;
     try {
         voronoi = geoSpatialVoronoi(pts);
-    } catch {
+    } catch (e) {
+        setMetroDiag(
+            `${lastMetroDiagBase} | pts=${pts.features.length} voronoi THREW: ${String(e).slice(0, 80)}`,
+        );
         return [];
     }
     const regionByName = unionVoronoiByName(voronoi);
@@ -342,6 +377,9 @@ export async function computeMetroReachCells(
             /* skip this line's cell */
         }
     }
+    setMetroDiag(
+        `${lastMetroDiagBase} | pts=${pts.features.length} voronoiCells=${voronoi.features.length} named=${regionByName.size} drawnCells=${cells.length}`,
+    );
     return cells;
 }
 

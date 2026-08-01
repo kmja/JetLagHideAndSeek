@@ -74,3 +74,14 @@ export const lastPreloadDiag = atom<string>("");
  * `DebugPhaseControls`. Also `console`d with the `[subtypeavail]` tag.
  */
 export const lastSubtypePickerDiag = atom<string>("");
+
+/**
+ * v1235: on-device diagnostic for the metro-line tentacle. The reported "empty
+ * tentacle circle" means computeMetroReachCells produced no per-line regions;
+ * this records the stage counts (raw elements, relations, lines with usable
+ * geometry, sample points, unioned cells) so a phone tester can read back WHERE
+ * it dropped to zero (no data vs no member geometry vs voronoi/union failure)
+ * instead of us guessing. Set from `tentacles.ts`, shown in `DebugPhaseControls`.
+ * Also `console`d with the `[metro]` tag.
+ */
+export const lastMetroDiag = atom<string>("");
