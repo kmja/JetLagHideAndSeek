@@ -51,7 +51,13 @@ const METRO_GRID_M = 300; // spatial-grid cell size for the nearest-other query
 // is memoised (runs once, not 4×) + off-thread.
 const METRO_ADAPT_K = 0.45;
 const METRO_MIN_SPACING_M = 110; // densest emit spacing (contested corridors)
-const METRO_MAX_SPACING_M = 900; // coarsest emit spacing (isolated stretches)
+// v1265: coarsest emit spacing (isolated stretches) — LOWERED 900→350. An
+// isolated line at 900 m had seeds too sparse to bound the huge Voronoi wedges
+// that the DENSE eastern seed-cluster (all lines converging at the Hudson) expands
+// westward into empty NJ — so those wedges poked across a lone western line's
+// track (a single line flipping red→purple→yellow→green). Denser isolated seeds
+// let each line claim its own vicinity, so it keeps its colour along its track.
+const METRO_MAX_SPACING_M = 350;
 const METRO_MAX_SEARCH_M = 1400; // beyond this a line is "isolated" → max spacing
 // v1263: emit spacing on a SHARED/stacked track — RAISED 500→1200 m. NYC runs so
 // much parallel/shared track that ~76% of steps are "shared"; at 500 m that

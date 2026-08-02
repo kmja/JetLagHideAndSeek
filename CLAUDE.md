@@ -448,6 +448,18 @@ SMALL piece (`area < 5 km²`): the big ocean is left to the chunking (buffering 
 whole is the perf hit the grid exists to avoid, and it already tests in-result).
 `tsc` + 284 tests green.
 
+**v1265 — metro tentacle: densify isolated lines (a lone line stops flipping
+colours).** A single western line (NWK–WTC toward Newark) rendered as red→purple→
+yellow→green wedges even though it's the ONLY line out there — the nearest-SAMPLE-
+POINT partition diverging from nearest-LINE in a sparse area: all lines converge in
+a DENSE cluster at the Hudson, and those clustered cells expand as huge radiating
+wedges into empty NJ, poking across a lone line's sparse (900 m) seeds. Lowered
+`METRO_MAX_SPACING_M` 900→350 so an isolated line's seeds are dense enough to bound
+those wedges + keep its own track its colour. KNOWN RESIDUAL: the deep no-man's-land
+FAR from any line still wedges (inherent to sample-point Voronoi; harmless for the
+game since a hider is always near a station/line) — the definitive fix is a true
+nearest-LINE grid partition, deferred. `tsc` + 284 tests green.
+
 **v1264 — metro tentacle: memoise the compute + denser contested boundaries
 (smoother regions).** The configure impact effect re-ran `computeMetroReachCells`
 3–4× per open (GPS jitter / re-render), each a multi-second worker union. Now it's
