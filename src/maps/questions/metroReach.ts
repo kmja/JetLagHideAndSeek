@@ -50,11 +50,14 @@ export interface MetroReachResult {
 }
 
 // Grid resolution — ~this many columns across the reach-circle bbox, cell size
-// clamped and total cells capped so a big (25 km-radius) tentacle stays tractable.
-const GRID_TARGET_COLS = 220;
-const GRID_MIN_CELL_M = 50;
-const GRID_MAX_CELL_M = 280;
-const GRID_MAX_CELLS = 70000;
+// clamped and total cells capped. v1284: FINER (was 220 cols / 50 m) because the
+// Chaikin-smoothed boundary waves at ~the cell size, so a finer grid → smaller
+// waves → straighter-looking midlines. Heavier compute, but it runs in the worker
+// + memoised (perf pass deferred per "get the look right first").
+const GRID_TARGET_COLS = 360;
+const GRID_MIN_CELL_M = 30;
+const GRID_MAX_CELL_M = 170;
+const GRID_MAX_CELLS = 150000;
 
 /** Squared distance (in the local metre plane) from a point to a segment. */
 function ptSegDistSq(
@@ -417,8 +420,11 @@ export function computeMetroReachCellsFromLines(
         if (!region) continue;
         // Partition-preserving Chaikin (NOT DP-simplify — that pulls shared edges
         // apart into gaps/overlaps). Rounds the grid stairs; neighbours share the
-        // exact grid-corner vertices so the smoothed boundary stays matched.
-        region = smoothPolyFeature(region, 2);
+        // exact grid-corner vertices so the smoothed boundary stays matched. ONE
+        // iteration (was 2): with the finer grid the stairs are already small, and
+        // a single corner-cut hugs the true bisector more tightly — 2 iterations
+        // over-rounded into the "blobby/wavy" look.
+        region = smoothPolyFeature(region, 1);
         try {
             const clipped = turf.intersect(
                 turf.featureCollection([region, reach]),

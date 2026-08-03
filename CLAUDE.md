@@ -448,6 +448,23 @@ SMALL piece (`area < 5 km²`): the big ocean is left to the chunking (buffering 
 whole is the perf hit the grid exists to avoid, and it already tests in-result).
 `tsc` + 284 tests green.
 
+**v1284 — metro tentacle: finer grid + lighter Chaikin (shrinks the boundary
+waves).** Follow-up to v1283's clean partition — the boundaries were clean
+(no gaps/overlaps) but read "blobby/wavy": Chaikin rounds the grid stair-steps
+into lobes whose amplitude scales with the CELL size, so the fix is a finer grid
+(`GRID_TARGET_COLS` 220→360, min cell 50→30 m, cap 70 k→150 k cells → smaller
+stairs → smaller waves) plus a single Chaikin iteration instead of two
+(`smoothPolyFeature(region, 1)` — 2 iters over-rounded into the blobby look; one
+corner-cut hugs the true bisector more tightly). Still partition-preserving
+(neighbours share the exact grid-corner vertices, so a local corner-cut yields the
+same curve on both sides → no gaps/overlaps). This only SHRINKS the residual
+waviness; it does not make a diagonal midline perfectly straight — the definitive
+straight-AND-clean fix is topology-aware per-shared-chain simplification (identify
+the boundary chain between two regions, DP-simplify it ONCE so both sides get the
+identical straightened edge), a bigger change deferred until the look is confirmed.
+The v1282 shared-track lengthwise split is still dropped (a deterministic
+grid-based split is the other pending item). `tsc` + 284 tests green.
+
 **v1283 — metro tentacle: partition-preserving Chaikin (fixes the gaps/overlaps).**
 v1282's per-trunk `turf.simplify` (Douglas–Peucker) straightened each region
 INDEPENDENTLY, so a shared boundary got simplified differently on each side and the
