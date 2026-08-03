@@ -14,6 +14,7 @@
  *     --secret <ADMIN_SECRET> \
  *     [--max 200] \
  *     [--only-city <relationId|name>] [--only-country <ISO2,ISO2>] \
+ *     [--by-population] \
  *     [--cold-only] [--skip-starred] [--adjacents] \
  *     [--skip-discover] [--skip-boundaries] [--skip-references] \
  *     [--skip-transit] [--skip-hsr] [--skip-photon] [--skip-adjacent] \
@@ -169,6 +170,11 @@ const ONLY_COUNTRY = (() => {
     );
     return set.size ? set : null;
 })();
+// v1277: `--by-population` (alias `--by-size`) sorts the run biggest-city-first
+// by the seed `population`. Highest precedence over the other orderings — pairs
+// with `--only-country JP` to warm Tokyo → Yokohama → Osaka → … first. Cities
+// without a population tag sort last (keep their relative order).
+const BY_POPULATION = !!args["by-population"] || !!args["by-size"];
 // v641: `--cold-only` skips cities that are ALREADY warmed (per
 // /admin/prewarmed-cities: they have a boundary + an adjacency entry) so a
 // full run goes STRAIGHT to un-warmed cities instead of spending most of
@@ -3951,11 +3957,17 @@ async function main() {
         }
     }
 
-    // v1117: --even-split takes precedence — a broad global sweep (top-N per
-    // country, continent-interleaved) then the long tail, replacing the
-    // exhaust-one-region-first order that produced "a few EU capitals then a
-    // long string of US cities".
-    if (EVEN_SPLIT) {
+    // v1277: --by-population — biggest cities first (by seed population).
+    // Highest precedence; cities without a population sort last.
+    if (BY_POPULATION) {
+        const withPop = cities.filter((c) => Number(c.population) > 0).length;
+        cities = [...cities].sort(
+            (a, b) => (Number(b.population) || 0) - (Number(a.population) || 0),
+        );
+        console.log(
+            `--by-population: biggest cities first; ${withPop}/${cities.length} have a population tag`,
+        );
+    } else if (EVEN_SPLIT) {
         const withCountry = cities.filter((c) => c.country).length;
         cities = orderEvenSplit(cities, EVEN_SPLIT_PER_COUNTRY);
         console.log(

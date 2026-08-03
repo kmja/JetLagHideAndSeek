@@ -448,6 +448,11 @@ SMALL piece (`area < 5 km²`): the big ocean is left to the chunking (buffering 
 whole is the perf hit the grid exists to avoid, and it already tests in-result).
 `tsc` + 284 tests green.
 
+**v1277 — laptop-prewarm `--by-population` (biggest cities first).** Sorts the run
+by the seed `population` descending (highest precedence over the other orderings),
+so `--only-country JP --by-population` warms Tokyo → Yokohama → Osaka → … first.
+Cities with no population tag sort last. Operator-script only.
+
 **v1276 — laptop-prewarm accepts a scheme-less `--worker`.** A bare host
 (`--worker foo.workers.dev`) failed every fetch with `ERR_INVALID_URL`; the arg
 is now `https://`-prefixed if it has no scheme. Operator-script only.
