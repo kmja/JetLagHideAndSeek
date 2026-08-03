@@ -1711,22 +1711,33 @@ export function InlineLocationPicker({
                                     {/* v823: CLEAR LIGHT-purple borders between
                                         cells so adjacent segments stay easy to
                                         tell apart even when two land on similar
-                                        shades. v1263: dropped for METRO (cells are
-                                        coloured by real line colour, and the drawn
-                                        neutral line already marks each track, so
-                                        the borders just add noise). */}
-                                    {!reachLinesFC && (
-                                        <Layer
-                                            id="impact-reach-cells-line"
-                                            type="line"
-                                            paint={{
-                                                "line-color":
-                                                    "hsl(266, 80%, 88%)",
-                                                "line-width": 2,
-                                                "line-opacity": 0.95,
-                                            }}
-                                        />
-                                    )}
+                                        shades. v1269: METRO gets a SUBTLE neutral
+                                        hairline instead (basemap-aware) — adjacent
+                                        same-trunk shades otherwise bleed together,
+                                        and a thin line delineates them + reads the
+                                        crisp smoothed boundary rather than a stair
+                                        edge. The purple border stays for the
+                                        point-tentacle adjacency shades. */}
+                                    <Layer
+                                        id="impact-reach-cells-line"
+                                        type="line"
+                                        paint={
+                                            reachLinesFC
+                                                ? {
+                                                      "line-color": darkBasemap
+                                                          ? "rgba(255,255,255,0.55)"
+                                                          : "rgba(0,0,0,0.4)",
+                                                      "line-width": 0.8,
+                                                      "line-opacity": 0.75,
+                                                  }
+                                                : {
+                                                      "line-color":
+                                                          "hsl(266, 80%, 88%)",
+                                                      "line-width": 2,
+                                                      "line-opacity": 0.95,
+                                                  }
+                                        }
+                                    />
                                 </Source>
                             )}
                             {/* v1240: the metro LINE geometry the segmentation

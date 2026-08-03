@@ -448,6 +448,23 @@ SMALL piece (`area < 5 km²`): the big ocean is left to the chunking (buffering 
 whole is the perf hit the grid exists to avoid, and it already tests in-result).
 `tsc` + 284 tests green.
 
+**v1269 — metro tentacle: de-pixelate the grid partition (Chaikin smoothing +
+delineating hairline).** v1268's nearest-line grid partition was correct but the
+region boundaries showed the grid stair-steps (blocky) and adjacent same-trunk
+shades bled together. Two fixes: (1) each line's unioned region is **Chaikin
+corner-cut** (`chaikinClosed`/`smoothPolyFeature`, `METRO_SMOOTH_ITERS=2`) before
+the reach-circle clip — this rounds the stairs into smooth curves; because two
+neighbouring regions share the IDENTICAL grid-corner vertices along their boundary
+and Chaikin is a local linear op, both smooth that shared run to the SAME curve, so
+the partition stays gap-free + overlap-free. Grid also bumped finer
+(`GRID_TARGET_COLS` 200→240, min cell 90→75 m, cap 46 k→60 k) so the stairs the
+smoothing rounds are smaller. (2) `InlineLocationPicker` re-adds a SUBTLE
+basemap-aware **neutral hairline** (`impact-reach-cells-line`, 0.8 px, white/black
+0.55/0.4) between metro regions — the v1263 drop of the border let close lightness
+shades merge; a thin neutral line delineates them and reads the crisp smoothed
+boundary rather than a stair edge (point-tentacle questions keep the light-purple
+border). `tsc` + 284 tests green.
+
 **v1268 — metro tentacle DEFINITIVE fix: true nearest-LINE grid partition
 (replaces the sample-point Voronoi — no more wedges or mosaic).** Every prior
 metro iteration (v1234–v1265) partitioned the reach by sampling points ALONG the

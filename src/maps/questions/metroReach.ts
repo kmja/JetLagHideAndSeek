@@ -56,10 +56,13 @@ export interface MetroReachResult {
 // tentacle stays tractable. A metro partition needs no fine detail (the map zoom
 // hides sub-200 m stair-steps, and the per-line intersect-with-circle smooths the
 // outer rim), so a coarse grid is both fast and visually clean.
-const GRID_TARGET_COLS = 200;
-const GRID_MIN_CELL_M = 90;
-const GRID_MAX_CELL_M = 320;
-const GRID_MAX_CELLS = 46000;
+const GRID_TARGET_COLS = 240;
+const GRID_MIN_CELL_M = 75;
+const GRID_MAX_CELL_M = 300;
+const GRID_MAX_CELLS = 60000;
+// v1269: Chaikin iterations that round the grid stair-steps into smooth curves.
+// 2 = 4× boundary vertices, plenty smooth without ballooning the intersect cost.
+const METRO_SMOOTH_ITERS = 2;
 
 // v1246: distance (m) under which two DIFFERENT lines are a SHARED/stacked track
 // (NYC's A/C/E on 8th Ave, the Bronx 2+5). Only on a shared segment do we offset.
@@ -174,6 +177,63 @@ function buildNearestOther(
         return best;
     };
     return { nearestOther };
+}
+
+/** Chaikin corner-cutting of a CLOSED ring (first === last). Rounds the grid
+ *  stair-steps into smooth curves. Because two neighbouring regions share the
+ *  IDENTICAL grid-corner vertices along their boundary and Chaikin is a local
+ *  linear operation on consecutive vertices, both regions smooth that shared run
+ *  to the SAME curve — so the partition stays gap-free + overlap-free. */
+function chaikinClosed(ring: number[][], iters: number): number[][] {
+    let pts = ring;
+    for (let it = 0; it < iters; it++) {
+        const src = pts.slice(0, Math.max(0, pts.length - 1)); // unique verts
+        const n = src.length;
+        if (n < 4) break;
+        const out: number[][] = [];
+        for (let i = 0; i < n; i++) {
+            const a = src[i];
+            const b = src[(i + 1) % n];
+            out.push([a[0] * 0.75 + b[0] * 0.25, a[1] * 0.75 + b[1] * 0.25]);
+            out.push([a[0] * 0.25 + b[0] * 0.75, a[1] * 0.25 + b[1] * 0.75]);
+        }
+        out.push([out[0][0], out[0][1]]); // close
+        pts = out;
+    }
+    return pts;
+}
+
+/** Chaikin-smooth every ring of a (Multi)Polygon feature. */
+function smoothPolyFeature(
+    f: GeoJSON.Feature<GeoJSON.Polygon | GeoJSON.MultiPolygon>,
+    iters: number,
+): GeoJSON.Feature<GeoJSON.Polygon | GeoJSON.MultiPolygon> {
+    const g = f.geometry;
+    try {
+        if (g.type === "Polygon")
+            return {
+                ...f,
+                geometry: {
+                    type: "Polygon",
+                    coordinates: g.coordinates.map((r) =>
+                        chaikinClosed(r, iters),
+                    ),
+                },
+            };
+        if (g.type === "MultiPolygon")
+            return {
+                ...f,
+                geometry: {
+                    type: "MultiPolygon",
+                    coordinates: g.coordinates.map((poly) =>
+                        poly.map((r) => chaikinClosed(r, iters)),
+                    ),
+                },
+            };
+    } catch {
+        /* fall through to the raw feature */
+    }
+    return f;
 }
 
 /** turf.union of a FeatureCollection, short-circuiting the single-feature case and
@@ -451,8 +511,12 @@ export function computeMetroReachCellsFromLines(
     const cells: MetroReachCell[] = [];
     for (const [L, rects] of rectsByLabel) {
         const name = names[L];
-        const region = safeUnion(rects);
-        if (!region) continue;
+        const union = safeUnion(rects);
+        if (!union) continue;
+        // Smooth the blocky grid boundary; neighbouring regions share vertices so
+        // the shared boundary stays matched (no gaps/overlaps). Then clip to the
+        // reach circle (which keeps its own crisp 64-step edge).
+        const region = smoothPolyFeature(union, METRO_SMOOTH_ITERS);
         try {
             const clipped = turf.intersect(
                 turf.featureCollection([region, reach]),
