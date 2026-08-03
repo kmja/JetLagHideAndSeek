@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+    clipGeometryToDominantLandmass,
     collectCoordGroups,
     dominantExtentFromGroups,
     type PhotonExtent,
@@ -87,6 +88,62 @@ describe("dominantExtentFromGroups", () => {
     it("returns null for empty / coordinate-less input", () => {
         expect(dominantExtentFromGroups([])).toBeNull();
         expect(dominantExtentFromGroups([[]])).toBeNull();
+    });
+});
+
+function ringPoly(
+    cLng: number,
+    cLat: number,
+    h: number,
+    n: number,
+): GeoJSON.Feature<GeoJSON.Polygon> {
+    return {
+        type: "Feature",
+        properties: {},
+        geometry: { type: "Polygon", coordinates: [denseRing(cLng, cLat, h, n)] },
+    };
+}
+
+describe("clipGeometryToDominantLandmass", () => {
+    it("drops far island parts, keeping the mainland (Tokyo)", () => {
+        const fc: GeoJSON.FeatureCollection = {
+            type: "FeatureCollection",
+            features: [
+                {
+                    type: "Feature",
+                    properties: {},
+                    geometry: {
+                        type: "MultiPolygon",
+                        coordinates: [
+                            [denseRing(139.7, 35.72, 0.35, 3000)], // mainland
+                            [denseRing(139.4, 34.0, 0.02, 20)], // Izu
+                            [denseRing(142.2, 27.0, 0.02, 25)], // Ogasawara
+                        ],
+                    },
+                },
+            ],
+        };
+        const out = clipGeometryToDominantLandmass(fc);
+        // One MultiPolygon of just the mainland part.
+        expect(out.features).toHaveLength(1);
+        const geom = out.features[0].geometry as GeoJSON.MultiPolygon;
+        expect(geom.type).toBe("MultiPolygon");
+        expect(geom.coordinates).toHaveLength(1);
+        // Its bbox is the mainland, not the ocean.
+        const ext = dominantExtentFromGroups(
+            geom.coordinates.map((p) => p[0] as [number, number][]),
+        )!;
+        expect(ext[0]).toBeLessThan(36.2); // north
+        expect(ext[2]).toBeGreaterThan(35.0); // south (no 27N island)
+    });
+
+    it("leaves a normal compact multi-part city unchanged (no-op)", () => {
+        const fc: GeoJSON.FeatureCollection = {
+            type: "FeatureCollection",
+            features: [ringPoly(-74.0, 40.7, 0.1, 500), ringPoly(-73.9, 40.6, 0.08, 300)],
+        };
+        const out = clipGeometryToDominantLandmass(fc);
+        expect(out).toBe(fc); // same reference — untouched
     });
 });
 

@@ -448,6 +448,24 @@ SMALL piece (`area < 5 km²`): the big ocean is left to the chunking (buffering 
 whole is the perf hit the grid exists to avoid, and it already tests in-result).
 `tsc` + 284 tests green.
 
+**v1275 — Tokyo follow-ups: clip the play-area BOUNDARY to the mainland + a
+`--only-country` prewarm flag.** Two follow-ups to v1274 (which fixed the DATA
+extent). (1) The play-area BOUNDARY polygon was still the full island-owning
+prefecture, so a Tokyo game's elimination mask + preview map still framed the
+ocean/islands. New `clipGeometryToDominantLandmass(fc)` (`dominantLandmass.ts`,
+client-only, unit-tested) drops the far island polygon PARTS from an oversized
+boundary — same cluster-and-keep-dominant-by-vertex-count logic as the extent
+clip, gated identically (no-op unless genuinely oversized, so a normal city / a
+deliberately-added adjacent area is untouched). Wired into `usePlayAreaBoundary`
+right after `clipPolygonToLand`, before publishing `mapGeoJSON`/`polyGeoJSON`, so
+the whole game (mask, hiding-zone scan, preview fit) uses the mainland. NOT a
+cache-key producer, so it needn't byte-match the worker. (2) `--only-country
+US,JP` in `laptop-prewarm.mjs` restricts a run to seed cities of the given ISO
+alpha-2 countries (applied before ordering/slicing) — so `--only-country JP`
+warms exactly the 59 Japanese seed cities without listing them via `--only-city`
+or letting `--priority-regions` spill into the rest of the world. `tsc` + 292
+tests green.
+
 **v1274 — support island-owning primaries (Tokyo): landmass-clip the extent on
 BOTH sides.** Tokyo could never warm/star because seed relation `1543125` is Tokyo
 Metropolis (東京都), whose OSM boundary owns the Izu + Ogasawara islands ~1000 km

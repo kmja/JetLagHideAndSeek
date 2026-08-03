@@ -14,6 +14,7 @@ import {
 import { playArea } from "@/lib/gameSetup";
 import { clipPolygonToLand } from "@/lib/geometry/client";
 import { determineMapBoundaries } from "@/maps/api";
+import { clipGeometryToDominantLandmass } from "@/maps/geo-utils/dominantLandmass";
 
 /**
  * Shared play-area boundary fetch for BOTH the seeker (`Map`) and hider
@@ -179,6 +180,22 @@ export function usePlayAreaBoundary(): void {
                                 e,
                             );
                         }
+                    }
+                    // v1274: drop far-flung island parts from an oversized
+                    // island-owning boundary (Tokyo Metropolis owns the Izu +
+                    // Ogasawara chains ~1000 km south) so the play-area polygon
+                    // — the elimination mask AND the preview-map fit — is the
+                    // mainland, not the whole ocean-spanning prefecture. A no-op
+                    // for a normal city / a deliberately-added adjacent area.
+                    try {
+                        clipped = clipGeometryToDominantLandmass(
+                            clipped as never,
+                        ) as never;
+                    } catch (e) {
+                        console.warn(
+                            "clipGeometryToDominantLandmass failed; using full boundary",
+                            e,
+                        );
                     }
                     if (cancelled) return;
                     // Record the added-set this boundary was built from so

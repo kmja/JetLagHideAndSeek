@@ -161,6 +161,95 @@ export function dominantExtentFromGroups(
     return asPhoton(kept ?? dominant);
 }
 
+type Ring = number[][];
+type PolyPart = Ring[]; // [outerRing, ...holes]
+
+/**
+ * Drop far-flung island polygon PARTS from a boundary FeatureCollection, keeping
+ * only the dominant landmass (+ near / comparably-detailed parts). Unlike
+ * `dominantExtentFromGroups` (which only returns a bbox), this rewrites the actual
+ * geometry so the play-area polygon — the elimination mask AND the preview-map fit
+ * — is the mainland, not the whole ocean-spanning prefecture. Client-only (used at
+ * boundary-assembly time); NOT a cache-key producer, so it needn't byte-match the
+ * worker. A NO-OP (returns the input unchanged) unless the boundary is genuinely
+ * oversized and actually spans multiple far clusters, so a normal city — or a
+ * deliberately-added adjacent area — is never altered.
+ */
+export function clipGeometryToDominantLandmass<
+    T extends GeoJSON.FeatureCollection,
+>(fc: T): T {
+    const parts: { part: PolyPart; box: Box }[] = [];
+    for (const feat of fc.features ?? []) {
+        const g = feat?.geometry as GeoJSON.Geometry | undefined;
+        if (!g) continue;
+        if (g.type === "Polygon") {
+            const box = groupBox(g.coordinates[0] as [number, number][]);
+            if (box) parts.push({ part: g.coordinates as PolyPart, box });
+        } else if (g.type === "MultiPolygon") {
+            for (const poly of g.coordinates) {
+                const box = groupBox(poly[0] as [number, number][]);
+                if (box) parts.push({ part: poly as PolyPart, box });
+            }
+        }
+    }
+    if (parts.length < 2) return fc;
+    let full = parts[0].box;
+    for (const p of parts) full = mergeBox(full, p.box);
+    if (
+        full.maxLat - full.minLat <= OVERSIZE_LAT_DEG &&
+        full.maxLng - full.minLng <= OVERSIZE_LNG_DEG
+    )
+        return fc;
+    // Union-find cluster the parts by proximity.
+    const boxes = parts.map((p) => p.box);
+    const parent = boxes.map((_, i) => i);
+    const find = (a: number): number =>
+        parent[a] === a ? a : (parent[a] = find(parent[a]));
+    const uni = (a: number, b: number): void => {
+        const ra = find(a);
+        const rb = find(b);
+        if (ra !== rb) parent[ra] = rb;
+    };
+    for (let i = 0; i < boxes.length; i++)
+        for (let j = i + 1; j < boxes.length; j++)
+            if (boxGap(boxes[i], boxes[j]) <= CLUSTER_NEAR_DEG) uni(i, j);
+    const clusterBox = new Map<number, Box>();
+    boxes.forEach((b, i) => {
+        const r = find(i);
+        const c = clusterBox.get(r);
+        clusterBox.set(r, c ? mergeBox(c, b) : b);
+    });
+    if (clusterBox.size < 2) return fc;
+    let dominant: Box | null = null;
+    for (const b of clusterBox.values())
+        if (!dominant || b.n > dominant.n) dominant = b;
+    if (!dominant) return fc;
+    const domRoot = [...clusterBox.entries()].find((e) => e[1] === dominant)![0];
+    const keptRoots = new Set<number>();
+    for (const [root, b] of clusterBox)
+        if (
+            root === domRoot ||
+            boxGap(b, dominant) <= KEEP_NEAR_DEG ||
+            b.n >= dominant.n * KEEP_VERTEX_FRAC
+        )
+            keptRoots.add(root);
+    const kept = parts.filter((_, i) => keptRoots.has(find(i)));
+    if (kept.length === parts.length) return fc; // nothing dropped → unchanged
+    return {
+        ...fc,
+        features: [
+            {
+                type: "Feature",
+                properties: {},
+                geometry: {
+                    type: "MultiPolygon",
+                    coordinates: kept.map((k) => k.part),
+                },
+            },
+        ],
+    } as unknown as T;
+}
+
 /**
  * Collect coordinate GROUPS from a parsed boundary payload — one group per OSM
  * member way (`{geometry:[{lat,lon}]}`) or per nested GeoJSON coordinate ring/part.

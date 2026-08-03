@@ -13,7 +13,7 @@
  *     --worker https://jlhs-overpass-cache.<sub>.workers.dev \
  *     --secret <ADMIN_SECRET> \
  *     [--max 200] \
- *     [--only-city <relationId|name>] \
+ *     [--only-city <relationId|name>] [--only-country <ISO2,ISO2>] \
  *     [--cold-only] [--skip-starred] [--adjacents] \
  *     [--skip-discover] [--skip-boundaries] [--skip-references] \
  *     [--skip-transit] [--skip-hsr] [--skip-photon] [--skip-adjacent] \
@@ -149,6 +149,22 @@ const MAX_CITIES = args.max ? parseInt(args.max, 10) : Infinity;
 // the extent, so a one-off tile-pack build needs nothing else. Combine
 // with --tile-packs + the --skip-* flags to build just one city's pack.
 const ONLY_CITY = args["only-city"] ? String(args["only-city"]) : null;
+// v1275: `--only-country US,JP` restricts the whole run to cities whose seed
+// `country` (ISO 3166-1 alpha-2) is in the list — a clean way to warm one
+// region (e.g. all Japanese seed cities for a Japan season) without listing 59
+// names via --only-city or letting --priority-regions spill into the rest of the
+// world. Case-insensitive; applied before ordering + the MAX_CITIES slice.
+const ONLY_COUNTRY = (() => {
+    const v = args["only-country"];
+    if (!v || v === true) return null;
+    const set = new Set(
+        String(v)
+            .split(",")
+            .map((s) => s.trim().toUpperCase())
+            .filter(Boolean),
+    );
+    return set.size ? set : null;
+})();
 // v641: `--cold-only` skips cities that are ALREADY warmed (per
 // /admin/prewarmed-cities: they have a boundary + an adjacency entry) so a
 // full run goes STRAIGHT to un-warmed cities instead of spending most of
@@ -3911,6 +3927,25 @@ async function main() {
 
     let cities = await listCities();
     console.log(`fetched ${cities.length} cities; processing up to ${MAX_CITIES}`);
+
+    // v1275: --only-country — restrict the run to one or more seed countries
+    // (ISO alpha-2). Applied before ordering/slicing so e.g. `--only-country JP`
+    // warms exactly the Japanese seed cities.
+    if (ONLY_COUNTRY) {
+        const before = cities.length;
+        cities = cities.filter(
+            (c) => c.country && ONLY_COUNTRY.has(String(c.country).toUpperCase()),
+        );
+        console.log(
+            `--only-country ${[...ONLY_COUNTRY].join(",")}: ${cities.length}/${before} cities match`,
+        );
+        if (cities.length === 0) {
+            console.error(
+                `--only-country matched no seed cities (do they carry a country tag?).`,
+            );
+            process.exit(1);
+        }
+    }
 
     // v1117: --even-split takes precedence — a broad global sweep (top-N per
     // country, continent-interleaved) then the long tail, replacing the
