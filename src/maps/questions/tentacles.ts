@@ -152,7 +152,7 @@ async function fetchMetroRoutesData(): Promise<any> {
     }
     const tuple = playAreaBboxTuple();
     if (!tuple) return null;
-    return await getOverpassData(metroRoutesQuery(tuple), "Loading metro lines...");
+    return await getOverpassData(metroRoutesQuery(tuple));
 }
 
 /* ── Metro lines are CURVED LINES, not points (v1233) ────────────────── *
@@ -364,7 +364,6 @@ async function fetchReachableMetroLines(
             try {
                 live = await getOverpassData(
                     `\n[out:json][timeout:180][bbox:${tuple}];\nrelation["route"="subway"]["name"];\nout geom;\n`,
-                    "Loading metro lines...",
                 );
             } catch {
                 live = null;

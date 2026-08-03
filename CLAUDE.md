@@ -448,6 +448,12 @@ SMALL piece (`area < 5 km²`): the big ocean is left to the chunking (buffering 
 whole is the perf hit the grid exists to avoid, and it already tests in-result).
 `tsc` + 284 tests green.
 
+**v1270 — remove the "Loading metro lines…" toaster.** The two metro-fetch
+`getOverpassData` calls (`fetchMetroRoutesData` + the live `out geom` fallback,
+`tentacles.ts`) dropped their `loadingText` argument, so the metro-line tentacle
+no longer flashes a loading toast (the configure dialog's own veil covers the
+wait). `tsc` green.
+
 **v1269 — metro tentacle: de-pixelate the grid partition (Chaikin smoothing +
 delineating hairline).** v1268's nearest-line grid partition was correct but the
 region boundaries showed the grid stair-steps (blocky) and adjacent same-trunk
