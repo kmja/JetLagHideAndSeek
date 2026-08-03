@@ -448,6 +448,17 @@ SMALL piece (`area < 5 km²`): the big ocean is left to the chunking (buffering 
 whole is the perf hit the grid exists to avoid, and it already tests in-result).
 `tsc` + 284 tests green.
 
+**v1267 — play-area search: loading skeleton until warmth is known (no
+enabled→disabled flip).** Follow-up to v1266. A non-warm area briefly rendered as
+an ENABLED result row and then flipped to the DISABLED "Coming soon" state the
+moment the warm set (`$warmCities`) finished loading — a jarring flicker. Now
+`PlayAreaStep`'s results block gates on `$warmCities === null`: while the warm set
+is still loading it shows a "Checking availability…" prompt and pulsing skeleton
+rows (one per result, capped at 6) INSTEAD of the enabled results, then reveals
+the real rows (with correct enabled/"Coming soon" states) in one shot once warmth
+is known — so a row never appears clickable and then becomes disabled. `tsc` + 284
+tests green.
+
 **v1266 — play-area search: warm cities are the DEFAULT (star hidden), non-warm
 areas shown but DISABLED as "coming soon".** Flipped the warm-city concept in
 `PlayAreaStep` (shared by SetupPage / the edit-settings modal / the lobby area

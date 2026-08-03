@@ -1570,7 +1570,13 @@ export function PlayAreaStep({
                     {results.length > 0 && (
                         <div className="space-y-1.5">
                             <p className="text-xs text-muted-foreground">
-                                Tap a match to use it (Enter picks the top one):
+                                {/* v1267: don't flash results as enabled then
+                                    disable them — hold a loading state until the
+                                    warm set is known, then reveal with the right
+                                    enabled/disabled states. */}
+                                {$warmCities === null
+                                    ? "Checking availability…"
+                                    : "Tap a match to use it (Enter picks the top one):"}
                             </p>
                             <div
                                 className={cn(
@@ -1583,7 +1589,24 @@ export function PlayAreaStep({
                                         : "max-h-60",
                                 )}
                             >
-                                {results.map((r) => {
+                                {$warmCities === null
+                                    ? Array.from({
+                                          length: Math.min(results.length, 6),
+                                      }).map((_, i) => (
+                                          <div
+                                              key={`warm-skeleton-${i}`}
+                                              className="w-full p-3 rounded-md border-2 border-border/50 bg-secondary/40 animate-pulse"
+                                          >
+                                              <div className="flex items-start gap-2">
+                                                  <div className="w-4 h-4 mt-0.5 rounded-sm bg-muted-foreground/20 shrink-0" />
+                                                  <div className="min-w-0 flex-1 space-y-1.5">
+                                                      <div className="h-3.5 w-1/2 rounded bg-muted-foreground/20" />
+                                                      <div className="h-3 w-1/3 rounded bg-muted-foreground/15" />
+                                                  </div>
+                                              </div>
+                                          </div>
+                                      ))
+                                    : results.map((r) => {
                                     const active =
                                         r.properties.osm_id === topResultId;
                                     const label = determineName(r);
