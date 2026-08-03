@@ -41,10 +41,12 @@ const OVERSIZE_LNG_DEG = 4.5;
 // Two coordinate groups within this bbox gap (degrees) are the same landmass.
 const CLUSTER_NEAR_DEG = 0.4;
 // A non-dominant cluster this close to the dominant one is kept (a neighbouring
-// borough/bay island that's genuinely part of the metro).
-const KEEP_NEAR_DEG = 0.6;
-// …or one with at least this fraction of the dominant cluster's vertex count.
-const KEEP_VERTEX_FRAC = 0.5;
+// borough / bay island that's genuinely part of the metro — Staten Island is
+// ~0.15° from Manhattan). Kept TIGHT so a FAR island chain is dropped: Tokyo's
+// Izu Ōshima is ~0.7° south of the mainland, and its detailed coastline has many
+// vertices — so a vertex-count keep rule wrongly retained the whole Izu chain
+// (extent 4.7° tall, still "province-scale"). Proximity-ONLY keep drops it.
+const KEEP_NEAR_DEG = 0.3;
 
 interface Box {
     minLng: number;
@@ -152,10 +154,7 @@ export function dominantExtentFromGroups(
     // Keep the dominant + clusters near it or comparably detailed; drop far scatters.
     let kept: Box | null = null;
     for (const c of list) {
-        const keep =
-            c === dominant ||
-            boxGap(c, dominant) <= KEEP_NEAR_DEG ||
-            c.n >= dominant.n * KEEP_VERTEX_FRAC;
+        const keep = c === dominant || boxGap(c, dominant) <= KEEP_NEAR_DEG;
         if (keep) kept = kept ? mergeBox(kept, c) : c;
     }
     return asPhoton(kept ?? dominant);
@@ -227,11 +226,7 @@ export function clipGeometryToDominantLandmass<
     const domRoot = [...clusterBox.entries()].find((e) => e[1] === dominant)![0];
     const keptRoots = new Set<number>();
     for (const [root, b] of clusterBox)
-        if (
-            root === domRoot ||
-            boxGap(b, dominant) <= KEEP_NEAR_DEG ||
-            b.n >= dominant.n * KEEP_VERTEX_FRAC
-        )
+        if (root === domRoot || boxGap(b, dominant) <= KEEP_NEAR_DEG)
             keptRoots.add(root);
     const kept = parts.filter((_, i) => keptRoots.has(find(i)));
     if (kept.length === parts.length) return fc; // nothing dropped → unchanged

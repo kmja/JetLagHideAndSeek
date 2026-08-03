@@ -2441,8 +2441,7 @@ function singleRelationQuery(relationId: number): string {
 const DL_OVERSIZE_LAT_DEG = 3;
 const DL_OVERSIZE_LNG_DEG = 4.5;
 const DL_CLUSTER_NEAR_DEG = 0.4;
-const DL_KEEP_NEAR_DEG = 0.6;
-const DL_KEEP_VERTEX_FRAC = 0.5;
+const DL_KEEP_NEAR_DEG = 0.3;
 interface DlBox {
     minLng: number;
     minLat: number;
@@ -2531,10 +2530,7 @@ function dominantExtentFromGroups(
     for (const c of list) if (c.n > dominant.n) dominant = c;
     let kept: DlBox | null = null;
     for (const c of list) {
-        const keep =
-            c === dominant ||
-            dlBoxGap(c, dominant) <= DL_KEEP_NEAR_DEG ||
-            c.n >= dominant.n * DL_KEEP_VERTEX_FRAC;
+        const keep = c === dominant || dlBoxGap(c, dominant) <= DL_KEEP_NEAR_DEG;
         if (keep) kept = kept ? dlMergeBox(kept, c) : c;
     }
     return asPhoton(kept ?? dominant);

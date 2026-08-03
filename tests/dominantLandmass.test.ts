@@ -50,8 +50,10 @@ describe("dominantExtentFromGroups", () => {
         // Dense mainland Tokyo ~35.7N,139.7E (thousands of verts) + far sparse
         // Izu/Ogasawara island scatter reaching down to ~27N and out to ~142E.
         const mainland = denseRing(139.7, 35.72, 0.35, 3000);
-        const izu1 = denseRing(139.5, 34.7, 0.02, 20);
-        const izu2 = denseRing(139.3, 33.1, 0.02, 20);
+        // Izu Ōshima with a DETAILED (high-vertex) coastline — must still be
+        // dropped (proximity-only keep; a vertex-count keep wrongly retained it).
+        const izu1 = denseRing(139.5, 34.7, 0.05, 2500);
+        const izu2 = denseRing(139.3, 33.1, 0.03, 400);
         const ogasawara1 = denseRing(142.2, 27.1, 0.02, 25);
         const ogasawara2 = denseRing(142.1, 26.6, 0.02, 25);
         const ext = dominantExtentFromGroups([

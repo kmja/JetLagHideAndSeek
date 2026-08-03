@@ -448,6 +448,19 @@ SMALL piece (`area < 5 km²`): the big ocean is left to the chunking (buffering 
 whole is the perf hit the grid exists to avoid, and it already tests in-result).
 `tsc` + 284 tests green.
 
+**v1281 — landmass clip drops FAR DETAILED island chains (Tokyo's Izu).** After
+v1280 forced Tokyo's re-derive, the clip cut 15.7°→4.7° tall but STILL skipped —
+it kept the Izu island chain (down to 31.238°N) because `dominantExtentFromGroups`'
+`KEEP_VERTEX_FRAC=0.5` rule retained any cluster with ≥half the mainland's vertices,
+and Izu Ōshima's detailed coastline clears that bar. Removed the vertex-count keep
+entirely and tightened `KEEP_NEAR_DEG` 0.6°→0.3°: now ONLY the dominant landmass +
+genuinely-adjacent clusters (a borough/bay island within ~0.3°, e.g. Staten Island)
+are kept; a far island chain (Izu ~0.7° south) is dropped regardless of detail. So
+Tokyo clips to the ~0.5°-tall mainland → passes the oversize guard → warms. Mirrored
+in the worker (`index.ts`) + laptop; unit test now uses a HIGH-vertex Izu ring to
+prove the vertex-count path is gone. NEEDS the `jlhs-overpass-cache` redeploy; the
+laptop's v1280 force-re-derive then re-clips the stored 4.7° extent to mainland.
+
 **v1280 — laptop re-derives a POISONED oversized extent (Tokyo warms).** After
 v1274, Tokyo STILL skipped with `extent 15.7°×18.4° … state/province-scale`,
 because the growth doc held a pre-v1274 ocean-bbox `city.extent` and the laptop's
