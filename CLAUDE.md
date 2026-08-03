@@ -448,6 +448,25 @@ SMALL piece (`area < 5 km²`): the big ocean is left to the chunking (buffering 
 whole is the perf hit the grid exists to avoid, and it already tests in-result).
 `tsc` + 284 tests green.
 
+**v1271 — metro tentacle: group services into TRUNKS by colour (fixes the dense-
+core chaos).** In a dense metro (NYC's Midtown) the partition was correct but
+unreadable: treating each SERVICE (A, C, E…) as its own line meant 5–6 interleaved
+services per corridor plus the same-trunk lightness shades + shared-track lateral
+splits = ~30 thin bands, and a drawn line visibly crossed many colours. Per the
+rulebook's "lines as drawn in Google Maps" standard the A/C/E are ONE blue line,
+1/2/3 one red, 4/5/6 one green. `extractMetroLines` (`tentacles.ts`) now groups
+services into TRUNKS via `groupIntoTrunks`: services sharing an OSM `colour` are
+merged into one line WHERE THEY SHARE/PARALLEL TRACK (a connected-component split
+over a coarse spatial grid, ~220 m), so a REUSED colour — NYC greys the L AND the
+shuttles — doesn't merge distant unrelated lines; colourless services stay
+per-`ref`. Midtown collapses to ~7 clean coloured bands. The trunk's name joins
+its services' refs ("A/C/E"); its colour is the shared colour. The v1257 same-trunk
+lightness shading in `InlineLocationPicker` self-collapses (one name per colour →
+plain colour) and now only shades the rare same-colour split components (L vs S
+grey). The shared-track lateral split (`metroReach.ts`) now only fires between
+genuinely different-coloured trunks (the Bronx red-2 vs green-5 case). `tsc` + 284
+tests green.
+
 **v1270 — remove the "Loading metro lines…" toaster.** The two metro-fetch
 `getOverpassData` calls (`fetchMetroRoutesData` + the live `out geom` fallback,
 `tentacles.ts`) dropped their `loadingText` argument, so the metro-line tentacle

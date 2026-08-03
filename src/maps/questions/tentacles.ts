@@ -224,10 +224,121 @@ function metroLabelOf(
     return typeof raw === "string" ? normalizeMetroLabel(raw) : undefined;
 }
 
-/** Build per-LINE coords (grouped by label/`ref`) from route-relation elements,
- *  reach-filtered. Label + colour come from `labelById`/`colorById` (shard path,
- *  join by id) or the element's own tags (live path). Coords merge by label — a
- *  line's directions/variants share a ref. Returns the lines + counts. */
+/**
+ * v1271 — group individual SERVICES (A, C, E…) into TRUNKS by their OSM `colour`,
+ * matching the rulebook's "lines as drawn in Google Maps" standard where the
+ * A/C/E are ONE blue line, 1/2/3 one red, 4/5/6 one green, … A dense metro (NYC's
+ * Midtown) otherwise renders as ~30 interleaved thin bands (5–6 services per
+ * corridor) = chaos; trunk grouping collapses it to ~7 clean coloured bands.
+ *
+ * A colour is only merged where the services actually SHARE/parallel track (a
+ * connected-component split via a coarse spatial grid), so a REUSED colour — NYC
+ * greys the L AND the shuttles — doesn't merge distant unrelated lines. Colourless
+ * services stay per-`ref` (the pre-v1271 behaviour). The trunk's name joins its
+ * services' refs ("A/C/E"); its colour is the shared colour.
+ */
+interface MetroService {
+    name: string;
+    coords: [number, number][];
+    segments: [number, number][][];
+    color?: string;
+}
+function groupIntoTrunks(
+    services: MetroService[],
+    refLat: number,
+): MetroService[] {
+    const byColor = new Map<string, number[]>();
+    const result: MetroService[] = [];
+    services.forEach((s, i) => {
+        if (!s.color) {
+            result.push(s);
+            return;
+        }
+        const arr = byColor.get(s.color);
+        if (arr) arr.push(i);
+        else byColor.set(s.color, [i]);
+    });
+    const cos = Math.cos((refLat * Math.PI) / 180) || 1e-6;
+    const CELL_M = 220;
+    const MERGE_M = 220;
+    const cellLat = CELL_M / 111320;
+    const cellLng = CELL_M / (111320 * cos);
+    for (const [color, idxs] of byColor) {
+        if (idxs.length === 1) {
+            result.push(services[idxs[0]]);
+            continue;
+        }
+        // union-find over the colour's services; union two if they share track
+        const parent = idxs.map((_, k) => k);
+        const find = (a: number): number =>
+            parent[a] === a ? a : (parent[a] = find(parent[a]));
+        const uni = (a: number, b: number): void => {
+            const ra = find(a);
+            const rb = find(b);
+            if (ra !== rb) parent[ra] = rb;
+        };
+        const grid = new Map<string, { k: number; lng: number; lat: number }[]>();
+        idxs.forEach((gi, k) => {
+            for (const c of services[gi].coords) {
+                const key = `${Math.floor(c[0] / cellLng)},${Math.floor(c[1] / cellLat)}`;
+                const rec = { k, lng: c[0], lat: c[1] };
+                const cell = grid.get(key);
+                if (cell) cell.push(rec);
+                else grid.set(key, [rec]);
+            }
+        });
+        idxs.forEach((gi, k) => {
+            const cs = services[gi].coords;
+            const step = Math.max(1, Math.floor(cs.length / 300));
+            for (let vi = 0; vi < cs.length; vi += step) {
+                const c = cs[vi];
+                const gx = Math.floor(c[0] / cellLng);
+                const gy = Math.floor(c[1] / cellLat);
+                for (let dx = -1; dx <= 1; dx++)
+                    for (let dy = -1; dy <= 1; dy++) {
+                        const cell = grid.get(`${gx + dx},${gy + dy}`);
+                        if (!cell) continue;
+                        for (const rec of cell) {
+                            if (rec.k === k) continue;
+                            const my = (rec.lat - c[1]) * 111320;
+                            const mx = (rec.lng - c[0]) * 111320 * cos;
+                            if (mx * mx + my * my < MERGE_M * MERGE_M)
+                                uni(k, rec.k);
+                        }
+                    }
+            }
+        });
+        const comps = new Map<number, number[]>();
+        idxs.forEach((gi, k) => {
+            const r = find(k);
+            const a = comps.get(r);
+            if (a) a.push(gi);
+            else comps.set(r, [gi]);
+        });
+        for (const members of comps.values()) {
+            const coords: [number, number][] = [];
+            const segments: [number, number][][] = [];
+            const refs = new Set<string>();
+            for (const gi of members) {
+                coords.push(...services[gi].coords);
+                segments.push(...services[gi].segments);
+                refs.add(services[gi].name);
+            }
+            const sr = [...refs].sort();
+            const name =
+                sr.length <= 4
+                    ? sr.join("/")
+                    : sr.slice(0, 4).join("/") + "…";
+            result.push({ name, coords, segments, color });
+        }
+    }
+    return result;
+}
+
+/** Build per-LINE coords from route-relation elements, grouped into TRUNKS
+ *  (`groupIntoTrunks`) and reach-filtered. Label + colour come from
+ *  `labelById`/`colorById` (shard path, join by id) or the element's own tags
+ *  (live path). Returns the lines + counts. */
 function extractMetroLines(
     elements: any[],
     labelById: Map<number, string>,
@@ -273,11 +384,19 @@ function extractMetroLines(
         if (segArr) segArr.push(...segments);
         else segmentsByName.set(name, segments);
     }
+    // Per-service → TRUNKS (group same-colour, same-track services).
+    const services: MetroService[] = [...coordsByName.keys()].map((name) => ({
+        name,
+        coords: coordsByName.get(name)!,
+        segments: segmentsByName.get(name) ?? [],
+        color: colorByName.get(name),
+    }));
+    const trunks = groupIntoTrunks(services, centerLat);
     const lines: MetroLine[] = [];
     let outOfRange = 0;
-    for (const [name, coords] of coordsByName) {
+    for (const t of trunks) {
         let closest = Infinity;
-        for (const c of coords) {
+        for (const c of t.coords) {
             const d = haversineMeters(centerLat, centerLng, c[1], c[0]);
             if (d < closest) closest = d;
         }
@@ -286,10 +405,10 @@ function extractMetroLines(
             continue;
         }
         lines.push({
-            name,
-            coords,
-            segments: segmentsByName.get(name) ?? [],
-            color: colorByName.get(name),
+            name: t.name,
+            coords: t.coords,
+            segments: t.segments,
+            color: t.color,
         });
     }
     return { lines, rels, withGeom, outOfRange };
