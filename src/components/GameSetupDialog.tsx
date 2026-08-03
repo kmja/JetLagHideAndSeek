@@ -1401,10 +1401,6 @@ export function PlayAreaStep({
                         determineName(value).split(",")[0];
                     const typeLabel = placeTypeLabel(value);
                     const areaLabel = formatAreaLabel(value);
-                    const warm = isWarmCity(
-                        value.properties.osm_id,
-                        $warmCities,
-                    );
                     return (
                         <>
                             {/* Card row: the play-area card takes the width and
@@ -1422,12 +1418,6 @@ export function PlayAreaStep({
                                             <span className="text-base font-bold truncate">
                                                 {label}
                                             </span>
-                                            {warm && (
-                                                <Star
-                                                    className="w-3.5 h-3.5 shrink-0 fill-warning text-warning"
-                                                    aria-label="Fully cached, including adjacent areas — plays offline-fast"
-                                                />
-                                            )}
                                         </div>
                                         <div className="flex items-center flex-wrap gap-1.5 mt-1">
                                             <span className="inline-flex items-center px-1.5 py-0.5 rounded-sm text-xs uppercase tracking-wider font-poppins font-bold bg-background/60 border border-border/60 text-muted-foreground">
@@ -1600,14 +1590,23 @@ export function PlayAreaStep({
                                     const typeLabel = placeTypeLabel(r);
                                     const areaLabel = formatAreaLabel(r);
                                     const sizeHint = recommendedGameSize(r);
+                                    // v1266: warm (prewarmed) areas are the
+                                    // DEFAULT — no badge. A KNOWN non-warm area is
+                                    // shown but DISABLED ("coming soon"): not
+                                    // supported for play yet. While the warm set is
+                                    // still loading (unknown), keep results enabled
+                                    // so nothing false-blocks.
+                                    const warmKnown = $warmCities !== null;
                                     const warm = isWarmCity(
                                         r.properties.osm_id,
                                         $warmCities,
                                     );
+                                    const unsupported = warmKnown && !warm;
                                     return (
                                         <button
                                             key={`${r.properties.osm_id}-${r.properties.osm_type}`}
                                             type="button"
+                                            disabled={unsupported}
                                             // Prevent the tap from blurring the
                                             // focused search input FIRST: the blur
                                             // fires setInputFocused(false), which
@@ -1620,12 +1619,21 @@ export function PlayAreaStep({
                                             onPointerDown={(e) =>
                                                 e.preventDefault()
                                             }
-                                            onClick={() => handlePickResult(r)}
+                                            onClick={
+                                                unsupported
+                                                    ? undefined
+                                                    : () => handlePickResult(r)
+                                            }
                                             className={cn(
-                                                "w-full text-left p-3 rounded-md border-2 transition-all active:scale-[0.99]",
-                                                active
-                                                    ? "bg-primary/10 border-primary"
-                                                    : "bg-secondary border-border hover:bg-accent",
+                                                "w-full text-left p-3 rounded-md border-2 transition-all",
+                                                unsupported
+                                                    ? "bg-secondary/40 border-border/50 opacity-60 cursor-not-allowed"
+                                                    : cn(
+                                                          "active:scale-[0.99]",
+                                                          active
+                                                              ? "bg-primary/10 border-primary"
+                                                              : "bg-secondary border-border hover:bg-accent",
+                                                      ),
                                                 "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                                             )}
                                         >
@@ -1633,7 +1641,7 @@ export function PlayAreaStep({
                                                 <MapPin
                                                     className={cn(
                                                         "w-4 h-4 mt-0.5 shrink-0",
-                                                        active
+                                                        active && !unsupported
                                                             ? "text-primary"
                                                             : "text-muted-foreground",
                                                     )}
@@ -1647,11 +1655,10 @@ export function PlayAreaStep({
                                                                     ",",
                                                                 )[0]}
                                                         </span>
-                                                        {warm && (
-                                                            <Star
-                                                                className="w-3.5 h-3.5 shrink-0 fill-warning text-warning"
-                                                                aria-label="Fully cached, including adjacent areas — plays offline-fast"
-                                                            />
+                                                        {unsupported && (
+                                                            <span className="shrink-0 inline-flex items-center px-1.5 py-0.5 rounded-sm text-[10px] uppercase tracking-wider font-poppins font-bold bg-muted text-muted-foreground border border-border/60">
+                                                                Coming soon
+                                                            </span>
                                                         )}
                                                     </div>
                                                     <div className="flex items-center flex-wrap gap-1.5 mt-1">

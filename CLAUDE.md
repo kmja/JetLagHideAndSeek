@@ -448,6 +448,20 @@ SMALL piece (`area < 5 km²`): the big ocean is left to the chunking (buffering 
 whole is the perf hit the grid exists to avoid, and it already tests in-result).
 `tsc` + 284 tests green.
 
+**v1266 — play-area search: warm cities are the DEFAULT (star hidden), non-warm
+areas shown but DISABLED as "coming soon".** Flipped the warm-city concept in
+`PlayAreaStep` (shared by SetupPage / the edit-settings modal / the lobby area
+editor): a prewarmed ("starred") area no longer shows a star badge — being
+supported is the norm. A KNOWN non-warm area still appears in the search results
+but as a DISABLED row (dimmed, `cursor-not-allowed`, no `onClick`) with a "Coming
+soon" badge instead of the star — it isn't supported for play yet. Gated on the
+warm set being LOADED (`$warmCities !== null`): while it's still loading, results
+stay enabled so nothing false-blocks. Removed the star from both the results list
+and the selected-area summary card. The v956 `NonWarmAreaConfirm` "play anyway"
+dialog is now dormant (non-warm rows can't be clicked) but left in place; GPS
+auto-suggest (`tryGpsSuggest`, which already prefers warm) is unchanged. `tsc` +
+284 tests green.
+
 **v1265 — metro tentacle: densify isolated lines (a lone line stops flipping
 colours).** A single western line (NWK–WTC toward Newark) rendered as red→purple→
 yellow→green wedges even though it's the ONLY line out there — the nearest-SAMPLE-
