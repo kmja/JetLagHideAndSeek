@@ -150,15 +150,17 @@ function mergeUnique(...lists: CityEntry[][]): CityEntry[] {
             if (existing.country === undefined && entry.country !== undefined) {
                 existing.country = entry.country;
             }
-            // v694 fix: fill population too. Without this, a growth-doc entry
-            // (player-added / discovered — no population) that shadows a seed
-            // city dropped the seed's population, so the laptop warm-order
-            // (--priority-regions, --seed-first) sorted it as pop -1 and
-            // warmed it LAST within its tier (NYC after Manhattan).
-            if (
-                existing.population === undefined &&
-                entry.population !== undefined
-            ) {
+            // v1279: population is CANONICAL SEED metadata — the authoritative
+            // Wikidata value the seed generator baked, which the growth doc never
+            // owns (a player-added / discovered entry carries no meaningful
+            // population). So the SEED (the later list — mergeUnique is always
+            // called `mergeUnique(growth, SEED_CITIES)`) WINS here, not just
+            // fill-if-missing: a growth entry that shadowed a seed city with a
+            // wrong/zero population would otherwise sort a metro (Tokyo) below a
+            // smaller city under `--by-population` / `--priority-regions`.
+            // (Runtime STATE — extent, *CuratedAt stamps, baked adjacency — stays
+            // growth-wins / fill-if-missing below, since the growth doc owns it.)
+            if (entry.population !== undefined) {
                 existing.population = entry.population;
             }
             if (

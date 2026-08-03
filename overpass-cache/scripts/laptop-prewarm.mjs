@@ -4109,10 +4109,10 @@ async function main() {
         // cron's per-run shuffle) — a run then warms a fresh slice rather
         // than always re-walking the list head. Deterministic order isn't
         // needed here; the per-query check-fresh makes it idempotent.
-        // SKIP the shuffle with --seed-first / --priority-regions / --even-split:
-        // the point there is to warm cities in a deliberate order, not a random
-        // slice.
-        if (!SEED_FIRST && !PRIORITY_REGIONS && !EVEN_SPLIT) {
+        // SKIP the shuffle with --seed-first / --priority-regions / --even-split /
+        // --by-population: the point there is to warm cities in a deliberate
+        // order, not a random slice.
+        if (!SEED_FIRST && !PRIORITY_REGIONS && !EVEN_SPLIT && !BY_POPULATION) {
             for (let i = todo.length - 1; i > 0; i--) {
                 const j = Math.floor(Math.random() * (i + 1));
                 [todo[i], todo[j]] = [todo[j], todo[i]];

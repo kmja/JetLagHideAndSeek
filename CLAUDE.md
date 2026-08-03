@@ -448,6 +448,20 @@ SMALL piece (`area < 5 km²`): the big ocean is left to the chunking (buffering 
 whole is the perf hit the grid exists to avoid, and it already tests in-result).
 `tsc` + 284 tests green.
 
+**v1279 — `--by-population` skip the shuffle + seed population is authoritative in
+the merge.** Two fixes. (1) The REAL reason the run didn't process Tokyo first: the
+laptop SHUFFLES `todo` after ordering (to sample fresh cities across runs), and the
+shuffle was skipped for `--seed-first`/`--priority-regions`/`--even-split` but NOT
+`--by-population` — so the correct population sort was re-randomized (→ Matsuyama
+first). Added `!BY_POPULATION` to the shuffle guard. (2) Root-cause for the
+shadowing: `mergeUnique` (`cities.ts`) now lets the SEED's `population` WIN over a
+shadowing growth-doc entry (was fill-if-missing), since population is canonical
+seed metadata the growth doc never meaningfully owns — so the `/admin/list-cities`
+endpoint itself returns correct populations. Runtime STATE (extent, `*CuratedAt`
+stamps, baked adjacency) stays growth-wins, since the growth doc owns it. The v1278
+bundled-seed sort stays as belt-and-braces (works before the worker redeploys).
+Operator-script + worker; needs the `jlhs-overpass-cache` redeploy for (2).
+
 **v1278 — `--by-population` uses the BUNDLED seed population (fixes Tokyo sorting
 below Sapporo).** v1277 sorted by the `population` field on `/admin/list-cities`,
 but that endpoint's `getPopularCities` merge can shadow a big seed city with a
