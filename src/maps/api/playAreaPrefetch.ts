@@ -20,6 +20,10 @@ import {
     fetchPrewarmedAreaWater,
     requestWaterWarmAll,
 } from "@/maps/api/water";
+import {
+    collectCoordGroups,
+    dominantExtentFromGroups,
+} from "@/maps/geo-utils/dominantLandmass";
 import { pointInPlayArea } from "@/maps/geo-utils/playAreaIndex";
 import type { APILocations } from "@/maps/schema";
 
@@ -296,6 +300,17 @@ export function cacheableFamilyForType(typeRaw: string): FamilyKey | null {
 export function referenceExtent(): [number, number, number, number] | null {
     const poly = polyGeoJSON.get();
     if (poly && poly.features.length > 0) {
+        // v1274: clip an oversized island-owning boundary (Tokyo Metropolis owns
+        // the Izu/Ogasawara islands ~1000 km south) to its dominant landmass so
+        // the live-fallback bbox query is a tractable mainland box, not a
+        // 15°×18° ocean box that soft-timeouts. A NO-OP for a normal compact
+        // city (returns the identical full bbox → byte-match with the worker).
+        try {
+            const clipped = dominantExtentFromGroups(collectCoordGroups(poly));
+            if (clipped) return clipped;
+        } catch {
+            /* fall through to the plain bbox */
+        }
         // turf.bbox → [minLng, minLat, maxLng, maxLat]. Same min/max
         // doubles as the laptop's coordinate walk; reshape to Photon
         // order [maxLat, minLng, minLat, maxLng].

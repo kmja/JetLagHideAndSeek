@@ -2430,49 +2430,163 @@ function singleRelationQuery(relationId: number): string {
  * too. v356: this is the canonical reference extent every warmer + the
  * client now share. Returns null on no usable coordinate.
  */
-function extentFromBoundaryJson(
-    parsed: unknown,
-): [number, number, number, number] | null {
-    let minLat = Infinity;
-    let maxLat = -Infinity;
-    let minLng = Infinity;
-    let maxLng = -Infinity;
-    let found = false;
-    const consume = (lat: number, lon: number) => {
-        if (typeof lat !== "number" || typeof lon !== "number") return;
-        if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
-        if (lat < -90 || lat > 90 || lon < -180 || lon > 180) return;
-        found = true;
+// ── Dominant-landmass extent clip ─────────────────────────────────────────
+// BYTE-IDENTICAL MIRROR of src/maps/geo-utils/dominantLandmass.ts (the canonical,
+// unit-tested source — keep in sync). Clips an oversized island-owning boundary
+// (Tokyo Metropolis owns the Izu/Ogasawara islands ~1000 km south) to its dominant
+// landmass BEFORE taking a bbox, so the reference/station/water/coast/admin/tile
+// queries scan a tractable mainland box, not a 15°×18° ocean box that soft-times
+// out. A NO-OP unless the raw extent is genuinely oversized, so a normal compact
+// city's extent (and its R2 cache key) is byte-for-byte unchanged.
+const DL_OVERSIZE_LAT_DEG = 3;
+const DL_OVERSIZE_LNG_DEG = 4.5;
+const DL_CLUSTER_NEAR_DEG = 0.4;
+const DL_KEEP_NEAR_DEG = 0.6;
+const DL_KEEP_VERTEX_FRAC = 0.5;
+interface DlBox {
+    minLng: number;
+    minLat: number;
+    maxLng: number;
+    maxLat: number;
+    n: number;
+}
+function dlGroupBox(g: [number, number][]): DlBox | null {
+    let minLng = Infinity,
+        minLat = Infinity,
+        maxLng = -Infinity,
+        maxLat = -Infinity,
+        n = 0;
+    for (const p of g) {
+        const lng = p[0];
+        const lat = p[1];
+        if (typeof lng !== "number" || typeof lat !== "number") continue;
+        if (!Number.isFinite(lng) || !Number.isFinite(lat)) continue;
+        if (lat < -90 || lat > 90 || lng < -180 || lng > 180) continue;
+        if (lng < minLng) minLng = lng;
         if (lat < minLat) minLat = lat;
+        if (lng > maxLng) maxLng = lng;
         if (lat > maxLat) maxLat = lat;
-        if (lon < minLng) minLng = lon;
-        if (lon > maxLng) maxLng = lon;
+        n++;
+    }
+    if (n === 0) return null;
+    return { minLng, minLat, maxLng, maxLat, n };
+}
+function dlBoxGap(a: DlBox, b: DlBox): number {
+    const dx = Math.max(0, Math.max(a.minLng - b.maxLng, b.minLng - a.maxLng));
+    const dy = Math.max(0, Math.max(a.minLat - b.maxLat, b.minLat - a.maxLat));
+    return Math.max(dx, dy);
+}
+function dlMergeBox(a: DlBox, b: DlBox): DlBox {
+    return {
+        minLng: Math.min(a.minLng, b.minLng),
+        minLat: Math.min(a.minLat, b.minLat),
+        maxLng: Math.max(a.maxLng, b.maxLng),
+        maxLat: Math.max(a.maxLat, b.maxLat),
+        n: a.n + b.n,
     };
-    const visit = (node: any) => {
+}
+function dominantExtentFromGroups(
+    groups: [number, number][][],
+): [number, number, number, number] | null {
+    const boxes: DlBox[] = [];
+    let full: DlBox | null = null;
+    for (const g of groups) {
+        const b = dlGroupBox(g);
+        if (!b) continue;
+        boxes.push(b);
+        full = full ? dlMergeBox(full, b) : b;
+    }
+    if (!full) return null;
+    const asPhoton = (b: DlBox): [number, number, number, number] => [
+        b.maxLat,
+        b.minLng,
+        b.minLat,
+        b.maxLng,
+    ];
+    const latSpan = full.maxLat - full.minLat;
+    const lngSpan = full.maxLng - full.minLng;
+    if (latSpan <= DL_OVERSIZE_LAT_DEG && lngSpan <= DL_OVERSIZE_LNG_DEG)
+        return asPhoton(full);
+    if (boxes.length < 2) return asPhoton(full);
+    const parent = boxes.map((_, i) => i);
+    const find = (a: number): number =>
+        parent[a] === a ? a : (parent[a] = find(parent[a]));
+    const uni = (a: number, b: number): void => {
+        const ra = find(a);
+        const rb = find(b);
+        if (ra !== rb) parent[ra] = rb;
+    };
+    for (let i = 0; i < boxes.length; i++)
+        for (let j = i + 1; j < boxes.length; j++)
+            if (dlBoxGap(boxes[i], boxes[j]) <= DL_CLUSTER_NEAR_DEG) uni(i, j);
+    const clusters = new Map<number, DlBox>();
+    boxes.forEach((b, i) => {
+        const r = find(i);
+        const c = clusters.get(r);
+        clusters.set(r, c ? dlMergeBox(c, b) : b);
+    });
+    const list = [...clusters.values()];
+    if (list.length < 2) return asPhoton(full);
+    let dominant = list[0];
+    for (const c of list) if (c.n > dominant.n) dominant = c;
+    let kept: DlBox | null = null;
+    for (const c of list) {
+        const keep =
+            c === dominant ||
+            dlBoxGap(c, dominant) <= DL_KEEP_NEAR_DEG ||
+            c.n >= dominant.n * DL_KEEP_VERTEX_FRAC;
+        if (keep) kept = kept ? dlMergeBox(kept, c) : c;
+    }
+    return asPhoton(kept ?? dominant);
+}
+function collectCoordGroups(parsed: unknown): [number, number][][] {
+    const groups: [number, number][][] = [];
+    const isCoordPair = (a: unknown): a is [number, number] =>
+        Array.isArray(a) &&
+        a.length >= 2 &&
+        typeof a[0] === "number" &&
+        typeof a[1] === "number";
+    const visit = (node: any): void => {
         if (!node || typeof node !== "object") return;
         if (Array.isArray(node)) {
-            if (
-                node.length >= 2 &&
-                typeof node[0] === "number" &&
-                typeof node[1] === "number"
-            ) {
-                consume(node[1], node[0]); // GeoJSON [lon, lat]
+            if (node.length && isCoordPair(node[0])) {
+                const g: [number, number][] = [];
+                for (const p of node) if (isCoordPair(p)) g.push([p[0], p[1]]);
+                if (g.length) groups.push(g);
                 return;
             }
             for (const child of node) visit(child);
             return;
         }
-        if (typeof node.lat === "number" && typeof node.lon === "number") {
-            consume(node.lat, node.lon); // Overpass {lat, lon}
+        if (Array.isArray(node.geometry) && node.geometry.length) {
+            const first = node.geometry[0];
+            if (first && typeof first.lat === "number") {
+                const g: [number, number][] = [];
+                for (const p of node.geometry)
+                    if (typeof p.lat === "number" && typeof p.lon === "number")
+                        g.push([p.lon, p.lat]);
+                if (g.length) groups.push(g);
+                return;
+            }
+            visit(node.geometry);
+            return;
         }
         if (node.geometry) visit(node.geometry);
-        if (node.members) visit(node.members);
-        if (node.elements) visit(node.elements);
         if (node.coordinates) visit(node.coordinates);
+        if (Array.isArray(node.members)) for (const m of node.members) visit(m);
+        if (Array.isArray(node.elements)) for (const e of node.elements) visit(e);
+        if (Array.isArray(node.features)) for (const f of node.features) visit(f);
     };
     visit(parsed);
-    if (!found) return null;
-    return [maxLat, minLng, minLat, maxLng];
+    return groups;
+}
+
+function extentFromBoundaryJson(
+    parsed: unknown,
+): [number, number, number, number] | null {
+    // v1274: clip a far-island-owning boundary to its dominant landmass before
+    // the bbox (Tokyo etc.); a no-op for a normal compact city (unchanged bbox).
+    return dominantExtentFromGroups(collectCoordGroups(parsed));
 }
 
 /**
@@ -7033,51 +7147,12 @@ async function bboxFromRelation(
     } catch {
         return null;
     }
-    // Walk every Position pair to find the min/max lat/lng.
-    let minLat = Infinity;
-    let maxLat = -Infinity;
-    let minLng = Infinity;
-    let maxLng = -Infinity;
-    const consumeCoord = (lng: number, lat: number) => {
-        if (lat < minLat) minLat = lat;
-        if (lat > maxLat) maxLat = lat;
-        if (lng < minLng) minLng = lng;
-        if (lng > maxLng) maxLng = lng;
-    };
-    const visit = (node: any) => {
-        if (!node) return;
-        if (Array.isArray(node)) {
-            // Leaf [lng, lat] vs nested coord array — detect by
-            // checking if first two elements are numbers AND length
-            // is 2 (or 3 incl. altitude).
-            if (
-                node.length >= 2 &&
-                typeof node[0] === "number" &&
-                typeof node[1] === "number"
-            ) {
-                consumeCoord(node[0], node[1]);
-                return;
-            }
-            for (const child of node) visit(child);
-            return;
-        }
-        if (node.geometry) visit(node.geometry);
-        if (node.coordinates) visit(node.coordinates);
-        if (Array.isArray(node.features)) {
-            for (const f of node.features) visit(f);
-        }
-    };
-    visit(parsed);
-    if (
-        !Number.isFinite(minLat) ||
-        !Number.isFinite(maxLat) ||
-        !Number.isFinite(minLng) ||
-        !Number.isFinite(maxLng)
-    ) {
-        return null;
-    }
-    // Photon shape: [maxLat, minLng, minLat, maxLng].
-    return [maxLat, minLng, minLat, maxLng];
+    // v1274: clip a far-island-owning relation (Tokyo owns the Izu/Ogasawara
+    // chain ~1000 km south) to its dominant landmass before the bbox, so the
+    // stored extent is a mainland box, not a 15°×18° ocean box. A no-op for a
+    // normal compact relation → identical bbox. Photon shape [maxLat, minLng,
+    // minLat, maxLng].
+    return dominantExtentFromGroups(collectCoordGroups(parsed));
 }
 
 /**

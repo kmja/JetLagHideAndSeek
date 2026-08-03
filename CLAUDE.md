@@ -448,6 +448,41 @@ SMALL piece (`area < 5 km²`): the big ocean is left to the chunking (buffering 
 whole is the perf hit the grid exists to avoid, and it already tests in-result).
 `tsc` + 284 tests green.
 
+**v1274 — support island-owning primaries (Tokyo): landmass-clip the extent on
+BOTH sides.** Tokyo could never warm/star because seed relation `1543125` is Tokyo
+Metropolis (東京都), whose OSM boundary owns the Izu + Ogasawara islands ~1000 km
+south — so its raw bbox is ~15°×18° of open Pacific, and EVERY extent producer that
+drives a reference/station/water/coast/admin bbox query (and the tile pack) scanned
+that ocean box → Overpass soft-timeout → nothing cached → never stars, and the
+laptop's `isOversizedExtent` guard SKIPPED it entirely. The v721 landmass clip
+(`transitReach.ts`) only ever fixed the CLIENT adjacency path. New shared,
+unit-tested `src/maps/geo-utils/dominantLandmass.ts` (`collectCoordGroups` +
+`dominantExtentFromGroups`, `tests/dominantLandmass.test.ts`) is the turf-free,
+geometry-agnostic sibling: it splits a boundary into coordinate GROUPS (one per OSM
+member way / GeoJSON polygon part), clusters them by proximity (union-find), keeps
+the DOMINANT cluster by VERTEX COUNT (a scatter of tiny far islands has a huge bbox
+but few vertices — a bbox-area metric would wrongly pick it, the v721 pitfall) plus
+any cluster near/comparably-detailed, and returns the mainland bbox. It's a **NO-OP
+unless the raw extent is genuinely oversized** (span > 3° lat / 4.5° lng), so a
+normal compact city's extent — and its R2 cache key — is byte-for-byte unchanged
+(nothing re-warms); only island-owning primaries (Tokyo, and generically Auckland/
+Honolulu/Sydney/etc.) get a changed, now-correct extent. Wired into all THREE
+extent producers so the warm/serve/live keys agree: worker `extentFromBoundaryJson`
++ `bboxFromRelation` (byte-identical mirror in `overpass-cache/src/index.ts` — pure
+Worker has no turf), client `referenceExtent` (`playAreaPrefetch.ts`), and the
+laptop `extentFromBoundaryResponse` (mirror in `laptop-prewarm.mjs`). Cascades to:
+`canonicalReferenceExtent` (serve), stored `city.extent` (`handleAdminStoreCityExtent`
+/ `handleRegisterArea`), the laptop oversize guard (now passes Tokyo, still skips a
+genuinely province-scale mis-resolved seed — a province is ONE contiguous landmass,
+so the clip is a no-op → still oversized), and the tile pack (`processTilePack` reads
+`city.extent` → now a small mainland bbox → `chooseTilePackMaxZoom` succeeds instead
+of "bbox too large, skipping"). NOTE: this makes Tokyo's DATA warmable/starrable; the
+play-area BOUNDARY polygon (elimination + preview) is still the full prefecture, so a
+Tokyo game's preview still frames the islands — re-pointing the seed to a mainland
+relation (e.g. the 23 special wards) is the separate cosmetic fix, left as a
+game-design choice. `tsc` (client) + 290 tests green; worker `tsc` clean apart from
+the sandbox's missing `@cloudflare/workers-types` (env-only).
+
 **v1273 — metro tentacle: clip the overlay to the play area + DENSE sampling test.**
 Two fixes. (1) The per-trunk regions now clip to the PLAY AREA (the masked/
 remaining area — `playArea` in `useQuestionImpact` is the elimination mask when
