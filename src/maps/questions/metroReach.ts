@@ -4,23 +4,25 @@ import { haversineMeters } from "@/lib/geo";
 import type { Units } from "@/maps/schema";
 
 /**
- * PURE metro-tentacle geometry — the nearest-LINE partition of the reach circle,
- * as a Voronoi over points sampled along each TRUNK line. Deliberately worker-safe:
- * imports ONLY turf + the pure `haversineMeters` helper + the `Units` TYPE
- * (erased), so it can run in the geometry Web Worker (off the main thread) AND on
- * the main thread as the fallback. No atoms, no network, no React reach here.
- * `tentacles.ts` does the fetch (INCLUDING the v1271 grouping of services into
- * trunks by colour) + the diagnostic-atom write; this module only computes.
+ * PURE metro-tentacle geometry — the TRUE nearest-LINE partition of the reach
+ * circle. Deliberately worker-safe: imports ONLY turf + the pure `haversineMeters`
+ * helper + the `Units` TYPE (erased), so it runs in the geometry Web Worker (off
+ * the main thread) AND on the main thread as the fallback. No atoms, no network,
+ * no React reach here. `tentacles.ts` does the fetch (INCLUDING the v1271 grouping
+ * of services into trunks by colour) + the diagnostic-atom write; this only computes.
  *
- * v1272 — reverted the v1268 grid/distance-transform partition back to a Voronoi.
- * The grid existed because 30 interleaved SERVICES broke the sample-point Voronoi
- * (sparse-area wedges, junction mosaic); now that `tentacles.ts` groups services
- * into ~7 TRUNKS (v1271), the sampling is dense relative to the trunk spacing so
- * the sample-point Voronoi ≈ the true nearest-line partition — and it renders as
- * clean straight-edged cells instead of the grid's blocky/blobby regions. SHARED
- * tracks (two DIFFERENT-coloured trunks on one physical track — the Bronx red-2 vs
- * green-5) are split lengthwise by offsetting each trunk's seeds perpendicular to
- * the track.
+ * v1282 — compute what the EYE does: for every point, the distance to the actual
+ * LINE geometry (not to sampled dots), assign it to the nearest line. Every prior
+ * attempt sampled points ALONG the lines and ran a Voronoi over those DOTS — which
+ * is nearest-SAMPLE-POINT, not nearest-LINE, and diverges badly: in open areas far
+ * from any line the boundaries become radial slivers between individual dots (the
+ * "sunburst" spikes), and between two parallel lines the boundary only lands on the
+ * midline if both are dotted at identical density/phase (they never are). Here we
+ * evaluate the real point→polyline distance on a grid, so the boundary between two
+ * parallel lines is the true perpendicular bisector — the MIDLINE — by construction,
+ * and spikes are impossible (a lone line's region is bounded by real bisectors).
+ * Per trunk we merge its cells into rectangles, union, and SIMPLIFY (Douglas–Peucker
+ * collapses the grid stair-steps toward straight edges — NOT Chaikin, which blobbed).
  */
 
 export interface MetroLine {
@@ -47,159 +49,37 @@ export interface MetroReachResult {
     }>;
 }
 
-// Uniform sampling spacing along each trunk (adaptive to keep the point count
-// bounded on a big/dense metro). Dense relative to the ~250 m+ trunk spacing, so
-// the nearest-SAMPLE-POINT Voronoi converges to the nearest-LINE partition.
-// v1273: DENSE test config — sampling this fine makes the sample-point Voronoi
-// converge to the true nearest-line boundary (kills the mosaic between close
-// parallel trunks). Slow on a dense metro (heavy union); a perf pass follows once
-// the overlay looks right. Runs in the geometry worker + memoised, so the UI
-// never blocks — it just takes longer to settle.
-const METRO_SAMPLE_M = 45;
-const METRO_SAMPLE_BUDGET = 30000; // cap total sample points (spacing grows past it)
-const METRO_COARSE_REF_M = 120; // coarse ref sampling for the nearest-other query
-const METRO_GRID_M = 300; // spatial-grid cell for the nearest-other query
-// A shared/stacked track: two DIFFERENT trunks within this distance.
-const METRO_CONVERGENCE_M = 150;
-// On a shared track, offset each trunk's seeds PERPENDICULAR by a deterministic
-// per-name amount so two trunks sharing a track split the corridor lengthwise.
-const METRO_LATERAL_BUCKETS = [-260, -160, 160, 260];
-function lineLateralOffsetM(name: string): number {
-    let h = 0;
-    for (let i = 0; i < name.length; i++)
-        h = (h * 31 + name.charCodeAt(i)) | 0;
-    return METRO_LATERAL_BUCKETS[Math.abs(h) % METRO_LATERAL_BUCKETS.length];
-}
+// Grid resolution — ~this many columns across the reach-circle bbox, cell size
+// clamped and total cells capped so a big (25 km-radius) tentacle stays tractable.
+const GRID_TARGET_COLS = 220;
+const GRID_MIN_CELL_M = 50;
+const GRID_MAX_CELL_M = 280;
+const GRID_MAX_CELLS = 70000;
 
-/** Walk every line at `stepM` and return ordered positions per line, continuously
- *  (accumulator carried across per-way segments so a line split into many tiny
- *  member ways isn't over-sampled at seams). Also returns the total length. */
-function walkLinesAtStep(
-    lines: MetroLine[],
-    stepM: number,
-): { walks: { name: string; pts: [number, number][] }[]; totalLen: number } {
-    const walks: { name: string; pts: [number, number][] }[] = [];
-    let totalLen = 0;
-    for (const { name, segments } of lines) {
-        const pts: [number, number][] = [];
-        let acc = 0;
-        let placed = false;
-        for (const seg of segments) {
-            for (let i = 1; i < seg.length; i++) {
-                const a = seg[i - 1];
-                const b = seg[i];
-                const d = haversineMeters(a[1], a[0], b[1], b[0]);
-                if (d === 0) continue;
-                totalLen += d;
-                if (!placed) {
-                    pts.push([a[0], a[1]]);
-                    placed = true;
-                    acc = 0;
-                }
-                let pos = stepM - acc;
-                while (pos <= d) {
-                    const f = pos / d;
-                    pts.push([
-                        a[0] + (b[0] - a[0]) * f,
-                        a[1] + (b[1] - a[1]) * f,
-                    ]);
-                    pos += stepM;
-                }
-                acc = (acc + d) % stepM;
-            }
-        }
-        if (pts.length) walks.push({ name, pts });
+/** Squared distance (in the local metre plane) from a point to a segment. */
+function ptSegDistSq(
+    px: number,
+    py: number,
+    ax: number,
+    ay: number,
+    bx: number,
+    by: number,
+): number {
+    const dx = bx - ax;
+    const dy = by - ay;
+    const l2 = dx * dx + dy * dy;
+    if (l2 === 0) {
+        const ex = px - ax;
+        const ey = py - ay;
+        return ex * ex + ey * ey;
     }
-    return { walks, totalLen };
-}
-
-/** "Distance to the nearest OTHER trunk" query over a coarse spatial grid — drives
- *  the shared-track detection (whether to offset a point). */
-function buildNearestOther(
-    lines: MetroLine[],
-    refLat: number,
-): (lng: number, lat: number, name: string) => number {
-    const coarse = walkLinesAtStep(lines, METRO_COARSE_REF_M);
-    const cos = Math.cos((refLat * Math.PI) / 180) || 1e-6;
-    const cellLat = METRO_GRID_M / 111320;
-    const cellLng = METRO_GRID_M / (111320 * cos);
-    interface RP {
-        lng: number;
-        lat: number;
-        name: string;
-    }
-    const grid = new Map<string, RP[]>();
-    for (const w of coarse.walks)
-        for (const p of w.pts) {
-            const rp: RP = { lng: p[0], lat: p[1], name: w.name };
-            const k = `${Math.floor(rp.lng / cellLng)},${Math.floor(rp.lat / cellLat)}`;
-            const arr = grid.get(k);
-            if (arr) arr.push(rp);
-            else grid.set(k, [rp]);
-        }
-    const maxRings = Math.max(
-        1,
-        Math.ceil((METRO_CONVERGENCE_M * 2) / METRO_GRID_M),
-    );
-    return (lng: number, lat: number, name: string): number => {
-        const gx = Math.floor(lng / cellLng);
-        const gy = Math.floor(lat / cellLat);
-        let best = Infinity;
-        for (let r = 0; r <= maxRings; r++) {
-            if (Number.isFinite(best) && best <= (r - 1) * METRO_GRID_M) break;
-            for (let dx = -r; dx <= r; dx++)
-                for (let dy = -r; dy <= r; dy++) {
-                    if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
-                    const cell = grid.get(`${gx + dx},${gy + dy}`);
-                    if (!cell) continue;
-                    for (const q of cell) {
-                        if (q.name === name) continue;
-                        const my = (q.lat - lat) * 111320;
-                        const mx = (q.lng - lng) * 111320 * cos;
-                        const dd = Math.sqrt(mx * mx + my * my);
-                        if (dd < best) best = dd;
-                    }
-                }
-        }
-        return best;
-    };
-}
-
-/** Uniformly sample points along each trunk (name-tagged), offsetting on shared
- *  track. The seed set for the nearest-line Voronoi. */
-function metroSamplePoints(
-    lines: MetroLine[],
-    refLat: number,
-    totalLen: number,
-): { fc: GeoJSON.FeatureCollection<GeoJSON.Point>; shared: number } {
-    const cos = Math.cos((refLat * Math.PI) / 180) || 1e-6;
-    const spacing = Math.max(METRO_SAMPLE_M, totalLen / METRO_SAMPLE_BUDGET);
-    const nearestOther = buildNearestOther(lines, refLat);
-    const walk = walkLinesAtStep(lines, spacing);
-    const feats: GeoJSON.Feature<GeoJSON.Point>[] = [];
-    let shared = 0;
-    for (const w of walk.walks) {
-        const lateral = lineLateralOffsetM(w.name);
-        for (let pi = 0; pi < w.pts.length; pi++) {
-            const p = w.pts[pi];
-            let lng = p[0];
-            let lat = p[1];
-            if (nearestOther(lng, lat, w.name) < METRO_CONVERGENCE_M) {
-                shared++;
-                const from = pi > 0 ? w.pts[pi - 1] : p;
-                const to = pi + 1 < w.pts.length ? w.pts[pi + 1] : p;
-                const dxm = (to[0] - from[0]) * 111320 * cos;
-                const dym = (to[1] - from[1]) * 111320;
-                const len = Math.hypot(dxm, dym);
-                if (len > 1e-6) {
-                    lng += ((-dym / len) * lateral) / (111320 * cos);
-                    lat += ((dxm / len) * lateral) / 111320;
-                }
-            }
-            feats.push(turf.point([lng, lat], { name: w.name }));
-        }
-    }
-    return { fc: turf.featureCollection(feats), shared };
+    let t = ((px - ax) * dx + (py - ay) * dy) / l2;
+    t = t < 0 ? 0 : t > 1 ? 1 : t;
+    const cx = ax + t * dx;
+    const cy = ay + t * dy;
+    const ex = px - cx;
+    const ey = py - cy;
+    return ex * ex + ey * ey;
 }
 
 /** turf.union of polygons, short-circuiting the single-feature case and falling
@@ -227,18 +107,18 @@ function safeUnion(
                     GeoJSON.Polygon | GeoJSON.MultiPolygon
                 >;
         } catch {
-            /* skip this cell only */
+            /* skip this rectangle only */
         }
     }
     return region;
 }
 
 /**
- * The metro reach partitioned into ONE region per TRUNK (nearest-line Voronoi),
- * each clipped to the reach circle, PLUS the reachable trunks' geometry. PURE — no
- * fetch, no atom. Returns the result + a geometry diagnostic string (the caller
- * prepends the fetch part + writes the atom). The SINGLE producer used by the
- * configure preview, the elimination, and the draft planning overlay.
+ * The metro reach partitioned into ONE region per TRUNK (TRUE nearest-line grid
+ * partition), each clipped to the reach circle, PLUS the reachable trunks'
+ * geometry. PURE — no fetch, no atom. Returns the result + a geometry diagnostic
+ * string (the caller prepends the fetch part + writes the atom). The SINGLE
+ * producer used by the configure preview, the elimination, and the draft overlay.
  */
 export function computeMetroReachCellsFromLines(
     lines: MetroLine[],
@@ -260,7 +140,7 @@ export function computeMetroReachCellsFromLines(
     try {
         reach = turf.circle([centerLng, centerLat], radius, {
             units: unit,
-            steps: 64,
+            steps: 96,
         }) as GeoJSON.Feature<GeoJSON.Polygon>;
     } catch {
         return {
@@ -279,74 +159,218 @@ export function computeMetroReachCellsFromLines(
             diag: "single line",
         };
 
-    let totalLen = 0;
-    for (const l of lines)
-        for (const seg of l.segments)
-            for (let i = 1; i < seg.length; i++)
-                totalLen += haversineMeters(
-                    seg[i - 1][1],
-                    seg[i - 1][0],
-                    seg[i][1],
-                    seg[i][0],
-                );
-    const { fc: rawPts, shared } = metroSamplePoints(lines, centerLat, totalLen);
-    // Dedup coincident points (d3-voronoi throws on coincident sites; both
-    // directions of a trunk trace the same track).
-    const seen = new Set<string>();
-    const dedup: GeoJSON.Feature<GeoJSON.Point>[] = [];
-    for (const f of rawPts.features) {
-        const c = f.geometry.coordinates;
-        const key = `${c[0].toFixed(5)},${c[1].toFixed(5)}`;
-        if (seen.has(key)) continue;
-        seen.add(key);
-        dedup.push(f);
+    // --- Grid over the reach-circle bbox -----------------------------------
+    const rb = turf.bbox(reach); // [minLng, minLat, maxLng, maxLat]
+    const minLng = rb[0];
+    const minLat = rb[1];
+    const cos = Math.cos((centerLat * Math.PI) / 180) || 1e-6;
+    const widthM = (rb[2] - rb[0]) * 111320 * cos;
+    const heightM = (rb[3] - rb[1]) * 111320;
+    let cellM = Math.min(
+        GRID_MAX_CELL_M,
+        Math.max(GRID_MIN_CELL_M, widthM / GRID_TARGET_COLS),
+    );
+    let cols = Math.max(1, Math.ceil(widthM / cellM));
+    let rows = Math.max(1, Math.ceil(heightM / cellM));
+    if (cols * rows > GRID_MAX_CELLS) {
+        cellM *= Math.sqrt((cols * rows) / GRID_MAX_CELLS);
+        cols = Math.max(1, Math.ceil(widthM / cellM));
+        rows = Math.max(1, Math.ceil(heightM / cellM));
     }
-    const pts = turf.featureCollection(dedup);
-    if (pts.features.length < 2)
-        return {
-            result: { cells: [], lines: drawLines },
-            diag: `pts=${rawPts.features.length} <2`,
-        };
-    // Voronoi over a bbox covering the points AND the whole reach circle (so the
-    // outer cells fill the circle → full coverage).
-    const pb = turf.bbox(pts);
-    const rbb = turf.bbox(reach);
-    const bb: [number, number, number, number] = [
-        Math.min(pb[0], rbb[0]),
-        Math.min(pb[1], rbb[1]),
-        Math.max(pb[2], rbb[2]),
-        Math.max(pb[3], rbb[3]),
-    ];
-    const padX = (bb[2] - bb[0]) * 0.05 + 0.01;
-    const padY = (bb[3] - bb[1]) * 0.05 + 0.01;
-    let voronoi: GeoJSON.FeatureCollection<GeoJSON.Polygon>;
-    try {
-        voronoi = turf.voronoi(pts, {
-            bbox: [bb[0] - padX, bb[1] - padY, bb[2] + padX, bb[3] + padY],
+    const cellLng = cellM / (111320 * cos);
+    const cellLat = cellM / 111320;
+    const N = cols * rows;
+
+    // Local metre-plane: x = (lng-minLng)·111320·cos, y = (lat-minLat)·111320.
+    const toX = (lng: number) => (lng - minLng) * 111320 * cos;
+    const toY = (lat: number) => (lat - minLat) * 111320;
+    // Per-trunk flattened segments (metre plane) + trunk bbox.
+    interface Trunk {
+        seg: Float64Array; // [ax,ay,bx,by, …]
+        segCount: number;
+        minx: number;
+        miny: number;
+        maxx: number;
+        maxy: number;
+        name: string;
+    }
+    const trunks: Trunk[] = [];
+    for (const l of lines) {
+        const pairs: number[] = [];
+        let minx = Infinity,
+            miny = Infinity,
+            maxx = -Infinity,
+            maxy = -Infinity;
+        for (const seg of l.segments) {
+            for (let i = 1; i < seg.length; i++) {
+                const ax = toX(seg[i - 1][0]);
+                const ay = toY(seg[i - 1][1]);
+                const bx = toX(seg[i][0]);
+                const by = toY(seg[i][1]);
+                if (ax === bx && ay === by) continue;
+                pairs.push(ax, ay, bx, by);
+                minx = Math.min(minx, ax, bx);
+                miny = Math.min(miny, ay, by);
+                maxx = Math.max(maxx, ax, bx);
+                maxy = Math.max(maxy, ay, by);
+            }
+        }
+        if (pairs.length === 0) continue;
+        trunks.push({
+            seg: Float64Array.from(pairs),
+            segCount: pairs.length / 4,
+            minx,
+            miny,
+            maxx,
+            maxy,
+            name: l.name,
         });
-    } catch (e) {
+    }
+    if (trunks.length < 2)
         return {
             result: { cells: [], lines: drawLines },
-            diag: `pts=${pts.features.length} voronoi THREW: ${String(e).slice(0, 50)}`,
+            diag: `only ${trunks.length} trunk with geometry`,
         };
+
+    // --- TRUE nearest-line label grid --------------------------------------
+    // Per cell: the trunk whose LINE geometry is nearest to the cell centre. To
+    // stay fast, sort trunks by bbox distance and stop scanning once a trunk's
+    // bbox is farther than the current best (no closer segment possible).
+    const label = new Int16Array(N).fill(-1);
+    const T = trunks.length;
+    const order = new Int32Array(T);
+    const bboxDist = new Float64Array(T);
+    const dtStart = typeof performance !== "undefined" ? performance.now() : 0;
+    for (let row = 0; row < rows; row++) {
+        const py = (row + 0.5) * cellM;
+        for (let col = 0; col < cols; col++) {
+            const px = (col + 0.5) * cellM;
+            // bbox distance² per trunk
+            for (let t = 0; t < T; t++) {
+                const tr = trunks[t];
+                const dx =
+                    px < tr.minx
+                        ? tr.minx - px
+                        : px > tr.maxx
+                          ? px - tr.maxx
+                          : 0;
+                const dy =
+                    py < tr.miny
+                        ? tr.miny - py
+                        : py > tr.maxy
+                          ? py - tr.maxy
+                          : 0;
+                bboxDist[t] = dx * dx + dy * dy;
+                order[t] = t;
+            }
+            // insertion sort order[] by bboxDist (T is small)
+            for (let i = 1; i < T; i++) {
+                const v = order[i];
+                const dv = bboxDist[v];
+                let j = i - 1;
+                while (j >= 0 && bboxDist[order[j]] > dv) {
+                    order[j + 1] = order[j];
+                    j--;
+                }
+                order[j + 1] = v;
+            }
+            let best = Infinity;
+            let bestT = -1;
+            for (let oi = 0; oi < T; oi++) {
+                const t = order[oi];
+                if (bboxDist[t] > best) break; // no closer trunk possible
+                const s = trunks[t].seg;
+                const n = trunks[t].segCount * 4;
+                for (let k = 0; k < n; k += 4) {
+                    const d = ptSegDistSq(px, py, s[k], s[k + 1], s[k + 2], s[k + 3]);
+                    if (d < best) {
+                        best = d;
+                        bestT = t;
+                    }
+                }
+            }
+            label[row * cols + col] = bestT;
+        }
     }
-    // Group cells by trunk name (index-mapped to the input points), union each
-    // trunk's cells, clip to the reach circle.
-    const groups = new Map<string, GeoJSON.Feature<GeoJSON.Polygon>[]>();
-    voronoi.features.forEach((cell, i) => {
-        if (!cell?.geometry) return;
-        const name = (pts.features[i]?.properties as { name?: string })?.name;
-        if (typeof name !== "string") return;
-        const arr = groups.get(name);
-        if (arr) arr.push(cell);
-        else groups.set(name, [cell]);
-    });
+    const dtMs =
+        typeof performance !== "undefined"
+            ? Math.round(performance.now() - dtStart)
+            : 0;
+
+    // --- Per-trunk: maximal-rectangle merge → union → simplify → clip ------
+    const rectPoly = (
+        c0: number,
+        r0: number,
+        c1: number,
+        r1: number,
+    ): GeoJSON.Feature<GeoJSON.Polygon> => {
+        const x0 = minLng + c0 * cellLng;
+        const x1 = minLng + (c1 + 1) * cellLng;
+        const y0 = minLat + r0 * cellLat;
+        const y1 = minLat + (r1 + 1) * cellLat;
+        return turf.polygon([
+            [
+                [x0, y0],
+                [x1, y0],
+                [x1, y1],
+                [x0, y1],
+                [x0, y0],
+            ],
+        ]);
+    };
+    const consumed = new Uint8Array(N);
+    const rectsByLabel = new Map<number, GeoJSON.Feature<GeoJSON.Polygon>[]>();
+    for (let row = 0; row < rows; row++)
+        for (let col = 0; col < cols; col++) {
+            const i = row * cols + col;
+            const L = label[i];
+            if (L < 0 || consumed[i]) continue;
+            let c1 = col;
+            while (
+                c1 + 1 < cols &&
+                !consumed[row * cols + c1 + 1] &&
+                label[row * cols + c1 + 1] === L
+            )
+                c1++;
+            let r1 = row;
+            let grow = true;
+            while (grow && r1 + 1 < rows) {
+                const rr = r1 + 1;
+                for (let cc = col; cc <= c1; cc++) {
+                    const j = rr * cols + cc;
+                    if (consumed[j] || label[j] !== L) {
+                        grow = false;
+                        break;
+                    }
+                }
+                if (grow) r1 = rr;
+            }
+            for (let rr = row; rr <= r1; rr++)
+                for (let cc = col; cc <= c1; cc++) consumed[rr * cols + cc] = 1;
+            const arr = rectsByLabel.get(L);
+            const poly = rectPoly(col, row, c1, r1);
+            if (arr) arr.push(poly);
+            else rectsByLabel.set(L, [poly]);
+        }
+
+    // Douglas–Peucker tolerance ≈ one cell — collapses the axis-aligned stairs of
+    // the rectangle merge toward the true (straight) bisector edges.
+    const simplifyTol = cellLng * 1.1;
     const unionStart =
         typeof performance !== "undefined" ? performance.now() : 0;
     const cells: MetroReachCell[] = [];
-    for (const [name, group] of groups) {
-        const region = safeUnion(group);
+    for (const [L, rects] of rectsByLabel) {
+        const name = trunks[L].name;
+        let region = safeUnion(rects);
         if (!region) continue;
+        try {
+            region = turf.simplify(region, {
+                tolerance: simplifyTol,
+                highQuality: false,
+            }) as GeoJSON.Feature<GeoJSON.Polygon | GeoJSON.MultiPolygon>;
+        } catch {
+            /* keep unsimplified */
+        }
         try {
             const clipped = turf.intersect(
                 turf.featureCollection([region, reach]),
@@ -360,7 +384,7 @@ export function computeMetroReachCellsFromLines(
                     color: colorByName.get(name),
                 });
         } catch {
-            /* skip this trunk's cell */
+            /* skip this trunk's region */
         }
     }
     const unionMs =
@@ -368,7 +392,7 @@ export function computeMetroReachCellsFromLines(
             ? Math.round(performance.now() - unionStart)
             : 0;
 
-    // Diagnostic: partition quality (sum/circle ≈ 1 = clean full cover).
+    // --- Diagnostic: partition quality (sum/circle ≈ 1 = clean full cover) --
     let circleArea = 0;
     let sumArea = 0;
     let giants = 0;
@@ -401,6 +425,6 @@ export function computeMetroReachCellsFromLines(
                 `${ci.name}=${circleArea > 0 ? Math.round((ci.a / circleArea) * 100) : "?"}%${ci.color ? "" : "·nocol"}`,
         )
         .join(",");
-    const diag = `len=${Math.round(totalLen / 1000)}km pts=${rawPts.features.length}→${dedup.length} shared=${shared} vCells=${voronoi.features.length} named=${groups.size} drawn=${cells.length} union=${unionMs}ms sum/circle=${ratio.toFixed(2)} giants=${giants} colors=${colors.size} top=[${top}]`;
+    const diag = `nearest-LINE grid=${cols}x${rows}@${Math.round(cellM)}m trunks=${T} drawn=${cells.length} dt=${dtMs}ms union=${unionMs}ms sum/circle=${ratio.toFixed(2)} giants=${giants} colors=${colors.size} top=[${top}]`;
     return { result: { cells, lines: drawLines }, diag };
 }

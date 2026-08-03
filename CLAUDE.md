@@ -448,6 +448,29 @@ SMALL piece (`area < 5 km²`): the big ocean is left to the chunking (buffering 
 whole is the perf hit the grid exists to avoid, and it already tests in-result).
 `tsc` + 284 tests green.
 
+**v1282 — metro tentacle: TRUE nearest-LINE partition (compute what the eye does).**
+Every prior metro attempt (v1234–v1273) sampled points ALONG the lines and ran a
+Voronoi over those DOTS — nearest-SAMPLE-POINT, not nearest-LINE. Those diverge:
+in open areas far from any line the boundaries become radial slivers between
+individual dots (the "sunburst" spikes), and between two parallel lines the
+boundary only lands on the midline if both are dotted at identical density/phase
+(the reported "segments don't split in the middle"). `metroReach.ts` now evaluates
+the REAL point→polyline distance on a grid: per cell, the trunk whose actual LINE
+geometry is nearest (a metre-plane `ptSegDistSq` over each trunk's segments, with a
+bbox-distance sort + early-out so only the 1–3 nearest trunks are scanned). So the
+boundary between two parallel lines is the true perpendicular bisector — the MIDLINE
+— by construction, and spikes are IMPOSSIBLE (a lone line's region is bounded by
+real bisectors, not radiating dot-cells). Per trunk: maximal-rectangle merge →
+`turf.union` → `turf.simplify` (Douglas–Peucker collapses the grid stair-steps
+toward straight edges — NOT Chaikin, which blobbed in v1269) → clip to the reach
+circle. Dropped ALL the sample-point machinery (adaptive sampling, shared-track
+lateral offset, dedup, `turf.voronoi`). Output shape unchanged, so `tentacles.ts`,
+the elimination, hider grade, planning overlay, and `InlineLocationPicker` consume
+it untouched; still runs in the geometry worker + memoised. Diagnostic:
+`nearest-LINE grid=CxR@Nm trunks=N drawn=N dt=Nms union=Nms sum/circle=X …`. `tsc`
++ 292 tests green. (Perf pass to follow once the look is confirmed, per the user's
+"get the overlay right first".)
+
 **v1281 — landmass clip drops FAR DETAILED island chains (Tokyo's Izu).** After
 v1280 forced Tokyo's re-derive, the clip cut 15.7°→4.7° tall but STILL skipped —
 it kept the Izu island chain (down to 31.238°N) because `dominantExtentFromGroups`'
