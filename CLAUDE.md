@@ -448,6 +448,19 @@ SMALL piece (`area < 5 km²`): the big ocean is left to the chunking (buffering 
 whole is the perf hit the grid exists to avoid, and it already tests in-result).
 `tsc` + 284 tests green.
 
+**v1280 — laptop re-derives a POISONED oversized extent (Tokyo warms).** After
+v1274, Tokyo STILL skipped with `extent 15.7°×18.4° … state/province-scale`,
+because the growth doc held a pre-v1274 ocean-bbox `city.extent` and the laptop's
+`ensureCityExtent` early-returned on any present extent → the worker's now-clipping
+`bboxFromRelation` was never invoked. Fix: `ensureCityExtent(city, {force})`
+re-derives even when an extent exists, and `processCity` FORCE-re-derives when the
+stored extent is oversized (`store-city-extent` OVERWRITES via `upsertDiscoveredCity`
+`{...c,...entry}`, so the poisoned value is replaced by the clipped mainland bbox).
+A genuinely province-scale seed stays oversized (one landmass → clip is a no-op) →
+still skipped. Logs `↻ re-deriving with landmass clip` + a warning if it's still
+oversized (→ the `jlhs-overpass-cache` worker isn't redeployed with v1274 yet — the
+re-derive calls the worker, so this needs the deploy live). Operator-script only.
+
 **v1279 — `--by-population` skip the shuffle + seed population is authoritative in
 the merge.** Two fixes. (1) The REAL reason the run didn't process Tokyo first: the
 laptop SHUFFLES `todo` after ordering (to sample fresh cities across runs), and the

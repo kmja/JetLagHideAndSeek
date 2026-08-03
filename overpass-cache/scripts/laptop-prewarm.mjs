@@ -1954,8 +1954,13 @@ async function fetchWarmedRelationIds() {
  * Best-effort: logs + returns on any failure (the caller's boundary-derived
  * fallback still covers references).
  */
-async function ensureCityExtent(city) {
-    if (city.extent || !city.relationId) return;
+async function ensureCityExtent(city, { force = false } = {}) {
+    if (!city.relationId) return;
+    // Normally skip if we already have an extent; `force` re-derives it (used to
+    // refresh a pre-v1274 poisoned ocean-bbox extent for an island-owning
+    // prefecture like Tokyo — the worker now landmass-clips it, and
+    // store-city-extent OVERWRITES the stored value).
+    if (city.extent && !force) return;
     try {
         const resp = await fetch(`${WORKER}/admin/store-city-extent`, {
             method: "POST",
@@ -2029,6 +2034,25 @@ async function processCity(city) {
     // Mutates `city.extent` on success; no-op if already present or on
     // failure (the boundary-derived fallback below still covers refs).
     await ensureCityExtent(city);
+
+    // v1280: an oversized stored extent may be a PRE-v1274 poisoned ocean bbox
+    // for an island-owning prefecture (Tokyo owns the Izu/Ogasawara islands).
+    // The worker now landmass-clips the extent, but ensureCityExtent skipped the
+    // re-derive because a (stale) extent was already present — so FORCE one and
+    // re-check. A genuinely province/country-scale seed is ONE contiguous
+    // landmass, so the clip is a no-op and it stays oversized → still skipped.
+    if (city.extent && isOversizedExtent(city.extent)) {
+        const [pLat, , pnLat] = city.extent;
+        console.log(
+            `  ↻ ${city.name} — stored extent is ${(pLat - pnLat).toFixed(1)}° tall (poisoned pre-v1274 ocean bbox?) — re-deriving with landmass clip`,
+        );
+        await ensureCityExtent(city, { force: true });
+        if (city.extent && isOversizedExtent(city.extent)) {
+            console.log(
+                `    still oversized after re-derive — the worker may not be redeployed with the v1274 clip yet`,
+            );
+        }
+    }
 
     // v713: bail on a state/province/country-scale extent (a mis-resolved
     // seed like "Ontario" → the whole province). Its refs/stations/water
