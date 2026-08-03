@@ -995,11 +995,28 @@ export function useQuestionImpact(
                 // NOT a centroid Voronoi. Use them directly.
                 out.reachCircle = reach;
                 if (metroReady && metroState && metroState.cells.length) {
-                    out.reachCells = metroState.cells.map((c) => ({
-                        cell: c.cell,
-                        name: c.name,
-                        color: c.color,
-                    }));
+                    // v1273: clip each per-trunk region to the play area (the
+                    // masked/remaining area — `playArea` is the elimination mask
+                    // when present) so the overlay doesn't spill outside the
+                    // playable region.
+                    out.reachCells = metroState.cells.flatMap((c) => {
+                        let cell: Feature<Polygon | MultiPolygon> = c.cell;
+                        if (playArea) {
+                            try {
+                                const clipped = turf.intersect(
+                                    turf.featureCollection([
+                                        c.cell as any,
+                                        playArea as any,
+                                    ]),
+                                ) as Feature<Polygon | MultiPolygon> | null;
+                                if (!clipped) return [];
+                                cell = clipped;
+                            } catch {
+                                /* keep the unclipped cell */
+                            }
+                        }
+                        return [{ cell, name: c.name, color: c.color }];
+                    });
                 }
                 if (metroReady && metroState && metroState.lines.length) {
                     out.reachLines = metroState.lines;

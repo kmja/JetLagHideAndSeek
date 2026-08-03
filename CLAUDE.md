@@ -448,6 +448,18 @@ SMALL piece (`area < 5 km²`): the big ocean is left to the chunking (buffering 
 whole is the perf hit the grid exists to avoid, and it already tests in-result).
 `tsc` + 284 tests green.
 
+**v1273 — metro tentacle: clip the overlay to the play area + DENSE sampling test.**
+Two fixes. (1) The per-trunk regions now clip to the PLAY AREA (the masked/
+remaining area — `playArea` in `useQuestionImpact` is the elimination mask when
+present), so the metro overlay no longer spills outside the playable region like
+every other tentacle overlay (`questionImpact.ts` intersects each `metroState.cell`
+with `playArea`, dropping empties). (2) DENSE sampling to converge the sample-point
+Voronoi toward the true nearest-line boundary and kill the mosaic between close
+parallel trunks — `METRO_SAMPLE_M` 150→45 m, budget 3500→30000 (`metroReach.ts`).
+This is a "get the overlay right first" test config — heavy union on a dense metro,
+but it runs in the geometry worker + memoised so the UI never blocks; a perf pass
+follows once the look is confirmed. `tsc` + 284 tests green.
+
 **v1272 — metro tentacle: revert the grid partition back to a Voronoi (clean cells
 now that lines are merged into trunks).** The v1268 grid/distance-transform
 partition existed because 30 interleaved SERVICES broke the sample-point Voronoi

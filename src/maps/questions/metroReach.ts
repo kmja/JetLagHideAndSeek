@@ -50,8 +50,13 @@ export interface MetroReachResult {
 // Uniform sampling spacing along each trunk (adaptive to keep the point count
 // bounded on a big/dense metro). Dense relative to the ~250 m+ trunk spacing, so
 // the nearest-SAMPLE-POINT Voronoi converges to the nearest-LINE partition.
-const METRO_SAMPLE_M = 150;
-const METRO_SAMPLE_BUDGET = 3500; // cap total sample points (spacing grows past it)
+// v1273: DENSE test config — sampling this fine makes the sample-point Voronoi
+// converge to the true nearest-line boundary (kills the mosaic between close
+// parallel trunks). Slow on a dense metro (heavy union); a perf pass follows once
+// the overlay looks right. Runs in the geometry worker + memoised, so the UI
+// never blocks — it just takes longer to settle.
+const METRO_SAMPLE_M = 45;
+const METRO_SAMPLE_BUDGET = 30000; // cap total sample points (spacing grows past it)
 const METRO_COARSE_REF_M = 120; // coarse ref sampling for the nearest-other query
 const METRO_GRID_M = 300; // spatial-grid cell for the nearest-other query
 // A shared/stacked track: two DIFFERENT trunks within this distance.
