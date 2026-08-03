@@ -175,6 +175,30 @@ const ONLY_COUNTRY = (() => {
 // with `--only-country JP` to warm Tokyo → Yokohama → Osaka → … first. Cities
 // without a population tag sort last (keep their relative order).
 const BY_POPULATION = !!args["by-population"] || !!args["by-size"];
+// v1278: authoritative population from the bundled seed (world-cities.json),
+// keyed by relationId. The `/admin/list-cities` merge can shadow a big seed city
+// with a growth-doc entry whose population got lost, so `--by-population` sorted
+// Tokyo below Sapporo; the local seed is the source of truth. Falls back to the
+// endpoint's `population` for any relation not in the seed.
+const SEED_POPULATION = (() => {
+    try {
+        const p = path.join(
+            path.dirname(fileURLToPath(import.meta.url)),
+            "..",
+            "world-cities.json",
+        );
+        const arr = JSON.parse(fs.readFileSync(p, "utf8"));
+        const m = new Map();
+        for (const c of arr)
+            if (c && c.relationId && Number(c.population) > 0)
+                m.set(Number(c.relationId), Number(c.population));
+        return m;
+    } catch {
+        return new Map();
+    }
+})();
+const cityPopulation = (c) =>
+    SEED_POPULATION.get(Number(c.relationId)) ?? Number(c.population) ?? 0;
 // v641: `--cold-only` skips cities that are ALREADY warmed (per
 // /admin/prewarmed-cities: they have a boundary + an adjacency entry) so a
 // full run goes STRAIGHT to un-warmed cities instead of spending most of
@@ -3960,12 +3984,16 @@ async function main() {
     // v1277: --by-population — biggest cities first (by seed population).
     // Highest precedence; cities without a population sort last.
     if (BY_POPULATION) {
-        const withPop = cities.filter((c) => Number(c.population) > 0).length;
+        const withPop = cities.filter((c) => cityPopulation(c) > 0).length;
         cities = [...cities].sort(
-            (a, b) => (Number(b.population) || 0) - (Number(a.population) || 0),
+            (a, b) => cityPopulation(b) - cityPopulation(a),
         );
+        const top = cities
+            .slice(0, 6)
+            .map((c) => `${c.name} (${Math.round(cityPopulation(c) / 1000)}k)`)
+            .join(", ");
         console.log(
-            `--by-population: biggest cities first; ${withPop}/${cities.length} have a population tag`,
+            `--by-population: biggest cities first; ${withPop}/${cities.length} have a population. Top: ${top}`,
         );
     } else if (EVEN_SPLIT) {
         const withCountry = cities.filter((c) => c.country).length;

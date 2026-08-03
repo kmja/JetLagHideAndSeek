@@ -448,6 +448,15 @@ SMALL piece (`area < 5 km²`): the big ocean is left to the chunking (buffering 
 whole is the perf hit the grid exists to avoid, and it already tests in-result).
 `tsc` + 284 tests green.
 
+**v1278 — `--by-population` uses the BUNDLED seed population (fixes Tokyo sorting
+below Sapporo).** v1277 sorted by the `population` field on `/admin/list-cities`,
+but that endpoint's `getPopularCities` merge can shadow a big seed city with a
+growth-doc entry whose population got lost — so a JP run sorted Sapporo (~2M) first
+and Tokyo/Yokohama/Osaka/Nagoya below it. The laptop now reads the authoritative
+population straight from the bundled `world-cities.json` (keyed by relationId,
+`cityPopulation()`), falling back to the endpoint value only for a relation not in
+the seed, and logs the top 6 so the order is visible. Operator-script only.
+
 **v1277 — laptop-prewarm `--by-population` (biggest cities first).** Sorts the run
 by the seed `population` descending (highest precedence over the other orderings),
 so `--only-country JP --by-population` warms Tokyo → Yokohama → Osaka → … first.
