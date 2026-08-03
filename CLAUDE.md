@@ -448,6 +448,38 @@ SMALL piece (`area < 5 km²`): the big ocean is left to the chunking (buffering 
 whole is the perf hit the grid exists to avoid, and it already tests in-result).
 `tsc` + 284 tests green.
 
+**v1285 — metro tentacle: ISO-CONTOUR boundaries (marching squares), not a blocky
+grid + smoothing.** The definitive answer to "why is metro grid-and-smooth when
+water/coast follow curvy lines cleanly?" — because water/coast is a BUFFER (offset
+ONE geometry set by ONE distance → inherently smooth) while metro is a PARTITION
+(nearest-of-many-lines → the boundary is the BISECTOR halfway between two different
+lines, geometry that isn't any input line and has no turf primitive). Prior builds
+read that boundary off blocky cell labels (stairs) and de-pixelated with Chaikin
+(waves). Now the nearest-trunk field is sampled on grid NODES and each boundary
+point is placed at the EXACT sub-cell spot where two trunks are equidistant — the
+true bisector — by linearly interpolating the distance difference to zero along each
+grid edge (`crossWorld`). So the boundary FOLLOWS the bisector like a curve, the way
+the coast buffer follows a shoreline, with NO smoothing pass. Interior cells (all
+four corners the same trunk) still merge into maximal rectangles (cheap union); only
+BOUNDARY cells are split at the crossings — a STRAIGHT chord between the two
+crossings for the common 2-region cell, a fan through the cell centre for a 3-/4-
+region junction cell. Adjacent cells share the same edge-crossing point, so the
+partition stays gap-free + overlap-free by construction (no Chaikin, no DP-simplify).
+Grid coarsened back (200 cols / 60 m, was 360/30) since the iso-contour no longer
+needs a fine grid to hide stairs — resolution now just controls how faithfully a
+curvy bisector is sampled. Output shape unchanged, so `tentacles.ts`, the geometry
+worker, the elimination, hider grade, planning overlay, and `InlineLocationPicker`
+consume it untouched. New unit test (`tests/metroReach.test.ts`) asserts the
+partition math without a screenshot: two parallel lines split on the MIDLINE (a
+point just west of centre → line A, just east → B), clean full cover (sum/circle in
+[0.95,1.05]), single-line fills the circle, and a 3-way junction tiles with
+`giants=0`. Diagnostic: `iso-contour grid=CxR@Nm trunks=N frags=N drawn=N …`. The
+v1284 finer-grid + lighter-Chaikin (and the whole `chaikinClosed`/`smoothPolyFeature`
+smoothing path) are removed. `tsc` + 295 tests green. KNOWN-REMAINING: the
+shared-track lengthwise split is still dropped (v1282); junction-cell fans route
+through the cell centre (a valid sub-cell resolution, may want the exact triple
+point if junctions read off).
+
 **v1284 — metro tentacle: finer grid + lighter Chaikin (shrinks the boundary
 waves).** Follow-up to v1283's clean partition — the boundaries were clean
 (no gaps/overlaps) but read "blobby/wavy": Chaikin rounds the grid stair-steps

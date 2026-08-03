@@ -14,15 +14,21 @@ import type { Units } from "@/maps/schema";
  * v1282 — compute what the EYE does: for every point, the distance to the actual
  * LINE geometry (not to sampled dots), assign it to the nearest line. Every prior
  * attempt sampled points ALONG the lines and ran a Voronoi over those DOTS — which
- * is nearest-SAMPLE-POINT, not nearest-LINE, and diverges badly: in open areas far
- * from any line the boundaries become radial slivers between individual dots (the
- * "sunburst" spikes), and between two parallel lines the boundary only lands on the
- * midline if both are dotted at identical density/phase (they never are). Here we
- * evaluate the real point→polyline distance on a grid, so the boundary between two
- * parallel lines is the true perpendicular bisector — the MIDLINE — by construction,
- * and spikes are impossible (a lone line's region is bounded by real bisectors).
- * Per trunk we merge its cells into rectangles, union, and SIMPLIFY (Douglas–Peucker
- * collapses the grid stair-steps toward straight edges — NOT Chaikin, which blobbed).
+ * is nearest-SAMPLE-POINT, not nearest-LINE, and diverges badly (open-area spikes;
+ * midlines that only land if both lines are dotted at identical density/phase).
+ *
+ * v1285 — SMOOTH boundaries via ISO-CONTOURING (marching squares), not a blocky
+ * label grid + Chaikin. The nearest-trunk field is sampled on grid NODES (corners),
+ * and a region boundary is placed at the EXACT sub-cell point where two trunks are
+ * equidistant — the true bisector — by linearly interpolating the distance
+ * difference to zero along each grid edge. So the boundary FOLLOWS the bisector like
+ * a curve (the way the water/coast BUFFER follows a shoreline) instead of stepping
+ * along grid squares and being rounded by a smoothing hack. Interior cells (all four
+ * corners the same trunk) still merge into rectangles (cheap union); only BOUNDARY
+ * cells are split at the sub-cell crossings — a straight chord between the two
+ * crossings for the common 2-region cell, a fan through the cell centre for a 3-/4-
+ * region junction cell. Adjacent cells share the same edge-crossing point, so the
+ * partition stays gap-free + overlap-free by construction, with NO smoothing pass.
  */
 
 export interface MetroLine {
@@ -50,14 +56,14 @@ export interface MetroReachResult {
 }
 
 // Grid resolution — ~this many columns across the reach-circle bbox, cell size
-// clamped and total cells capped. v1284: FINER (was 220 cols / 50 m) because the
-// Chaikin-smoothed boundary waves at ~the cell size, so a finer grid → smaller
-// waves → straighter-looking midlines. Heavier compute, but it runs in the worker
-// + memoised (perf pass deferred per "get the look right first").
-const GRID_TARGET_COLS = 360;
-const GRID_MIN_CELL_M = 30;
-const GRID_MAX_CELL_M = 170;
-const GRID_MAX_CELLS = 150000;
+// clamped and total cells capped. The iso-contour places boundaries at sub-cell
+// crossings, so the grid no longer needs to be ultra-fine to hide stairs — its
+// resolution now just controls how faithfully a curvy bisector is sampled. Modest
+// (was 360/30 m for the stair-hiding era). Runs in the worker + memoised.
+const GRID_TARGET_COLS = 200;
+const GRID_MIN_CELL_M = 60;
+const GRID_MAX_CELL_M = 220;
+const GRID_MAX_CELLS = 60000;
 
 /** Squared distance (in the local metre plane) from a point to a segment. */
 function ptSegDistSq(
@@ -83,61 +89,6 @@ function ptSegDistSq(
     const ex = px - cx;
     const ey = py - cy;
     return ex * ex + ey * ey;
-}
-
-/** Chaikin corner-cutting of a CLOSED ring — rounds the grid stair-steps. It is
- *  PARTITION-PRESERVING: two neighbouring regions share the identical grid-corner
- *  vertices along their boundary, and Chaikin is a local linear op, so both smooth
- *  that shared run to the SAME curve → no gaps, no overlaps (unlike DP-simplify,
- *  which straightens each region independently and pulls their shared edge apart). */
-function chaikinClosed(ring: number[][], iters: number): number[][] {
-    let pts = ring;
-    for (let it = 0; it < iters; it++) {
-        const src = pts.slice(0, Math.max(0, pts.length - 1));
-        const n = src.length;
-        if (n < 4) break;
-        const out: number[][] = [];
-        for (let i = 0; i < n; i++) {
-            const a = src[i];
-            const b = src[(i + 1) % n];
-            out.push([a[0] * 0.75 + b[0] * 0.25, a[1] * 0.75 + b[1] * 0.25]);
-            out.push([a[0] * 0.25 + b[0] * 0.75, a[1] * 0.25 + b[1] * 0.75]);
-        }
-        out.push([out[0][0], out[0][1]]);
-        pts = out;
-    }
-    return pts;
-}
-function smoothPolyFeature(
-    f: GeoJSON.Feature<GeoJSON.Polygon | GeoJSON.MultiPolygon>,
-    iters: number,
-): GeoJSON.Feature<GeoJSON.Polygon | GeoJSON.MultiPolygon> {
-    const g = f.geometry;
-    try {
-        if (g.type === "Polygon")
-            return {
-                ...f,
-                geometry: {
-                    type: "Polygon",
-                    coordinates: g.coordinates.map((r) =>
-                        chaikinClosed(r, iters),
-                    ),
-                },
-            };
-        if (g.type === "MultiPolygon")
-            return {
-                ...f,
-                geometry: {
-                    type: "MultiPolygon",
-                    coordinates: g.coordinates.map((poly) =>
-                        poly.map((r) => chaikinClosed(r, iters)),
-                    ),
-                },
-            };
-    } catch {
-        /* fall through */
-    }
-    return f;
 }
 
 /** turf.union of polygons, short-circuiting the single-feature case and falling
@@ -290,64 +241,62 @@ export function computeMetroReachCellsFromLines(
             diag: `only ${trunks.length} trunk with geometry`,
         };
 
-    // --- TRUE nearest-line label grid --------------------------------------
-    // Per cell: the trunk whose LINE geometry is nearest to the cell centre. To
-    // stay fast, sort trunks by bbox distance and stop scanning once a trunk's
-    // bbox is farther than the current best (no closer segment possible).
-    const label = new Int16Array(N).fill(-1);
+    // --- Nearest-trunk field on grid NODES (corners) -----------------------
+    // Marching squares reads the field at grid NODES so a boundary can be placed
+    // at the EXACT sub-cell point where two trunks are equidistant (not off blocky
+    // cell labels). Per node: nearest trunk + its distSq (bbox-sort + early-out).
     const T = trunks.length;
+    const NC = cols + 1;
+    const NR = rows + 1;
+    const nlabel = new Int16Array(NC * NR).fill(-1);
+    const ndist2 = new Float64Array(NC * NR);
     const order = new Int32Array(T);
     const bboxDist = new Float64Array(T);
     const dtStart = typeof performance !== "undefined" ? performance.now() : 0;
-    for (let row = 0; row < rows; row++) {
-        const py = (row + 0.5) * cellM;
-        for (let col = 0; col < cols; col++) {
-            const px = (col + 0.5) * cellM;
-            // bbox distance² per trunk
-            for (let t = 0; t < T; t++) {
-                const tr = trunks[t];
-                const dx =
-                    px < tr.minx
-                        ? tr.minx - px
-                        : px > tr.maxx
-                          ? px - tr.maxx
-                          : 0;
-                const dy =
-                    py < tr.miny
-                        ? tr.miny - py
-                        : py > tr.maxy
-                          ? py - tr.maxy
-                          : 0;
-                bboxDist[t] = dx * dx + dy * dy;
-                order[t] = t;
+    const nearestAt = (px: number, py: number): [number, number] => {
+        for (let t = 0; t < T; t++) {
+            const tr = trunks[t];
+            const dx =
+                px < tr.minx ? tr.minx - px : px > tr.maxx ? px - tr.maxx : 0;
+            const dy =
+                py < tr.miny ? tr.miny - py : py > tr.maxy ? py - tr.maxy : 0;
+            bboxDist[t] = dx * dx + dy * dy;
+            order[t] = t;
+        }
+        for (let i = 1; i < T; i++) {
+            const v = order[i];
+            const dv = bboxDist[v];
+            let j = i - 1;
+            while (j >= 0 && bboxDist[order[j]] > dv) {
+                order[j + 1] = order[j];
+                j--;
             }
-            // insertion sort order[] by bboxDist (T is small)
-            for (let i = 1; i < T; i++) {
-                const v = order[i];
-                const dv = bboxDist[v];
-                let j = i - 1;
-                while (j >= 0 && bboxDist[order[j]] > dv) {
-                    order[j + 1] = order[j];
-                    j--;
-                }
-                order[j + 1] = v;
-            }
-            let best = Infinity;
-            let bestT = -1;
-            for (let oi = 0; oi < T; oi++) {
-                const t = order[oi];
-                if (bboxDist[t] > best) break; // no closer trunk possible
-                const s = trunks[t].seg;
-                const n = trunks[t].segCount * 4;
-                for (let k = 0; k < n; k += 4) {
-                    const d = ptSegDistSq(px, py, s[k], s[k + 1], s[k + 2], s[k + 3]);
-                    if (d < best) {
-                        best = d;
-                        bestT = t;
-                    }
+            order[j + 1] = v;
+        }
+        let best = Infinity;
+        let bestT = -1;
+        for (let oi = 0; oi < T; oi++) {
+            const t = order[oi];
+            if (bboxDist[t] > best) break;
+            const s = trunks[t].seg;
+            const n = trunks[t].segCount * 4;
+            for (let k = 0; k < n; k += 4) {
+                const d = ptSegDistSq(px, py, s[k], s[k + 1], s[k + 2], s[k + 3]);
+                if (d < best) {
+                    best = d;
+                    bestT = t;
                 }
             }
-            label[row * cols + col] = bestT;
+        }
+        return [bestT, best];
+    };
+    for (let r = 0; r < NR; r++) {
+        const py = r * cellM;
+        for (let c = 0; c < NC; c++) {
+            const [t, d2] = nearestAt(c * cellM, py);
+            const idx = r * NC + c;
+            nlabel[idx] = t;
+            ndist2[idx] = d2;
         }
     }
     const dtMs =
@@ -355,7 +304,133 @@ export function computeMetroReachCellsFromLines(
             ? Math.round(performance.now() - dtStart)
             : 0;
 
-    // --- Per-trunk: maximal-rectangle merge → union → simplify → clip ------
+    // dist² from a metre point to a SPECIFIC trunk (for the bisector crossing).
+    const distToTrunk2 = (px: number, py: number, t: number): number => {
+        const s = trunks[t].seg;
+        const n = trunks[t].segCount * 4;
+        let best = Infinity;
+        for (let k = 0; k < n; k += 4) {
+            const d = ptSegDistSq(px, py, s[k], s[k + 1], s[k + 2], s[k + 3]);
+            if (d < best) best = d;
+        }
+        return best;
+    };
+    const nodeLng = (c: number) => minLng + c * cellLng;
+    const nodeLat = (r: number) => minLat + r * cellLat;
+    // The sub-cell point on edge A(la)→B(lb) where d_la == d_lb — the TRUE bisector
+    // crossing — by linearly interpolating the distance difference to zero.
+    const crossWorld = (
+        ca: number,
+        ra: number,
+        la: number,
+        cb: number,
+        rb: number,
+        lb: number,
+    ): [number, number] => {
+        const dAA = Math.sqrt(ndist2[ra * NC + ca]); // la is nearest at A
+        const dBB = Math.sqrt(ndist2[rb * NC + cb]); // lb is nearest at B
+        const dBA = Math.sqrt(distToTrunk2(ca * cellM, ra * cellM, lb));
+        const dAB = Math.sqrt(distToTrunk2(cb * cellM, rb * cellM, la));
+        const fA = dAA - dBA; // ≤ 0
+        const fB = dAB - dBB; // ≥ 0
+        let tt = fA !== fB ? fA / (fA - fB) : 0.5;
+        tt = tt < 0 ? 0 : tt > 1 ? 1 : tt;
+        return [
+            nodeLng(ca) + tt * (nodeLng(cb) - nodeLng(ca)),
+            nodeLat(ra) + tt * (nodeLat(rb) - nodeLat(ra)),
+        ];
+    };
+
+    // --- Classify cells: interior (pure) vs boundary; build boundary fans ---
+    let fragCount = 0;
+    const fragmentsByLabel = new Map<
+        number,
+        GeoJSON.Feature<GeoJSON.Polygon>[]
+    >();
+    const pushFrag = (L: number, poly: GeoJSON.Feature<GeoJSON.Polygon>) => {
+        fragCount++;
+        const arr = fragmentsByLabel.get(L);
+        if (arr) arr.push(poly);
+        else fragmentsByLabel.set(L, [poly]);
+    };
+    const cellPure = new Int32Array(N).fill(-2); // -2 = mixed (boundary) cell
+    for (let r = 0; r < rows; r++)
+        for (let c = 0; c < cols; c++) {
+            const L0 = nlabel[r * NC + c];
+            const L1 = nlabel[r * NC + (c + 1)];
+            const L2 = nlabel[(r + 1) * NC + (c + 1)];
+            const L3 = nlabel[(r + 1) * NC + c];
+            if (L0 === L1 && L1 === L2 && L2 === L3) {
+                cellPure[r * cols + c] = L0;
+                continue;
+            }
+            // Boundary cell → ring of corners + edge crossings, CCW.
+            const cn = [
+                { c, r, L: L0 },
+                { c: c + 1, r, L: L1 },
+                { c: c + 1, r: r + 1, L: L2 },
+                { c, r: r + 1, L: L3 },
+            ];
+            const ring: {
+                pt: [number, number];
+                L: number;
+                cross: boolean;
+            }[] = [];
+            for (let i = 0; i < 4; i++) {
+                const a = cn[i];
+                const b = cn[(i + 1) % 4];
+                ring.push({
+                    pt: [nodeLng(a.c), nodeLat(a.r)],
+                    L: a.L,
+                    cross: false,
+                });
+                if (a.L !== b.L)
+                    ring.push({
+                        pt: crossWorld(a.c, a.r, a.L, b.c, b.r, b.L),
+                        L: -1,
+                        cross: true,
+                    });
+            }
+            const crossIdx: number[] = [];
+            for (let i = 0; i < ring.length; i++)
+                if (ring[i].cross) crossIdx.push(i);
+            if (crossIdx.length < 2) continue; // never for a genuinely mixed cell
+            const center: [number, number] = [
+                minLng + (c + 0.5) * cellLng,
+                minLat + (r + 0.5) * cellLat,
+            ];
+            // 2 crossings → a STRAIGHT chord between them; 3–4 → a junction fan
+            // through the cell centre. Adjacent cells share the same edge crossing,
+            // so the partition is gap-free + overlap-free with no smoothing.
+            const useCenter = crossIdx.length > 2;
+            for (let j = 0; j < crossIdx.length; j++) {
+                const a = crossIdx[j];
+                const b = crossIdx[(j + 1) % crossIdx.length];
+                const pts: [number, number][] = [];
+                if (useCenter) pts.push(center);
+                pts.push(ring[a].pt);
+                let i = (a + 1) % ring.length;
+                let runLabel = -1;
+                while (i !== b) {
+                    const e = ring[i];
+                    if (!e.cross) {
+                        pts.push(e.pt);
+                        runLabel = e.L;
+                    }
+                    i = (i + 1) % ring.length;
+                }
+                pts.push(ring[b].pt);
+                pts.push(useCenter ? center : ring[a].pt);
+                if (runLabel < 0 || pts.length < 4) continue;
+                try {
+                    pushFrag(runLabel, turf.polygon([pts]));
+                } catch {
+                    /* skip a degenerate fragment */
+                }
+            }
+        }
+
+    // --- Interior (pure) cells → maximal-rectangle merge (cheap union) ------
     const rectPoly = (
         c0: number,
         r0: number,
@@ -381,13 +456,13 @@ export function computeMetroReachCellsFromLines(
     for (let row = 0; row < rows; row++)
         for (let col = 0; col < cols; col++) {
             const i = row * cols + col;
-            const L = label[i];
+            const L = cellPure[i];
             if (L < 0 || consumed[i]) continue;
             let c1 = col;
             while (
                 c1 + 1 < cols &&
                 !consumed[row * cols + c1 + 1] &&
-                label[row * cols + c1 + 1] === L
+                cellPure[row * cols + c1 + 1] === L
             )
                 c1++;
             let r1 = row;
@@ -396,7 +471,7 @@ export function computeMetroReachCellsFromLines(
                 const rr = r1 + 1;
                 for (let cc = col; cc <= c1; cc++) {
                     const j = rr * cols + cc;
-                    if (consumed[j] || label[j] !== L) {
+                    if (consumed[j] || cellPure[j] !== L) {
                         grow = false;
                         break;
                     }
@@ -411,20 +486,22 @@ export function computeMetroReachCellsFromLines(
             else rectsByLabel.set(L, [poly]);
         }
 
+    // --- Per trunk: union(interior rects + boundary fragments) → clip ------
     const unionStart =
         typeof performance !== "undefined" ? performance.now() : 0;
     const cells: MetroReachCell[] = [];
-    for (const [L, rects] of rectsByLabel) {
+    const allLabels = new Set<number>([
+        ...rectsByLabel.keys(),
+        ...fragmentsByLabel.keys(),
+    ]);
+    for (const L of allLabels) {
         const name = trunks[L].name;
-        let region = safeUnion(rects);
+        const parts = [
+            ...(rectsByLabel.get(L) ?? []),
+            ...(fragmentsByLabel.get(L) ?? []),
+        ];
+        const region = safeUnion(parts);
         if (!region) continue;
-        // Partition-preserving Chaikin (NOT DP-simplify — that pulls shared edges
-        // apart into gaps/overlaps). Rounds the grid stairs; neighbours share the
-        // exact grid-corner vertices so the smoothed boundary stays matched. ONE
-        // iteration (was 2): with the finer grid the stairs are already small, and
-        // a single corner-cut hugs the true bisector more tightly — 2 iterations
-        // over-rounded into the "blobby/wavy" look.
-        region = smoothPolyFeature(region, 1);
         try {
             const clipped = turf.intersect(
                 turf.featureCollection([region, reach]),
@@ -479,6 +556,6 @@ export function computeMetroReachCellsFromLines(
                 `${ci.name}=${circleArea > 0 ? Math.round((ci.a / circleArea) * 100) : "?"}%${ci.color ? "" : "·nocol"}`,
         )
         .join(",");
-    const diag = `nearest-LINE grid=${cols}x${rows}@${Math.round(cellM)}m trunks=${T} drawn=${cells.length} dt=${dtMs}ms union=${unionMs}ms sum/circle=${ratio.toFixed(2)} giants=${giants} colors=${colors.size} top=[${top}]`;
+    const diag = `iso-contour grid=${cols}x${rows}@${Math.round(cellM)}m trunks=${T} frags=${fragCount} drawn=${cells.length} dt=${dtMs}ms union=${unionMs}ms sum/circle=${ratio.toFixed(2)} giants=${giants} colors=${colors.size} top=[${top}]`;
     return { result: { cells, lines: drawLines }, diag };
 }
