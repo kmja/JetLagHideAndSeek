@@ -448,6 +448,22 @@ SMALL piece (`area < 5 km²`): the big ocean is left to the chunking (buffering 
 whole is the perf hit the grid exists to avoid, and it already tests in-result).
 `tsc` + 284 tests green.
 
+**v1283 — metro tentacle: partition-preserving Chaikin (fixes the gaps/overlaps).**
+v1282's per-trunk `turf.simplify` (Douglas–Peucker) straightened each region
+INDEPENDENTLY, so a shared boundary got simplified differently on each side and the
+two edges pulled apart → gaps (basemap showing through) + overlaps (double-opacity
+patches). The rectangle-merge BEFORE smoothing is already a perfectly clean
+partition (adjacent regions share exact grid-corner vertices), so the smoother just
+has to be PARTITION-PRESERVING: swapped DP-simplify for Chaikin corner-cutting
+(`smoothPolyFeature`, 2 iters), which — being a local linear op on the shared
+vertex run — produces the SAME curve on both sides of every boundary → no gaps, no
+overlaps (the v1269 property, now on the CORRECT nearest-line grid instead of the
+old distance-transform one). `tsc` + 292 tests green. KNOWN-REMAINING: the
+shared-track lengthwise split was dropped in the v1282 rewrite (the old sample-point
+lateral offset is gone), so where two DIFFERENT-coloured trunks run on one physical
+track the label flip-flops cell-to-cell (a wiggly mid-track boundary) — a
+deterministic grid-based split is the next step if the noise proves distracting.
+
 **v1282 — metro tentacle: TRUE nearest-LINE partition (compute what the eye does).**
 Every prior metro attempt (v1234–v1273) sampled points ALONG the lines and ran a
 Voronoi over those DOTS — nearest-SAMPLE-POINT, not nearest-LINE. Those diverge:

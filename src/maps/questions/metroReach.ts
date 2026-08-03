@@ -82,6 +82,61 @@ function ptSegDistSq(
     return ex * ex + ey * ey;
 }
 
+/** Chaikin corner-cutting of a CLOSED ring — rounds the grid stair-steps. It is
+ *  PARTITION-PRESERVING: two neighbouring regions share the identical grid-corner
+ *  vertices along their boundary, and Chaikin is a local linear op, so both smooth
+ *  that shared run to the SAME curve → no gaps, no overlaps (unlike DP-simplify,
+ *  which straightens each region independently and pulls their shared edge apart). */
+function chaikinClosed(ring: number[][], iters: number): number[][] {
+    let pts = ring;
+    for (let it = 0; it < iters; it++) {
+        const src = pts.slice(0, Math.max(0, pts.length - 1));
+        const n = src.length;
+        if (n < 4) break;
+        const out: number[][] = [];
+        for (let i = 0; i < n; i++) {
+            const a = src[i];
+            const b = src[(i + 1) % n];
+            out.push([a[0] * 0.75 + b[0] * 0.25, a[1] * 0.75 + b[1] * 0.25]);
+            out.push([a[0] * 0.25 + b[0] * 0.75, a[1] * 0.25 + b[1] * 0.75]);
+        }
+        out.push([out[0][0], out[0][1]]);
+        pts = out;
+    }
+    return pts;
+}
+function smoothPolyFeature(
+    f: GeoJSON.Feature<GeoJSON.Polygon | GeoJSON.MultiPolygon>,
+    iters: number,
+): GeoJSON.Feature<GeoJSON.Polygon | GeoJSON.MultiPolygon> {
+    const g = f.geometry;
+    try {
+        if (g.type === "Polygon")
+            return {
+                ...f,
+                geometry: {
+                    type: "Polygon",
+                    coordinates: g.coordinates.map((r) =>
+                        chaikinClosed(r, iters),
+                    ),
+                },
+            };
+        if (g.type === "MultiPolygon")
+            return {
+                ...f,
+                geometry: {
+                    type: "MultiPolygon",
+                    coordinates: g.coordinates.map((poly) =>
+                        poly.map((r) => chaikinClosed(r, iters)),
+                    ),
+                },
+            };
+    } catch {
+        /* fall through */
+    }
+    return f;
+}
+
 /** turf.union of polygons, short-circuiting the single-feature case and falling
  *  back to an incremental fold if the one-shot union throws. */
 function safeUnion(
@@ -353,9 +408,6 @@ export function computeMetroReachCellsFromLines(
             else rectsByLabel.set(L, [poly]);
         }
 
-    // Douglas–Peucker tolerance ≈ one cell — collapses the axis-aligned stairs of
-    // the rectangle merge toward the true (straight) bisector edges.
-    const simplifyTol = cellLng * 1.1;
     const unionStart =
         typeof performance !== "undefined" ? performance.now() : 0;
     const cells: MetroReachCell[] = [];
@@ -363,14 +415,10 @@ export function computeMetroReachCellsFromLines(
         const name = trunks[L].name;
         let region = safeUnion(rects);
         if (!region) continue;
-        try {
-            region = turf.simplify(region, {
-                tolerance: simplifyTol,
-                highQuality: false,
-            }) as GeoJSON.Feature<GeoJSON.Polygon | GeoJSON.MultiPolygon>;
-        } catch {
-            /* keep unsimplified */
-        }
+        // Partition-preserving Chaikin (NOT DP-simplify — that pulls shared edges
+        // apart into gaps/overlaps). Rounds the grid stairs; neighbours share the
+        // exact grid-corner vertices so the smoothed boundary stays matched.
+        region = smoothPolyFeature(region, 2);
         try {
             const clipped = turf.intersect(
                 turf.featureCollection([region, reach]),
