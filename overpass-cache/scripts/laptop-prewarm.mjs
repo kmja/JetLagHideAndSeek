@@ -139,7 +139,11 @@ if (!args.worker || !args.secret) {
     process.exit(1);
 }
 
-const WORKER = args.worker.replace(/\/+$/, "");
+// Accept a bare host ("foo.workers.dev") — prepend https:// so the URL is valid
+// (a scheme-less --worker otherwise fails every fetch with ERR_INVALID_URL).
+const WORKER = (
+    /^https?:\/\//i.test(args.worker) ? args.worker : `https://${args.worker}`
+).replace(/\/+$/, "");
 const SECRET = args.secret;
 const MAX_CITIES = args.max ? parseInt(args.max, 10) : Infinity;
 // v473: build/warm a SINGLE city on demand instead of the whole list.

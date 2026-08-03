@@ -448,6 +448,10 @@ SMALL piece (`area < 5 km²`): the big ocean is left to the chunking (buffering 
 whole is the perf hit the grid exists to avoid, and it already tests in-result).
 `tsc` + 284 tests green.
 
+**v1276 — laptop-prewarm accepts a scheme-less `--worker`.** A bare host
+(`--worker foo.workers.dev`) failed every fetch with `ERR_INVALID_URL`; the arg
+is now `https://`-prefixed if it has no scheme. Operator-script only.
+
 **v1275 — Tokyo follow-ups: clip the play-area BOUNDARY to the mainland + a
 `--only-country` prewarm flag.** Two follow-ups to v1274 (which fixed the DATA
 extent). (1) The play-area BOUNDARY polygon was still the full island-owning
