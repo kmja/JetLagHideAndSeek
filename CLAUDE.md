@@ -448,6 +448,20 @@ SMALL piece (`area < 5 km²`): the big ocean is left to the chunking (buffering 
 whole is the perf hit the grid exists to avoid, and it already tests in-result).
 `tsc` + 284 tests green.
 
+**v1272 — metro tentacle: revert the grid partition back to a Voronoi (clean cells
+now that lines are merged into trunks).** The v1268 grid/distance-transform
+partition existed because 30 interleaved SERVICES broke the sample-point Voronoi
+(sparse-area wedges, junction mosaic); once v1271 grouped services into ~7 TRUNKS
+by colour, that reason is gone — the sampling is dense relative to the trunk
+spacing, so a plain Voronoi ≈ the true nearest-line partition AND renders as clean
+straight-edged cells instead of the grid's blocky/blobby (Chaikin-rounded)
+regions, which still read as confetti in a dense core (NYC's Midtown). `metroReach.ts`
+now uniformly samples each trunk (`METRO_SAMPLE_M` 150 m, budget-capped), offsets
+seeds on a shared track (different-coloured trunks only), runs `turf.voronoi`,
+unions cells by trunk name, and clips to the reach circle. Dropped the grid /
+4SED distance transform / maximal-rectangle merge / Chaikin smoothing. The v1269
+delineating hairline stays. Output shape unchanged. `tsc` + 284 tests green.
+
 **v1271 — metro tentacle: group services into TRUNKS by colour (fixes the dense-
 core chaos).** In a dense metro (NYC's Midtown) the partition was correct but
 unreadable: treating each SERVICE (A, C, E…) as its own line meant 5–6 interleaved
