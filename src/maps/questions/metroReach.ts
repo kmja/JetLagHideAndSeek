@@ -4,13 +4,27 @@ import { haversineMeters } from "@/lib/geo";
 import type { Units } from "@/maps/schema";
 
 /**
- * PURE metro-tentacle geometry — the nearest-LINE Voronoi partition of the reach
- * circle. Deliberately worker-safe: imports ONLY turf + the pure `haversineMeters`
- * helper + the `Units` TYPE (erased), so it can run in the geometry Web Worker
- * (off the main thread — the sampling + Voronoi + per-line union is a multi-second
- * block for a dense metro like NYC) AND on the main thread as the fallback. No
- * atoms, no network, no React reach here. `tentacles.ts` does the fetch and the
- * diagnostic-atom write; this module only computes.
+ * PURE metro-tentacle geometry — the nearest-LINE partition of the reach circle.
+ * Deliberately worker-safe: imports ONLY turf + the pure `haversineMeters` helper
+ * + the `Units` TYPE (erased), so it can run in the geometry Web Worker (off the
+ * main thread) AND on the main thread as the fallback. No atoms, no network, no
+ * React reach here. `tentacles.ts` does the fetch + the diagnostic-atom write;
+ * this module only computes.
+ *
+ * v1268 — DEFINITIVE partition (replaces the sample-point Voronoi). The old
+ * approach was a Voronoi over sampled points ALONG the lines, so it computed
+ * nearest-SAMPLE-POINT, not nearest-LINE — which diverges where seed density is
+ * uneven: sparse isolated lines radiated huge wedges, dense junctions shattered
+ * into a mosaic. Now we compute the TRUE nearest-line field on a grid: rasterize
+ * every line into grid cells, then a vector distance transform (4SED / Danielsson)
+ * propagates each cell's nearest SEED cell → every cell is labelled by its
+ * genuinely-nearest line. A point ON a line is always in that line's region, so
+ * there are no wedges and no mosaic — the regions follow the lines by construction.
+ * Per line we then merge its cells into maximal rectangles, union them, and clip to
+ * the reach circle (so coverage is the whole circle, sum/circle ≈ 1). SHARED tracks
+ * (two services on one physical track) are split lengthwise by offsetting each
+ * service's seeds perpendicular to the track (a stable division all players agree
+ * on, since identical geometry is genuinely ambiguous).
  */
 
 export interface MetroLine {
@@ -37,44 +51,29 @@ export interface MetroReachResult {
     }>;
 }
 
-// v1260: ADAPTIVE sampling — emit spacing scales with distance to the nearest
-// OTHER line: dense where lines are contested (near a boundary), coarse where a
-// line is isolated (the whole area is that line regardless of spacing).
-const METRO_STEP_M = 100; // fine walk granularity (adaptive emit decision)
-const METRO_COARSE_REF_M = 200; // reference sampling of ALL lines (nearest-other query)
-const METRO_GRID_M = 300; // spatial-grid cell size for the nearest-other query
-// v1264: emit spacing ≈ K × distance-to-nearest-other-line. LOWERED 0.7→0.45: the
-// nearest-SAMPLE-POINT boundary zigzags at ~spacing, so where two lines run close
-// (Brooklyn junctions) the region boundary alternates into small cells instead of
-// following the lines smoothly. A smaller K densifies contested boundaries so they
-// converge toward the smooth nearest-LINE midline. Affordable now that the compute
-// is memoised (runs once, not 4×) + off-thread.
-const METRO_ADAPT_K = 0.45;
-const METRO_MIN_SPACING_M = 110; // densest emit spacing (contested corridors)
-// v1265: coarsest emit spacing (isolated stretches) — LOWERED 900→350. An
-// isolated line at 900 m had seeds too sparse to bound the huge Voronoi wedges
-// that the DENSE eastern seed-cluster (all lines converging at the Hudson) expands
-// westward into empty NJ — so those wedges poked across a lone western line's
-// track (a single line flipping red→purple→yellow→green). Denser isolated seeds
-// let each line claim its own vicinity, so it keeps its colour along its track.
-const METRO_MAX_SPACING_M = 350;
-const METRO_MAX_SEARCH_M = 1400; // beyond this a line is "isolated" → max spacing
-// v1263: emit spacing on a SHARED/stacked track — RAISED 500→1200 m. NYC runs so
-// much parallel/shared track that ~76% of steps are "shared"; at 500 m that
-// pushed the point count to ~8700 and the per-line union to ~8 s. Coarser shared
-// sampling keeps the track claimed (no wrong-trunk bleed) + the lateral split,
-// with far fewer points → a tractable union.
-const METRO_SHARED_SPACING_M = 1000;
+// Grid resolution — aim for ~this many columns across the reach-circle bbox, with
+// the cell size clamped and the total cell count capped so a huge (25 km-radius)
+// tentacle stays tractable. A metro partition needs no fine detail (the map zoom
+// hides sub-200 m stair-steps, and the per-line intersect-with-circle smooths the
+// outer rim), so a coarse grid is both fast and visually clean.
+const GRID_TARGET_COLS = 200;
+const GRID_MIN_CELL_M = 90;
+const GRID_MAX_CELL_M = 320;
+const GRID_MAX_CELLS = 46000;
 
-// v1246/v1260: distance (m) under which two DIFFERENT lines are treated as a
-// SHARED/stacked track (NYC's A/C/E on 8th Ave, the Bronx 2+5).
+// v1246: distance (m) under which two DIFFERENT lines are a SHARED/stacked track
+// (NYC's A/C/E on 8th Ave, the Bronx 2+5). Only on a shared segment do we offset.
 const METRO_CONVERGENCE_M = 150;
+// Coarse reference sampling of ALL lines, for the "distance to nearest OTHER line"
+// query that decides whether a point is on a shared track.
+const METRO_COARSE_REF_M = 120;
+const METRO_GRID_M = 300; // spatial-grid cell size for that nearest-other query
 
 // v1262: on a SHARED track, offset each service's seeds PERPENDICULAR to the track
-// by a deterministic per-line amount, so two services sharing a track land on
-// OPPOSITE sides and the Voronoi splits the corridor lengthwise (one each side)
-// instead of alternating along it — a stable division all players agree on.
-const METRO_LATERAL_BUCKETS = [-330, -220, -110, 110, 220, 330];
+// by a deterministic per-line amount, so two services sharing a track rasterize
+// into adjacent cell rows and the partition splits the corridor lengthwise (one
+// service each side) instead of alternating along it.
+const METRO_LATERAL_BUCKETS = [-300, -180, 180, 300];
 function lineLateralOffsetM(name: string): number {
     let h = 0;
     for (let i = 0; i < name.length; i++)
@@ -124,39 +123,33 @@ function walkLinesAtStep(
     return { walks, totalLen };
 }
 
-/** ADAPTIVE sample points along each line (name-tagged) — the seed set for the
- *  nearest-LINE Voronoi. Returns the FC + a diagnostic info string. */
-function metroSamplePoints(lines: MetroLine[]): {
-    fc: GeoJSON.FeatureCollection<GeoJSON.Point>;
-    info: string;
-} {
-    // Pass 1: coarse reference points of ALL lines → a spatial grid, for the
-    // "distance to the nearest OTHER line" query that drives adaptive spacing.
+/** Build a "distance to the nearest OTHER line" query over a coarse spatial grid
+ *  of all lines' reference points. Returns a function metres→nearest-other. */
+function buildNearestOther(
+    lines: MetroLine[],
+    refLat: number,
+): { nearestOther: (lng: number, lat: number, name: string) => number } {
     const coarse = walkLinesAtStep(lines, METRO_COARSE_REF_M);
-    const totalLen = coarse.totalLen;
+    const cos = Math.cos((refLat * Math.PI) / 180) || 1e-6;
+    const cellLat = METRO_GRID_M / 111320;
+    const cellLng = METRO_GRID_M / (111320 * cos);
     interface RP {
         lng: number;
         lat: number;
         name: string;
     }
-    const refPts: RP[] = [];
-    let refLat = 0;
+    const grid = new Map<string, RP[]>();
     for (const w of coarse.walks)
         for (const p of w.pts) {
-            if (refPts.length === 0) refLat = p[1];
-            refPts.push({ lng: p[0], lat: p[1], name: w.name });
+            const rp: RP = { lng: p[0], lat: p[1], name: w.name };
+            const k = `${Math.floor(rp.lng / cellLng)},${Math.floor(rp.lat / cellLat)}`;
+            const arr = grid.get(k);
+            if (arr) arr.push(rp);
+            else grid.set(k, [rp]);
         }
-    const cos = Math.cos((refLat * Math.PI) / 180) || 1e-6;
-    const cellLat = METRO_GRID_M / 111320;
-    const cellLng = METRO_GRID_M / (111320 * cos);
-    const grid = new Map<string, RP[]>();
-    for (const p of refPts) {
-        const k = `${Math.floor(p.lng / cellLng)},${Math.floor(p.lat / cellLat)}`;
-        const arr = grid.get(k);
-        if (arr) arr.push(p);
-        else grid.set(k, [p]);
-    }
-    const maxRings = Math.ceil(METRO_MAX_SEARCH_M / METRO_GRID_M);
+    // Only the shared-track question matters, so search out to a couple of grid
+    // rings around the convergence threshold — plenty to detect a stacked track.
+    const maxRings = Math.max(1, Math.ceil((METRO_CONVERGENCE_M * 2) / METRO_GRID_M));
     const nearestOther = (lng: number, lat: number, name: string): number => {
         const gx = Math.floor(lng / cellLng);
         const gy = Math.floor(lat / cellLat);
@@ -180,79 +173,49 @@ function metroSamplePoints(lines: MetroLine[]): {
         }
         return best;
     };
-
-    // Pass 2: fine walk; emit adaptively (coarse + laterally-offset on shared).
-    const fine = walkLinesAtStep(lines, METRO_STEP_M);
-    const feats: GeoJSON.Feature<GeoJSON.Point>[] = [];
-    let emitted = 0;
-    let shared = 0;
-    for (const w of fine.walks) {
-        const lateral = lineLateralOffsetM(w.name);
-        let distSince = METRO_MAX_SPACING_M; // emit near the start
-        let prev: [number, number] | null = null;
-        for (let pi = 0; pi < w.pts.length; pi++) {
-            const p = w.pts[pi];
-            const D = nearestOther(p[0], p[1], w.name);
-            distSince += METRO_STEP_M;
-            const stacked = D < METRO_CONVERGENCE_M;
-            if (stacked) shared++;
-            const target = stacked
-                ? METRO_SHARED_SPACING_M
-                : !Number.isFinite(D)
-                  ? METRO_MAX_SPACING_M
-                  : Math.min(
-                        METRO_MAX_SPACING_M,
-                        Math.max(METRO_MIN_SPACING_M, METRO_ADAPT_K * D),
-                    );
-            if (distSince >= target) {
-                let ep = p;
-                if (stacked) {
-                    const from = prev ?? p;
-                    const to = prev
-                        ? p
-                        : pi + 1 < w.pts.length
-                          ? w.pts[pi + 1]
-                          : p;
-                    const dxm = (to[0] - from[0]) * 111320 * cos;
-                    const dym = (to[1] - from[1]) * 111320;
-                    const len = Math.hypot(dxm, dym);
-                    if (len > 1e-6) {
-                        const offx = (-dym / len) * lateral;
-                        const offy = (dxm / len) * lateral;
-                        ep = [
-                            p[0] + offx / (111320 * cos),
-                            p[1] + offy / 111320,
-                        ];
-                    }
-                }
-                feats.push(turf.point(ep, { name: w.name }));
-                distSince = 0;
-                emitted++;
-            }
-            prev = p;
-        }
-    }
-    const info = `len=${Math.round(totalLen / 1000)}km adaptive ref=${refPts.length} emit=${emitted} shared=${shared}`;
-    return { fc: turf.featureCollection(feats), info };
+    return { nearestOther };
 }
 
-/** turf.union of a FeatureCollection, short-circuiting the single-feature case. */
-function safeUnionFC(
-    fc: GeoJSON.FeatureCollection<GeoJSON.Polygon | GeoJSON.MultiPolygon>,
+/** turf.union of a FeatureCollection, short-circuiting the single-feature case and
+ *  falling back to an incremental fold if the one-shot union throws. */
+function safeUnion(
+    polys: GeoJSON.Feature<GeoJSON.Polygon | GeoJSON.MultiPolygon>[],
 ): GeoJSON.Feature<GeoJSON.Polygon | GeoJSON.MultiPolygon> | null {
-    if (fc.features.length === 0) return null;
-    if (fc.features.length === 1) return fc.features[0];
-    return turf.union(fc) as GeoJSON.Feature<
-        GeoJSON.Polygon | GeoJSON.MultiPolygon
-    > | null;
+    if (polys.length === 0) return null;
+    if (polys.length === 1) return polys[0];
+    try {
+        const u = turf.union(turf.featureCollection(polys));
+        if (u)
+            return u as GeoJSON.Feature<
+                GeoJSON.Polygon | GeoJSON.MultiPolygon
+            >;
+    } catch {
+        /* fall through to incremental */
+    }
+    let region = polys[0];
+    for (let i = 1; i < polys.length; i++) {
+        try {
+            const merged = turf.union(
+                turf.featureCollection([region, polys[i]]),
+            );
+            if (merged)
+                region = merged as GeoJSON.Feature<
+                    GeoJSON.Polygon | GeoJSON.MultiPolygon
+                >;
+        } catch {
+            /* skip this rectangle only */
+        }
+    }
+    return region;
 }
 
 /**
- * The metro reach partitioned into ONE region per LINE (nearest-line Voronoi),
- * each clipped to the reach circle, PLUS the reachable lines' geometry. PURE — no
- * fetch, no atom. Returns the result + the geometry diagnostic string (the caller
- * prepends the fetch part and writes the atom). The SINGLE producer used by the
- * configure preview, the elimination, and the draft planning overlay.
+ * The metro reach partitioned into ONE region per LINE (nearest-LINE grid
+ * partition), each clipped to the reach circle, PLUS the reachable lines'
+ * geometry. PURE — no fetch, no atom. Returns the result + a geometry diagnostic
+ * string (the caller prepends the fetch part + writes the atom). The SINGLE
+ * producer used by the configure preview, the elimination, and the draft planning
+ * overlay.
  */
 export function computeMetroReachCellsFromLines(
     lines: MetroLine[],
@@ -292,104 +255,207 @@ export function computeMetroReachCellsFromLines(
             },
             diag: "single line",
         };
-    const { fc: rawPts, info } = metroSamplePoints(lines);
-    // v1245: DEDUP coincident points before turf.voronoi (d3-voronoi throws on
-    // coincident sites; both directions of a line trace the same track).
-    const seenCoord = new Set<string>();
-    const dedup: GeoJSON.Feature<GeoJSON.Point>[] = [];
-    for (const f of rawPts.features) {
-        const c = f.geometry.coordinates;
-        const key = `${c[0].toFixed(5)},${c[1].toFixed(5)}`;
-        if (seenCoord.has(key)) continue;
-        seenCoord.add(key);
-        dedup.push(f);
+
+    // --- Grid over the reach-circle bbox -----------------------------------
+    const rb = turf.bbox(reach); // [minLng, minLat, maxLng, maxLat]
+    const minLng = rb[0];
+    const minLat = rb[1];
+    const cos = Math.cos((centerLat * Math.PI) / 180) || 1e-6;
+    const widthM = (rb[2] - rb[0]) * 111320 * cos;
+    const heightM = (rb[3] - rb[1]) * 111320;
+    let cellM = Math.min(
+        GRID_MAX_CELL_M,
+        Math.max(GRID_MIN_CELL_M, widthM / GRID_TARGET_COLS),
+    );
+    let cols = Math.max(1, Math.ceil(widthM / cellM));
+    let rows = Math.max(1, Math.ceil(heightM / cellM));
+    if (cols * rows > GRID_MAX_CELLS) {
+        cellM *= Math.sqrt((cols * rows) / GRID_MAX_CELLS);
+        cols = Math.max(1, Math.ceil(widthM / cellM));
+        rows = Math.max(1, Math.ceil(heightM / cellM));
     }
-    const pts = turf.featureCollection(dedup);
-    if (pts.features.length < 2)
-        return { result: { cells: [], lines: drawLines }, diag: `${info} <2 pts` };
-    // v1244/v1256: planar turf.voronoi over a bbox that contains the points AND
-    // the whole reach circle (so the outer cells fill the circle → full coverage).
-    const pb = turf.bbox(pts);
-    const rb = turf.bbox(reach);
-    const bb: [number, number, number, number] = [
-        Math.min(pb[0], rb[0]),
-        Math.min(pb[1], rb[1]),
-        Math.max(pb[2], rb[2]),
-        Math.max(pb[3], rb[3]),
-    ];
-    const padX = (bb[2] - bb[0]) * 0.05 + 0.01;
-    const padY = (bb[3] - bb[1]) * 0.05 + 0.01;
-    let voronoi: GeoJSON.FeatureCollection<GeoJSON.Polygon>;
-    try {
-        voronoi = turf.voronoi(pts, {
-            bbox: [bb[0] - padX, bb[1] - padY, bb[2] + padX, bb[3] + padY],
-        });
-    } catch (e) {
-        return {
-            result: { cells: [], lines: drawLines },
-            diag: `${info} pts=${pts.features.length} voronoi THREW: ${String(e).slice(0, 60)}`,
-        };
-    }
-    // Group cells by line name (index-mapped to the input points), union each
-    // line's cells, clip to the reach circle.
-    const groups = new Map<string, GeoJSON.Feature<GeoJSON.Polygon>[]>();
-    voronoi.features.forEach((cell, i) => {
-        if (!cell?.geometry) return;
-        const name = (pts.features[i]?.properties as { name?: string })?.name;
-        if (typeof name !== "string") return;
-        const arr = groups.get(name);
-        if (arr) arr.push(cell);
-        else groups.set(name, [cell]);
+    const cellLng = cellM / (111320 * cos);
+    const cellLat = cellM / 111320;
+    const N = cols * rows;
+
+    // --- Rasterize seeds (with shared-track lateral offset) ----------------
+    const seedLabel = new Int16Array(N).fill(-1);
+    const names: string[] = lines.map((l) => l.name);
+    const nameToIdx = new Map<string, number>();
+    names.forEach((n, i) => {
+        if (!nameToIdx.has(n)) nameToIdx.set(n, i);
     });
-    const unionStart =
-        typeof performance !== "undefined" ? performance.now() : 0;
-    const regionByName = new Map<
-        string,
-        GeoJSON.Feature<GeoJSON.Polygon | GeoJSON.MultiPolygon>
-    >();
-    for (const [name, group] of groups) {
-        let region: GeoJSON.Feature<GeoJSON.Polygon | GeoJSON.MultiPolygon> =
-            group[0];
-        if (group.length > 1) {
-            try {
-                region = safeUnionFC(turf.featureCollection(group)) ?? region;
-            } catch {
-                for (let gi = 1; gi < group.length; gi++) {
-                    try {
-                        const merged = turf.union(
-                            turf.featureCollection([
-                                region as GeoJSON.Feature<
-                                    GeoJSON.Polygon | GeoJSON.MultiPolygon
-                                >,
-                                group[gi],
-                            ]),
-                        );
-                        if (merged)
-                            region = merged as GeoJSON.Feature<
-                                GeoJSON.Polygon | GeoJSON.MultiPolygon
-                            >;
-                    } catch {
-                        /* skip this cell only */
-                    }
+    const { nearestOther } = buildNearestOther(lines, centerLat);
+    const walkStep = Math.min(cellM * 0.5, 60);
+    const fine = walkLinesAtStep(lines, walkStep);
+    let sharedPts = 0;
+    let seedCells = 0;
+    for (const w of fine.walks) {
+        const idx = nameToIdx.get(w.name) ?? 0;
+        const lateral = lineLateralOffsetM(w.name);
+        for (let pi = 0; pi < w.pts.length; pi++) {
+            const p = w.pts[pi];
+            let lng = p[0];
+            let lat = p[1];
+            const D = nearestOther(lng, lat, w.name);
+            if (D < METRO_CONVERGENCE_M) {
+                sharedPts++;
+                // perpendicular offset by `lateral` metres
+                const from = pi > 0 ? w.pts[pi - 1] : p;
+                const to = pi + 1 < w.pts.length ? w.pts[pi + 1] : p;
+                const dxm = (to[0] - from[0]) * 111320 * cos;
+                const dym = (to[1] - from[1]) * 111320;
+                const len = Math.hypot(dxm, dym);
+                if (len > 1e-6) {
+                    const offx = (-dym / len) * lateral;
+                    const offy = (dxm / len) * lateral;
+                    lng += offx / (111320 * cos);
+                    lat += offy / 111320;
                 }
             }
+            let gx = Math.floor((lng - minLng) / cellLng);
+            let gy = Math.floor((lat - minLat) / cellLat);
+            if (gx < 0) gx = 0;
+            else if (gx >= cols) gx = cols - 1;
+            if (gy < 0) gy = 0;
+            else if (gy >= rows) gy = rows - 1;
+            const ci = gy * cols + gx;
+            if (seedLabel[ci] === -1) seedCells++;
+            seedLabel[ci] = idx; // last writer wins on a shared cell
         }
-        regionByName.set(name, region);
     }
-    const unionMs =
+    if (seedCells === 0)
+        return {
+            result: { cells: [], lines: drawLines },
+            diag: "no seeds rasterized",
+        };
+
+    // --- Vector distance transform (4SED / Danielsson) ---------------------
+    // Each cell adopts the nearest SEED cell's grid coords, so its label is the
+    // label of its genuinely-nearest line (true nearest-line partition).
+    const nx = new Int32Array(N).fill(-1);
+    const ny = new Int32Array(N).fill(-1);
+    for (let i = 0; i < N; i++)
+        if (seedLabel[i] !== -1) {
+            nx[i] = i % cols;
+            ny[i] = (i / cols) | 0;
+        }
+    const dtStart = typeof performance !== "undefined" ? performance.now() : 0;
+    const better = (i: number, col: number, row: number, j: number): void => {
+        const sx = nx[j];
+        if (sx === -1) return;
+        const sy = ny[j];
+        const cx = nx[i];
+        const cand = (col - sx) * (col - sx) + (row - sy) * (row - sy);
+        if (cx === -1) {
+            nx[i] = sx;
+            ny[i] = sy;
+            return;
+        }
+        const cy = ny[i];
+        const cur = (col - cx) * (col - cx) + (row - cy) * (row - cy);
+        if (cand < cur) {
+            nx[i] = sx;
+            ny[i] = sy;
+        }
+    };
+    // Forward pass (top-left → bottom-right)
+    for (let row = 0; row < rows; row++)
+        for (let col = 0; col < cols; col++) {
+            const i = row * cols + col;
+            if (col > 0) better(i, col, row, i - 1);
+            if (row > 0) better(i, col, row, i - cols);
+            if (row > 0 && col > 0) better(i, col, row, i - cols - 1);
+            if (row > 0 && col < cols - 1) better(i, col, row, i - cols + 1);
+        }
+    // Backward pass (bottom-right → top-left)
+    for (let row = rows - 1; row >= 0; row--)
+        for (let col = cols - 1; col >= 0; col--) {
+            const i = row * cols + col;
+            if (col < cols - 1) better(i, col, row, i + 1);
+            if (row < rows - 1) better(i, col, row, i + cols);
+            if (row < rows - 1 && col < cols - 1)
+                better(i, col, row, i + cols + 1);
+            if (row < rows - 1 && col > 0) better(i, col, row, i + cols - 1);
+        }
+    const label = new Int16Array(N);
+    for (let i = 0; i < N; i++) {
+        const sx = nx[i];
+        label[i] = sx === -1 ? -1 : seedLabel[ny[i] * cols + sx];
+    }
+    const dtMs =
         typeof performance !== "undefined"
-            ? Math.round(performance.now() - unionStart)
+            ? Math.round(performance.now() - dtStart)
             : 0;
+
+    // --- Per-line: maximal-rectangle merge → union → clip to reach ---------
+    const rectPoly = (
+        c0: number,
+        r0: number,
+        c1: number,
+        r1: number,
+    ): GeoJSON.Feature<GeoJSON.Polygon> => {
+        const x0 = minLng + c0 * cellLng;
+        const x1 = minLng + (c1 + 1) * cellLng;
+        const y0 = minLat + r0 * cellLat;
+        const y1 = minLat + (r1 + 1) * cellLat;
+        return turf.polygon([
+            [
+                [x0, y0],
+                [x1, y0],
+                [x1, y1],
+                [x0, y1],
+                [x0, y0],
+            ],
+        ]);
+    };
+    const consumed = new Uint8Array(N);
+    const rectsByLabel = new Map<number, GeoJSON.Feature<GeoJSON.Polygon>[]>();
+    for (let row = 0; row < rows; row++)
+        for (let col = 0; col < cols; col++) {
+            const i = row * cols + col;
+            const L = label[i];
+            if (L === -1 || consumed[i]) continue;
+            // extend right
+            let c1 = col;
+            while (
+                c1 + 1 < cols &&
+                !consumed[row * cols + c1 + 1] &&
+                label[row * cols + c1 + 1] === L
+            )
+                c1++;
+            // extend down (each candidate row must be fully L + unconsumed)
+            let r1 = row;
+            let grow = true;
+            while (grow && r1 + 1 < rows) {
+                const rr = r1 + 1;
+                for (let cc = col; cc <= c1; cc++) {
+                    const j = rr * cols + cc;
+                    if (consumed[j] || label[j] !== L) {
+                        grow = false;
+                        break;
+                    }
+                }
+                if (grow) r1 = rr;
+            }
+            for (let rr = row; rr <= r1; rr++)
+                for (let cc = col; cc <= c1; cc++) consumed[rr * cols + cc] = 1;
+            const arr = rectsByLabel.get(L);
+            const poly = rectPoly(col, row, c1, r1);
+            if (arr) arr.push(poly);
+            else rectsByLabel.set(L, [poly]);
+        }
+
+    const unionStart =
+        typeof performance !== "undefined" ? performance.now() : 0;
     const cells: MetroReachCell[] = [];
-    for (const [name, region] of regionByName) {
+    for (const [L, rects] of rectsByLabel) {
+        const name = names[L];
+        const region = safeUnion(rects);
+        if (!region) continue;
         try {
             const clipped = turf.intersect(
-                turf.featureCollection([
-                    region as GeoJSON.Feature<
-                        GeoJSON.Polygon | GeoJSON.MultiPolygon
-                    >,
-                    reach,
-                ]),
+                turf.featureCollection([region, reach]),
             );
             if (clipped)
                 cells.push({
@@ -400,10 +466,15 @@ export function computeMetroReachCellsFromLines(
                     color: colorByName.get(name),
                 });
         } catch {
-            /* skip this line's cell */
+            /* skip this line's region */
         }
     }
-    // Diagnostic: partition quality (sum/circle ~1 = clean partition).
+    const unionMs =
+        typeof performance !== "undefined"
+            ? Math.round(performance.now() - unionStart)
+            : 0;
+
+    // --- Diagnostic: partition quality (sum/circle ≈ 1 = clean full cover) --
     let circleArea = 0;
     let sumArea = 0;
     let giants = 0;
@@ -436,6 +507,6 @@ export function computeMetroReachCellsFromLines(
                 `${ci.name}=${circleArea > 0 ? Math.round((ci.a / circleArea) * 100) : "?"}%${ci.color ? "" : "·nocol"}`,
         )
         .join(",");
-    const diag = `${info} pts=${rawPts.features.length}→${dedup.length} vCells=${voronoi.features.length} named=${regionByName.size} drawn=${cells.length} union=${unionMs}ms sum/circle=${ratio.toFixed(2)} giants=${giants} colors=${colors.size} top=[${top}]`;
+    const diag = `grid=${cols}x${rows}@${Math.round(cellM)}m seeds=${seedCells} shared=${sharedPts} lines=${rectsByLabel.size} drawn=${cells.length} dt=${dtMs}ms union=${unionMs}ms sum/circle=${ratio.toFixed(2)} giants=${giants} colors=${colors.size} top=[${top}]`;
     return { result: { cells, lines: drawLines }, diag };
 }

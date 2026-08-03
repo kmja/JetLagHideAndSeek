@@ -448,6 +448,39 @@ SMALL piece (`area < 5 km²`): the big ocean is left to the chunking (buffering 
 whole is the perf hit the grid exists to avoid, and it already tests in-result).
 `tsc` + 284 tests green.
 
+**v1268 — metro tentacle DEFINITIVE fix: true nearest-LINE grid partition
+(replaces the sample-point Voronoi — no more wedges or mosaic).** Every prior
+metro iteration (v1234–v1265) partitioned the reach by sampling points ALONG the
+lines and running a Voronoi over them — i.e. nearest-SAMPLE-POINT, not
+nearest-LINE. Those two diverge wherever seed density is uneven: a sparse isolated
+line radiated huge wedges of a neighbour's colour across it, and dense junctions
+shattered into an alternating mosaic. No amount of adaptive-sampling / convergence-
+filtering tuning could fix the root approximation. `computeMetroReachCellsFromLines`
+(`metroReach.ts`) now computes the TRUE nearest-line field on a grid: (1) build a
+grid over the reach-circle bbox (~200 cols, cell clamped 90–320 m, ≤46 k cells);
+(2) rasterize every line into its grid cells (fine walk at ≤60 m so a line's cells
+form a connected chain); (3) a **vector distance transform (4SED / Danielsson,
+two O(cells) raster passes)** propagates each cell's nearest SEED cell, so every
+cell is labelled by its genuinely-nearest line — a point ON a line is ALWAYS in
+that line's region, by construction, so there are no wedges and no mosaic; (4) per
+line, greedy maximal-rectangle merge of its cells → `turf.union` (tens of rects, so
+cheap) → `turf.intersect` with the reach circle → one `MetroReachCell`. Coverage is
+the whole circle (every cell has a nearest line) so `sum/circle ≈ 1` automatically.
+SHARED tracks (two services on one physical track — the Bronx 2+5, the A/C/E) are
+still split lengthwise: a seed on a shared segment (nearest OTHER line
+< `METRO_CONVERGENCE_M` 150 m) is offset perpendicular to the track by a
+deterministic per-line bucket (±180/±300 m), so the two services rasterize into
+adjacent cell rows and the partition splits the corridor down the middle — a stable
+division all players agree on (identical geometry is genuinely ambiguous). The
+OUTPUT SHAPE (`MetroReachResult` = `MetroReachCell[]` + drawn `lines`) is unchanged,
+so `tentacles.ts` (`computeMetroReachCells` memo, `adjustPerTentacle`,
+`hiderifyTentacles`, `tentaclesPlanningPolygon`), the geometry worker plumbing, and
+`InlineLocationPicker` (shade-by-name colouring, on-line labels, neutral drawn
+line, no cell borders) all consume it untouched. Still runs in the geometry Web
+Worker (main-thread fallback) + memoised (v1264). Diagnostic reworked:
+`grid=CxR@Nm seeds=N shared=N lines=N drawn=N dt=Nms union=Nms sum/circle=X …`.
+`tsc` + 284 tests green.
+
 **v1267 — play-area search: loading skeleton until warmth is known (no
 enabled→disabled flip).** Follow-up to v1266. A non-warm area briefly rendered as
 an ENABLED result row and then flipped to the DISABLED "Coming soon" state the
