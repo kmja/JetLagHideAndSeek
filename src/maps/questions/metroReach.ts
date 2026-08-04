@@ -28,7 +28,9 @@ import type { Units } from "@/maps/schema";
  * cells are split at the sub-cell crossings — a straight chord between the two
  * crossings for the common 2-region cell, a fan through the cell centre for a 3-/4-
  * region junction cell. Adjacent cells share the same edge-crossing point, so the
- * partition stays gap-free + overlap-free by construction, with NO smoothing pass.
+ * partition stays gap-free + overlap-free by construction. A SINGLE Chaikin pass
+ * (v1286) then rounds only the sharp junction-fan V's + chord joints — the base is
+ * already the smooth bisector line, so straight runs stay straight (no waves).
  */
 
 export interface MetroLine {
@@ -57,13 +59,14 @@ export interface MetroReachResult {
 
 // Grid resolution — ~this many columns across the reach-circle bbox, cell size
 // clamped and total cells capped. The iso-contour places boundaries at sub-cell
-// crossings, so the grid no longer needs to be ultra-fine to hide stairs — its
-// resolution now just controls how faithfully a curvy bisector is sampled. Modest
-// (was 360/30 m for the stair-hiding era). Runs in the worker + memoised.
-const GRID_TARGET_COLS = 200;
-const GRID_MIN_CELL_M = 60;
-const GRID_MAX_CELL_M = 220;
-const GRID_MAX_CELLS = 60000;
+// crossings, so the grid controls how faithfully a curvy bisector is sampled AND
+// how many lines land in one cell (a cell spanning 3+ lines becomes a junction fan,
+// the main residual jaggedness). v1286: finer (was 200/60 m) so dense hubs have
+// fewer per-cell junctions + smaller residual kinks. Runs in the worker + memoised.
+const GRID_TARGET_COLS = 280;
+const GRID_MIN_CELL_M = 45;
+const GRID_MAX_CELL_M = 200;
+const GRID_MAX_CELLS = 100000;
 
 /** Squared distance (in the local metre plane) from a point to a segment. */
 function ptSegDistSq(
@@ -89,6 +92,64 @@ function ptSegDistSq(
     const ex = px - cx;
     const ey = py - cy;
     return ex * ex + ey * ey;
+}
+
+/** ONE Chaikin corner-cut of a CLOSED ring — rounds the sharp junction-fan V's and
+ *  chord joints in the iso-contour boundary. It is PARTITION-PRESERVING: two
+ *  neighbouring regions share the identical boundary vertices (edge crossings + cell
+ *  centres), and Chaikin's per-edge output is the same SET regardless of traversal
+ *  direction, so both regions round their shared run to the same curve → no gaps, no
+ *  overlaps. Unlike the pre-v1285 use, the input here is already the smooth bisector
+ *  polyline (not a stair zigzag), so a single pass only clips the sharp kinks — a
+ *  straight run of colinear crossings stays straight (no waves). */
+function chaikinClosed(ring: number[][], iters: number): number[][] {
+    let pts = ring;
+    for (let it = 0; it < iters; it++) {
+        const src = pts.slice(0, Math.max(0, pts.length - 1));
+        const n = src.length;
+        if (n < 4) break;
+        const out: number[][] = [];
+        for (let i = 0; i < n; i++) {
+            const a = src[i];
+            const b = src[(i + 1) % n];
+            out.push([a[0] * 0.75 + b[0] * 0.25, a[1] * 0.75 + b[1] * 0.25]);
+            out.push([a[0] * 0.25 + b[0] * 0.75, a[1] * 0.25 + b[1] * 0.75]);
+        }
+        out.push([out[0][0], out[0][1]]);
+        pts = out;
+    }
+    return pts;
+}
+function smoothPolyFeature(
+    f: GeoJSON.Feature<GeoJSON.Polygon | GeoJSON.MultiPolygon>,
+    iters: number,
+): GeoJSON.Feature<GeoJSON.Polygon | GeoJSON.MultiPolygon> {
+    const g = f.geometry;
+    try {
+        if (g.type === "Polygon")
+            return {
+                ...f,
+                geometry: {
+                    type: "Polygon",
+                    coordinates: g.coordinates.map((r) =>
+                        chaikinClosed(r, iters),
+                    ),
+                },
+            };
+        if (g.type === "MultiPolygon")
+            return {
+                ...f,
+                geometry: {
+                    type: "MultiPolygon",
+                    coordinates: g.coordinates.map((poly) =>
+                        poly.map((r) => chaikinClosed(r, iters)),
+                    ),
+                },
+            };
+    } catch {
+        /* fall through */
+    }
+    return f;
 }
 
 /** turf.union of polygons, short-circuiting the single-feature case and falling
@@ -500,8 +561,13 @@ export function computeMetroReachCellsFromLines(
             ...(rectsByLabel.get(L) ?? []),
             ...(fragmentsByLabel.get(L) ?? []),
         ];
-        const region = safeUnion(parts);
-        if (!region) continue;
+        const merged = safeUnion(parts);
+        if (!merged) continue;
+        // ONE Chaikin pass rounds the sharp junction-fan V's + chord joints. The
+        // base is already the smooth bisector polyline, so this only clips kinks —
+        // straight runs stay straight. Applied BEFORE the reach clip so the circle
+        // edge stays crisp. Partition-preserving (shared boundary vertices).
+        const region = smoothPolyFeature(merged, 1);
         try {
             const clipped = turf.intersect(
                 turf.featureCollection([region, reach]),

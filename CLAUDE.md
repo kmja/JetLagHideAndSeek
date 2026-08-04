@@ -448,6 +448,27 @@ SMALL piece (`area < 5 km²`): the big ocean is left to the chunking (buffering 
 whole is the perf hit the grid exists to avoid, and it already tests in-result).
 `tsc` + 284 tests green.
 
+**v1286 — metro tentacle: round the residual junction jaggedness (finer grid + one
+Chaikin pass on the bisector line).** v1285's iso-contour made OPEN-area boundaries
+smooth curves, but two things stayed jagged: DENSE hubs where many lines converge
+(the boundary routes each 3-/4-region junction cell's fan through the cell CENTRE,
+not the true triple point, so a pile-up of sharp inward V's reads as jagged) and
+THIN fingers/slivers between close lines. Two mitigations, both partition-preserving:
+(1) a FINER grid (`GRID_TARGET_COLS` 200→280, min cell 60→45 m, cap 60 k→100 k) so a
+cell spans fewer lines (fewer per-cell junctions) and residual kinks are smaller; and
+(2) a SINGLE Chaikin corner-cut on each unioned region BEFORE the reach clip. This is
+NOT the pre-v1285 wave problem: back then Chaikin rounded a full STAIR zigzag
+(amplitude = a whole cell); now the base is already the smooth bisector polyline, so
+one pass only clips the sharp junction V's + chord joints while a straight run of
+colinear crossings stays straight (Chaikin's per-edge output is the same SET
+regardless of traversal direction → both neighbours round their shared boundary to
+the same curve → still gap-free/overlap-free; the reach circle stays crisp because
+the clip runs after). `tests/metroReach.test.ts` still green (midline split, clean
+full cover, junction `giants=0`). `tsc` + 295 tests green. KNOWN-REMAINING: junction
+fans still meet near the cell centre (rounded, not the exact triple point) — if dense
+hubs still read off, placing the fan vertex at the true triple point is the next
+step; plus the v1282 shared-track lengthwise split.
+
 **v1285 — metro tentacle: ISO-CONTOUR boundaries (marching squares), not a blocky
 grid + smoothing.** The definitive answer to "why is metro grid-and-smooth when
 water/coast follow curvy lines cleanly?" — because water/coast is a BUFFER (offset
